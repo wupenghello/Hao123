@@ -1,0 +1,35 @@
+<script setup lang="ts">
+import SearchBar from '@/components/SearchBar.vue'
+import BookmarkGrid from '@/components/BookmarkGrid.vue'
+import BookmarkForm from '@/components/BookmarkForm.vue'
+import ClockWidget from '@/components/ClockWidget.vue'
+</script>
+
+<template>
+  <div class="min-h-screen flex flex-col">
+    <!-- 顶部搜索区域 -->
+    <header class="relative z-20 pt-10 pb-6 px-4">
+      <div class="max-w-3xl mx-auto text-center">
+        <h1 class="text-3xl font-bold text-white mb-6 tracking-wide">
+          ✨ Hao123 工作台
+        </h1>
+        <SearchBar />
+      </div>
+    </header>
+
+    <!-- 主内容区域 -->
+    <main class="flex-1 px-4 pb-8">
+      <div class="max-w-5xl mx-auto">
+        <div class="glass rounded-2xl p-6 shadow-lg">
+          <BookmarkGrid />
+          <BookmarkForm />
+        </div>
+      </div>
+    </main>
+
+    <!-- 底部时钟 -->
+    <footer class="py-4 text-center">
+      <ClockWidget />
+    </footer>
+  </div>
+</template>
