@@ -30,7 +30,7 @@ provideBookmarkEditor()
       </div>
     </main>
 
-    <!-- 底部时钟（fixed 定位） -->
+    <!-- 右上角时钟（内含天气） -->
     <ClockWidget />
   </div>
 </template>

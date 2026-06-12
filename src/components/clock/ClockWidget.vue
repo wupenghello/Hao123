@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import WeatherWidget from '@/components/weather/WeatherWidget.vue'
 
 const time = ref('')
 
@@ -24,7 +25,8 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="fixed top-2 right-3 z-30 select-none">
+  <div class="fixed top-2 right-3 z-30 select-none flex items-center gap-3">
+    <WeatherWidget />
     <span class="text-white text-[13px] font-normal tracking-[-0.01em] leading-none">{{ time }}</span>
   </div>
 </template>
