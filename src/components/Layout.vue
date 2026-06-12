@@ -3,6 +3,7 @@ import { provideBookmarkEditor } from '@/composables/useBookmarkEditor'
 import SearchBar from '@/components/search/SearchBar.vue'
 import BookmarkGrid from '@/components/bookmark/BookmarkGrid.vue'
 import BookmarkForm from '@/components/bookmark/BookmarkForm.vue'
+import CommandPalette from '@/components/command/CommandPalette.vue'
 import StatusBar from '@/components/status/StatusBar.vue'
 
 provideBookmarkEditor()
@@ -27,6 +28,9 @@ provideBookmarkEditor()
         <BookmarkForm />
       </div>
     </main>
+
+    <!-- 书签快速搜索面板 -->
+    <CommandPalette />
 
     <!-- 右上角状态栏（天气 + 时间） -->
     <StatusBar />
