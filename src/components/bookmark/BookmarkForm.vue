@@ -4,12 +4,11 @@ import { useBookmarkStore } from '@/stores/bookmarks'
 import { useCategoryStore } from '@/stores/categories'
 import { useBookmarkEditor } from '@/composables/useBookmarkEditor'
 import type { Bookmark } from '@/types'
-import IconPlus from '~icons/mdi/plus'
 import IconClose from '~icons/mdi/close'
 
 const bookmarkStore = useBookmarkStore()
 const categoryStore = useCategoryStore()
-const { editingBookmark, stopEdit } = useBookmarkEditor()
+const { editingBookmark, isAdding, stopEdit } = useBookmarkEditor()
 
 const showForm = ref(false)
 const isEditing = ref(false)
@@ -67,32 +66,26 @@ function handleSubmit() {
   closeForm()
 }
 
-// 监听编辑状态变化，自动打开编辑表单
+// 监听编辑状态变化
 watch(editingBookmark, (bookmark) => {
-  if (bookmark) {
-    openEditForm(bookmark)
-  }
+  if (bookmark) openEditForm(bookmark)
+})
+
+// 监听添加状态变化
+watch(isAdding, (val) => {
+  if (val) openAddForm()
 })
 </script>
 
 <template>
-  <!-- 添加书签虚线卡片 -->
-  <button
-    @click="openAddForm"
-    class="mt-4 w-20 h-20 rounded-2xl border-2 border-dashed border-gray-300/60 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors duration-200"
-  >
-    <IconPlus class="w-6 h-6" />
-    <span class="text-[10px] font-medium">添加</span>
-  </button>
-
   <!-- 表单弹窗 -->
   <Transition name="modal">
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <!-- 遮罩层 -->
-      <div class="absolute inset-0 bg-black/30 backdrop-blur-md" @click="closeForm" />
+      <div class="absolute inset-0 bg-black/40 backdrop-blur-md" @click="closeForm" />
 
       <!-- 表单 -->
-      <div class="relative bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-md p-7">
+      <div class="form-dialog relative bg-white/95 backdrop-blur-2xl rounded-2xl shadow-2xl w-full max-w-md p-7">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-lg font-semibold text-gray-800">
             {{ isEditing ? '编辑书签' : '添加书签' }}
@@ -180,8 +173,8 @@ watch(editingBookmark, (bookmark) => {
 .modal-leave-to {
   opacity: 0;
 }
-.modal-enter-from .relative,
-.modal-leave-to .relative {
+.modal-enter-from .form-dialog,
+.modal-leave-to .form-dialog {
   transform: scale(0.95) translateY(8px);
 }
 </style>

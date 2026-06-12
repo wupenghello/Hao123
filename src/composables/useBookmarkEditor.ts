@@ -5,22 +5,32 @@ const BOOKMARK_EDITOR_KEY = Symbol('bookmark-editor')
 
 interface BookmarkEditor {
   editingBookmark: Ref<Bookmark | null>
+  isAdding: Ref<boolean>
   startEdit: (bookmark: Bookmark) => void
   stopEdit: () => void
+  startAdd: () => void
 }
 
 export function provideBookmarkEditor(): BookmarkEditor {
   const editingBookmark = ref<Bookmark | null>(null)
+  const isAdding = ref(false)
 
   function startEdit(bookmark: Bookmark) {
+    isAdding.value = false
     editingBookmark.value = bookmark
   }
 
   function stopEdit() {
     editingBookmark.value = null
+    isAdding.value = false
   }
 
-  const editor: BookmarkEditor = { editingBookmark, startEdit, stopEdit }
+  function startAdd() {
+    editingBookmark.value = null
+    isAdding.value = true
+  }
+
+  const editor: BookmarkEditor = { editingBookmark, isAdding, startEdit, stopEdit, startAdd }
   provide(BOOKMARK_EDITOR_KEY, editor)
   return editor
 }

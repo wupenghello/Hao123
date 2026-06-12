@@ -22,45 +22,57 @@ function openUrl() {
 
 <template>
   <div
-    class="icon-card relative group bg-white/70 backdrop-blur-sm rounded-2xl p-3 pb-2 border border-white/60 shadow-sm cursor-pointer flex flex-col items-center"
+    class="bookmark-card group relative cursor-pointer rounded-2xl p-4 flex flex-col items-center text-center transition-all duration-300 ease-out"
     @click="openUrl"
   >
     <!-- 操作按钮（悬浮时显示） -->
     <div
-      class="absolute -top-1 -right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+      class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10"
       @click.stop
     >
       <button
         @click="emit('edit', bookmark)"
-        class="p-1 rounded-full bg-white/90 shadow-sm hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors"
+        class="p-1.5 rounded-xl text-white/70 hover:text-white hover:bg-white/20 transition-colors"
         title="编辑"
       >
-        <IconEdit class="w-3 h-3" />
+        <IconEdit class="w-3.5 h-3.5" />
       </button>
       <button
         @click="emit('delete', bookmark.id)"
-        class="p-1 rounded-full bg-white/90 shadow-sm hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+        class="p-1.5 rounded-xl text-white/70 hover:text-red-300 hover:bg-red-500/20 transition-colors"
         title="删除"
       >
-        <IconDelete class="w-3 h-3" />
+        <IconDelete class="w-3.5 h-3.5" />
       </button>
     </div>
 
-    <!-- 图标区域 -->
-    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden mt-1 transition-transform duration-250 group-hover:scale-108">
+    <!-- 图标 -->
+    <div class="w-14 h-14 flex items-center justify-center flex-shrink-0 overflow-hidden mb-3 transition-transform duration-300 group-hover:scale-110">
       <img
         v-if="favicon"
         :src="favicon"
         :alt="bookmark.name"
-        class="w-7 h-7"
+        class="w-8 h-8"
         @error="($event.target as HTMLImageElement).style.display = 'none'"
       />
-      <span v-else class="text-xl">🌐</span>
+      <span v-else class="text-2xl">🌐</span>
     </div>
 
     <!-- 名称 -->
-    <p class="text-xs font-medium text-gray-700 mt-2 text-center truncate w-full leading-tight">
+    <p class="text-sm font-medium text-white/90 leading-tight truncate w-full">
       {{ bookmark.name }}
     </p>
   </div>
 </template>
+
+<style scoped>
+.bookmark-card {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bookmark-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+</style>

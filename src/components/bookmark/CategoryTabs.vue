@@ -17,24 +17,40 @@ function selectCategory(id: string) {
 </script>
 
 <template>
-  <div class="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin border-b border-gray-200/60">
+  <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
     <button
       v-for="cat in store.categories"
       :key="cat.id"
       @click="selectCategory(cat.id)"
-      class="relative px-4 py-2 text-sm whitespace-nowrap transition-colors duration-200"
+      class="category-pill relative px-4 py-2 text-sm whitespace-nowrap rounded-xl transition-all duration-300 ease-out"
       :class="
         modelValue === cat.id
-          ? 'text-gray-800 font-semibold'
-          : 'text-gray-400 hover:text-gray-600'
+          ? 'active-pill text-white font-medium shadow-lg'
+          : 'text-white/50 hover:text-white/80 hover:bg-white/8'
       "
     >
       {{ cat.name }}
-      <!-- 底部指示器 -->
-      <span
-        v-if="modelValue === cat.id"
-        class="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-blue-500"
-      />
     </button>
   </div>
 </template>
+
+<style scoped>
+.active-pill {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.category-pill:not(.active-pill) {
+  border: 1px solid transparent;
+}
+
+.category-pill:not(.active-pill):hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+</style>

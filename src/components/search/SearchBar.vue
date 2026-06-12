@@ -42,11 +42,11 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
 
 <template>
   <div class="relative w-full max-w-2xl mx-auto">
-    <div class="flex items-center glass rounded-full shadow-xl px-5 py-3.5">
+    <div class="search-bar flex items-center rounded-full px-5 py-3.5">
       <!-- 搜索引擎选择器 -->
       <div class="relative engine-selector">
         <button
-          class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors pr-4 border-r border-gray-200/80"
+          class="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors pr-4 border-r border-white/10"
           @click="toggleDropdown"
           :title="`当前搜索引擎: ${searchStore.currentEngine.name}`"
         >
@@ -58,17 +58,17 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
         <Transition name="dropdown">
           <div
             v-if="showDropdown"
-            class="absolute top-full left-0 mt-2.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100/80 py-2 z-50 min-w-[170px]"
+            class="engine-dropdown absolute top-full left-0 mt-2.5 rounded-2xl py-2 z-50 min-w-[170px]"
           >
             <button
               v-for="engine in searchStore.engines"
               :key="engine.id"
               @click="selectEngine(engine.id)"
               class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
-              :class="engine.id === searchStore.currentEngine.id ? 'text-blue-600 bg-blue-50/60' : 'text-gray-600 hover:bg-gray-50'"
+              :class="engine.id === searchStore.currentEngine.id ? 'text-blue-300 bg-white/10' : 'text-white/60 hover:bg-white/8'"
             >
               <span class="font-medium">{{ engine.name }}</span>
-              <span v-if="engine.id === searchStore.currentEngine.id" class="ml-auto text-blue-500">✓</span>
+              <span v-if="engine.id === searchStore.currentEngine.id" class="ml-auto text-blue-400">✓</span>
             </button>
           </div>
         </Transition>
@@ -80,24 +80,24 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
         v-model="query"
         type="text"
         :placeholder="`在 ${searchStore.currentEngine.name} 中搜索...`"
-        class="flex-1 mx-4 bg-transparent outline-none text-gray-800 placeholder-gray-400/70 text-[15px]"
+        class="flex-1 mx-4 bg-transparent outline-none text-white placeholder-white/30 text-[15px]"
         @keydown.enter="handleSearch"
       />
 
       <!-- 搜索按钮 -->
       <button
         @click="handleSearch"
-        class="px-4 py-1.5 rounded-full bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors shadow-sm"
+        class="search-btn px-5 py-1.5 rounded-full text-sm font-medium transition-all duration-300 shadow-lg"
       >
         <IconSearch class="w-4 h-4 inline-block -mt-0.5" />
-        <span class="ml-1">搜索</span>
+        <span class="ml-1.5">搜索</span>
       </button>
     </div>
 
     <!-- 快捷键提示 -->
     <div class="text-center mt-3">
-      <span class="text-xs text-white/50">
-        <kbd class="px-1.5 py-0.5 bg-white/10 rounded text-white/60 text-[11px] font-mono">⌘K</kbd>
+      <span class="text-xs text-white/30">
+        <kbd class="px-1.5 py-0.5 bg-white/8 rounded text-white/40 text-[11px] font-mono border border-white/10">⌘K</kbd>
         聚焦搜索
       </span>
     </div>
@@ -105,6 +105,36 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
 </template>
 
 <style scoped>
+.search-bar {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.engine-dropdown {
+  background: rgba(30, 40, 60, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.search-btn {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+}
+
+.search-btn:hover {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
