@@ -33,22 +33,22 @@ function openUrl() {
   >
     <!-- 操作按钮（悬浮时显示） -->
     <div
-      class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10"
+      class="action-bar absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 translate-y-1 scale-95 group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 z-10"
       @click.stop
     >
       <button
         @click="emit('edit', bookmark)"
-        class="p-1.5 rounded-xl text-white/70 hover:text-white hover:bg-white/20 transition-colors"
+        class="action-btn p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/25 transition-colors"
         title="编辑"
       >
-        <IconEdit class="w-3.5 h-3.5" />
+        <IconEdit class="w-3 h-3" />
       </button>
       <button
         @click="emit('delete', bookmark.id)"
-        class="p-1.5 rounded-xl text-white/70 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+        class="action-btn p-1 rounded-lg text-white/60 hover:text-red-300 hover:bg-red-500/25 transition-colors"
         title="删除"
       >
-        <IconDelete class="w-3.5 h-3.5" />
+        <IconDelete class="w-3 h-3" />
       </button>
     </div>
 
@@ -89,6 +89,20 @@ function openUrl() {
   background: rgba(255, 255, 255, 0.1);
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.action-bar {
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.action-btn {
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .letter-avatar {
