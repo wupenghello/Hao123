@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import type { WeatherObserve, WeatherForecastDay, YytianqiResponse } from '@/types'
 
-const API_KEY = '2w3otas5vi8s4idf'
+const API_KEY = import.meta.env.VITE_YYTIANQI_API_KEY
 const API_BASE = '/api/weather'
 
 export const useWeatherStore = defineStore('weather', () => {
