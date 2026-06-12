@@ -85,14 +85,14 @@ watch(isAdding, (val) => {
       <div class="absolute inset-0 bg-black/40 backdrop-blur-md" @click="closeForm" />
 
       <!-- 表单 -->
-      <div class="form-dialog relative bg-white/95 backdrop-blur-2xl rounded-2xl shadow-2xl w-full max-w-md p-7">
+      <div class="form-dialog relative rounded-2xl shadow-2xl w-full max-w-md p-7">
         <div class="flex items-center justify-between mb-6">
-          <h2 class="text-lg font-semibold text-gray-800">
+          <h2 class="text-lg font-semibold text-white/90">
             {{ isEditing ? '编辑书签' : '添加书签' }}
           </h2>
           <button
             @click="closeForm"
-            class="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition-colors"
+            class="close-btn p-1.5 rounded-full text-white/40 hover:text-white/80 transition-colors"
           >
             <IconClose class="w-5 h-5" />
           </button>
@@ -100,44 +100,44 @@ watch(isAdding, (val) => {
 
         <form @submit.prevent="handleSubmit" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1.5">网站名称 *</label>
+            <label class="block text-sm font-medium text-white/60 mb-1.5">网站名称 *</label>
             <input
               v-model="name"
               type="text"
               placeholder="例如：Google"
               required
-              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
+              class="form-input w-full px-3.5 py-2.5 rounded-xl transition-colors placeholder-white/25"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1.5">网址 URL *</label>
+            <label class="block text-sm font-medium text-white/60 mb-1.5">网址 URL *</label>
             <input
               v-model="url"
               type="url"
               placeholder="https://www.google.com"
               required
-              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
+              class="form-input w-full px-3.5 py-2.5 rounded-xl transition-colors placeholder-white/25"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1.5">描述</label>
+            <label class="block text-sm font-medium text-white/60 mb-1.5">描述</label>
             <input
               v-model="description"
               type="text"
               placeholder="简短描述（可选）"
-              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
+              class="form-input w-full px-3.5 py-2.5 rounded-xl transition-colors placeholder-white/25"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1.5">分类</label>
+            <label class="block text-sm font-medium text-white/60 mb-1.5">分类</label>
             <select
               v-model="categoryId"
-              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors text-gray-700"
+              class="form-input w-full px-3.5 py-2.5 rounded-xl transition-colors text-white/80"
             >
-              <option v-for="cat in categoryStore.categories" :key="cat.id" :value="cat.id">
+              <option v-for="cat in categoryStore.getSortedCategories()" :key="cat.id" :value="cat.id">
                 {{ cat.name }}
               </option>
             </select>
@@ -147,13 +147,13 @@ watch(isAdding, (val) => {
             <button
               type="button"
               @click="closeForm"
-              class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-medium hover:bg-gray-50 transition-colors"
+              class="btn-cancel flex-1 py-2.5 rounded-xl font-medium transition-all"
             >
               取消
             </button>
             <button
               type="submit"
-              class="flex-1 py-2.5 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors shadow-sm"
+              class="btn-submit flex-1 py-2.5 rounded-xl font-medium transition-all"
             >
               {{ isEditing ? '保存' : '添加' }}
             </button>
@@ -165,6 +165,67 @@ watch(isAdding, (val) => {
 </template>
 
 <style scoped>
+.form-dialog {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.form-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: rgba(13, 148, 136, 0.5);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.form-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* select 下拉框暗色背景 */
+.form-input option {
+  background: #1e293b;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.btn-submit {
+  background: rgba(13, 148, 136, 0.7);
+  border: 1px solid rgba(13, 148, 136, 0.4);
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.btn-submit:hover {
+  background: rgba(13, 148, 136, 0.85);
+  box-shadow: 0 4px 20px rgba(13, 148, 136, 0.3);
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 弹窗动画 */
 .modal-enter-active,
 .modal-leave-active {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
