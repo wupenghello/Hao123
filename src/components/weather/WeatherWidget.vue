@@ -38,20 +38,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="weather-area relative"
+  <span
+    class="relative inline-flex items-center text-white text-[13px] font-normal tracking-[-0.01em] leading-none cursor-pointer hover:text-white/90 transition-colors"
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
+    @click="onClick"
   >
-    <!-- 行内：图标 + 温度 + 城市 -->
-    <span
-      class="inline-flex items-center gap-1 text-white text-[13px] font-normal tracking-[-0.01em] leading-none cursor-pointer hover:text-white/90 transition-colors"
-      @click="onClick"
-    >
-      <component v-if="currentIcon" :is="currentIcon" class="w-4 h-4 text-white/80" />
-      <span v-if="store.observe" class="tabular-nums">{{ store.observe.qw }}°</span>
-      <span v-if="store.observe" class="text-white/60">{{ store.observe.cityName }}</span>
-    </span>
+    <component v-if="currentIcon" :is="currentIcon" class="w-[13px] h-[13px] mr-1" />
+    <span v-if="store.observe" class="tabular-nums mr-1">{{ store.observe.qw }}°</span>
+    <span v-if="store.observe">{{ store.observe.cityName }}</span>
 
     <!-- Hover 简易卡片 -->
     <Transition
@@ -67,5 +62,5 @@ onUnmounted(() => {
 
     <!-- Click 详细弹窗 -->
     <WeatherDetailModal :show="modalVisible" @close="modalVisible = false" />
-  </div>
+  </span>
 </template>

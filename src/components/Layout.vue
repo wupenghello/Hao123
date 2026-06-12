@@ -3,7 +3,7 @@ import { provideBookmarkEditor } from '@/composables/useBookmarkEditor'
 import SearchBar from '@/components/search/SearchBar.vue'
 import BookmarkGrid from '@/components/bookmark/BookmarkGrid.vue'
 import BookmarkForm from '@/components/bookmark/BookmarkForm.vue'
-import ClockWidget from '@/components/clock/ClockWidget.vue'
+import StatusBar from '@/components/status/StatusBar.vue'
 
 provideBookmarkEditor()
 </script>
@@ -30,7 +30,7 @@ provideBookmarkEditor()
       </div>
     </main>
 
-    <!-- 右上角时钟（内含天气） -->
-    <ClockWidget />
+    <!-- 右上角状态栏（天气 + 时间） -->
+    <StatusBar />
   </div>
 </template>
