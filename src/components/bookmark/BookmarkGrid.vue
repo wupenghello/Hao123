@@ -2,7 +2,6 @@
 import { ref, computed, watch } from 'vue'
 import { useDraggable } from 'vue-draggable-plus'
 import { useBookmarkStore } from '@/stores/bookmarks'
-import { useCategoryStore } from '@/stores/categories'
 import { useBookmarkEditor } from '@/composables/useBookmarkEditor'
 import BookmarkCard from '@/components/bookmark/BookmarkCard.vue'
 import CategoryTabs from '@/components/bookmark/CategoryTabs.vue'
@@ -10,10 +9,21 @@ import IconPlus from '~icons/mdi/plus'
 import type { Bookmark } from '@/types'
 
 const bookmarkStore = useBookmarkStore()
-const categoryStore = useCategoryStore()
 const { startEdit, startAdd } = useBookmarkEditor()
 
-const activeCategoryId = ref<string>(categoryStore.getSortedCategories()[0]?.id ?? '')
+/** 接收 Layout 传入的 activeCategoryId（v-model） */
+const props = defineProps<{
+  modelValue: string
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [id: string]
+}>()
+
+const activeCategoryId = computed({
+  get: () => props.modelValue,
+  set: (val: string) => emit('update:modelValue', val),
+})
 
 const currentBookmarks = computed(() =>
   bookmarkStore.getBookmarksByCategory(activeCategoryId.value)

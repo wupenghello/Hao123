@@ -6,6 +6,8 @@ export interface Bookmark {
   categoryId: string
   order: number
   favicon?: string
+  visitCount?: number
+  lastVisitedAt?: number
   createdAt: number
 }
 

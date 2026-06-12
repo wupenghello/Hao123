@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useBookmarkStore } from '@/stores/bookmarks'
 import { useCategoryStore } from '@/stores/categories'
 import { hashColor } from '@/utils/favicon'
 import IconSearch from '~icons/mdi/magnify'
 import IconOpenInNew from '~icons/mdi/open-in-new'
 import type { Bookmark } from '@/types'
+
+const props = defineProps<{ open: boolean }>()
+const emit = defineEmits<{ close: [] }>()
 
 const bookmarkStore = useBookmarkStore()
 const categoryStore = useCategoryStore()
@@ -42,18 +45,23 @@ watch(filtered, () => {
   selectedIndex.value = 0
 })
 
-/** 打开面板 */
-function open() {
-  visible.value = true
-  query.value = ''
-  selectedIndex.value = 0
-  nextTick(() => inputRef.value?.focus())
-}
+/** 监听 open prop → 同步到内部 visible */
+watch(
+  () => props.open,
+  (val) => {
+    if (val) {
+      visible.value = true
+      query.value = ''
+      selectedIndex.value = 0
+      nextTick(() => inputRef.value?.focus())
+    }
+  },
+)
 
 /** 关闭面板 */
 function close() {
   visible.value = false
-  query.value = ''
+  emit('close')
 }
 
 /** 打开书签 */
@@ -100,29 +108,10 @@ function scrollToSelected() {
   })
 }
 
-/** 全局快捷键 */
-function handleGlobalKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
-    e.preventDefault()
-    if (visible.value) {
-      close()
-    } else {
-      open()
-    }
-  }
-}
-
 /** 首字符 */
 function firstChar(name: string): string {
   return name.charAt(0).toUpperCase()
 }
-
-onMounted(() => {
-  document.addEventListener('keydown', handleGlobalKeydown)
-})
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleGlobalKeydown)
-})
 </script>
 
 <template>

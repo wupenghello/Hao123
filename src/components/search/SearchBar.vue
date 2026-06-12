@@ -28,20 +28,11 @@ function closeDropdown(e: Event) {
   }
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault()
-    document.querySelector<HTMLInputElement>('#search-input')?.focus()
-  }
-}
-
 onMounted(() => {
   document.addEventListener('click', closeDropdown)
-  document.addEventListener('keydown', handleKeydown)
 })
 onUnmounted(() => {
   document.removeEventListener('click', closeDropdown)
-  document.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -108,6 +99,10 @@ onUnmounted(() => {
       <span class="text-xs text-white/30">
         <kbd class="px-1.5 py-0.5 bg-white/8 rounded text-white/40 text-[11px] font-mono border border-white/10">⌘P</kbd>
         快速找书签
+      </span>
+      <span class="text-xs text-white/30">
+        <kbd class="px-1.5 py-0.5 bg-white/8 rounded text-white/40 text-[11px] font-mono border border-white/10">1-9</kbd>
+        切换分类
       </span>
     </div>
   </div>

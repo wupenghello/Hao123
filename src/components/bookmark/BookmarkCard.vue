@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
 import { useFavicon } from '@/composables/useFavicon'
+import { useBookmarkStore } from '@/stores/bookmarks'
+import { useContextMenu } from '@/composables/useContextMenu'
 import type { Bookmark } from '@/types'
 import IconEdit from '~icons/mdi/pencil'
 import IconDelete from '~icons/mdi/delete'
@@ -14,6 +16,8 @@ const emit = defineEmits<{
   delete: [id: string]
 }>()
 
+const bookmarkStore = useBookmarkStore()
+const contextMenu = useContextMenu()
 const { faviconUrl, showLetter, letterColor } = useFavicon(toRef(props, 'bookmark'))
 
 /** 书签名首字符（用于字母 fallback） */
@@ -22,7 +26,12 @@ function firstChar(name: string): string {
 }
 
 function openUrl() {
+  bookmarkStore.recordVisit(props.bookmark.id)
   window.open(props.bookmark.url, '_blank')
+}
+
+function handleContextMenu(e: MouseEvent) {
+  contextMenu.show(e, props.bookmark)
 }
 </script>
 
@@ -30,6 +39,7 @@ function openUrl() {
   <div
     class="bookmark-card group relative cursor-pointer rounded-2xl p-3 sm:p-4 flex flex-col items-center text-center transition-all duration-300 ease-out"
     @click="openUrl"
+    @contextmenu.prevent="handleContextMenu"
   >
     <!-- 操作按钮（悬浮时显示） -->
     <div
@@ -77,6 +87,14 @@ function openUrl() {
     <p class="text-xs sm:text-sm font-medium text-white/90 leading-tight truncate w-full">
       {{ bookmark.name }}
     </p>
+
+    <!-- 访问计数角标 -->
+    <span
+      v-if="bookmark.visitCount && bookmark.visitCount > 0"
+      class="absolute bottom-1 right-1.5 text-[9px] text-white/20 tabular-nums"
+    >
+      {{ bookmark.visitCount }}
+    </span>
   </div>
 </template>
 

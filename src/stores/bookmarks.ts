@@ -7,10 +7,23 @@ import type { Bookmark } from '@/types'
 export const useBookmarkStore = defineStore('bookmarks', () => {
   const bookmarks = useStorage<Bookmark[]>('hao123-bookmarks', defaultBookmarks)
 
+  /** "常用"分类 ID — 该分类按访问频率自动排序 */
+  const FREQUENCY_CATEGORY_ID = 'cat-1'
+
   function getBookmarksByCategory(categoryId: string): Bookmark[] {
-    return bookmarks.value
-      .filter((b) => b.categoryId === categoryId)
-      .sort((a, b) => a.order - b.order)
+    const list = bookmarks.value.filter((b) => b.categoryId === categoryId)
+
+    if (categoryId === FREQUENCY_CATEGORY_ID) {
+      // "常用"分类：按访问次数降序 → 最后访问时间降序
+      return [...list].sort((a, b) => {
+        const countDiff = (b.visitCount ?? 0) - (a.visitCount ?? 0)
+        if (countDiff !== 0) return countDiff
+        return (b.lastVisitedAt ?? 0) - (a.lastVisitedAt ?? 0)
+      })
+    }
+
+    // 其他分类：保持手动排序
+    return [...list].sort((a, b) => a.order - b.order)
   }
 
   function addBookmark(bookmark: Omit<Bookmark, 'id' | 'order' | 'createdAt' | 'favicon'>) {
@@ -46,6 +59,15 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
     bookmarks.value = bookmarks.value.filter((b) => b.categoryId !== categoryId)
   }
 
+  /** 记录书签访问（递增计数 + 更新时间戳） */
+  function recordVisit(id: string) {
+    const bm = bookmarks.value.find((b) => b.id === id)
+    if (bm) {
+      bm.visitCount = (bm.visitCount ?? 0) + 1
+      bm.lastVisitedAt = Date.now()
+    }
+  }
+
   function reorderBookmarks(_categoryId: string, reorderedIds: string[]) {
     reorderedIds.forEach((id, index) => {
       const bm = bookmarks.value.find((b) => b.id === id)
@@ -61,5 +83,6 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
     deleteBookmark,
     deleteBookmarksByCategory,
     reorderBookmarks,
+    recordVisit,
   }
 })
