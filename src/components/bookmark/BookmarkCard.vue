@@ -88,13 +88,6 @@ function handleContextMenu(e: MouseEvent) {
       {{ bookmark.name }}
     </p>
 
-    <!-- 访问计数角标 -->
-    <span
-      v-if="bookmark.visitCount && bookmark.visitCount > 0"
-      class="absolute bottom-1 right-1.5 text-[9px] text-white/20 tabular-nums"
-    >
-      {{ bookmark.visitCount }}
-    </span>
   </div>
 </template>
 
