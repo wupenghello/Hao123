@@ -22,7 +22,7 @@ function selectCategory(id: string) {
       v-for="cat in store.categories"
       :key="cat.id"
       @click="selectCategory(cat.id)"
-      class="category-pill relative px-4 py-2 text-sm whitespace-nowrap rounded-xl transition-all duration-300 ease-out"
+      class="category-pill relative px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm whitespace-nowrap rounded-xl transition-all duration-300 ease-out"
       :class="
         modelValue === cat.id
           ? 'active-pill text-white font-medium shadow-lg'

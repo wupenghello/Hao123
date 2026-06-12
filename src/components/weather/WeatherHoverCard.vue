@@ -22,7 +22,7 @@ function formatTime(str: string) {
 <template>
   <div
     v-if="store.observe"
-    class="absolute top-full mt-2 right-0 w-[220px] rounded-2xl px-4 py-3 glass-dark shadow-xl"
+    class="absolute top-full mt-2 right-0 w-[200px] sm:w-[220px] rounded-2xl px-4 py-3 glass-dark shadow-xl"
   >
     <div class="flex items-center gap-3 mb-2">
       <component v-if="icon" :is="icon" class="w-8 h-8 text-white/85 flex-shrink-0" />

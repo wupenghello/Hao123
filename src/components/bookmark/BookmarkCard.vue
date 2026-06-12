@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { getFaviconUrl } from '@/utils/favicon'
+import { toRef } from 'vue'
+import { useFavicon } from '@/composables/useFavicon'
 import type { Bookmark } from '@/types'
 import IconEdit from '~icons/mdi/pencil'
 import IconDelete from '~icons/mdi/delete'
@@ -13,7 +14,12 @@ const emit = defineEmits<{
   delete: [id: string]
 }>()
 
-const favicon = props.bookmark.favicon || getFaviconUrl(props.bookmark.url)
+const { faviconUrl, showLetter, letterColor } = useFavicon(toRef(props, 'bookmark'))
+
+/** 书签名首字符（用于字母 fallback） */
+function firstChar(name: string): string {
+  return name.charAt(0).toUpperCase()
+}
 
 function openUrl() {
   window.open(props.bookmark.url, '_blank')
@@ -22,7 +28,7 @@ function openUrl() {
 
 <template>
   <div
-    class="bookmark-card group relative cursor-pointer rounded-2xl p-4 flex flex-col items-center text-center transition-all duration-300 ease-out"
+    class="bookmark-card group relative cursor-pointer rounded-2xl p-3 sm:p-4 flex flex-col items-center text-center transition-all duration-300 ease-out"
     @click="openUrl"
   >
     <!-- 操作按钮（悬浮时显示） -->
@@ -47,19 +53,28 @@ function openUrl() {
     </div>
 
     <!-- 图标 -->
-    <div class="w-14 h-14 flex items-center justify-center flex-shrink-0 overflow-hidden mb-3 transition-transform duration-300 group-hover:scale-110">
+    <div class="w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center flex-shrink-0 overflow-hidden mb-2 sm:mb-3 transition-transform duration-300 group-hover:scale-110">
+      <!-- 字母 fallback -->
+      <span
+        v-if="showLetter"
+        class="letter-avatar w-8 h-8 sm:w-8 sm:h-8 flex items-center justify-center rounded-xl text-white text-sm font-bold select-none"
+        :style="{ backgroundColor: letterColor }"
+      >
+        {{ firstChar(bookmark.name) }}
+      </span>
+      <!-- Favicon 图片 -->
       <img
-        v-if="favicon"
-        :src="favicon"
+        v-else-if="faviconUrl"
+        :src="faviconUrl"
         :alt="bookmark.name"
         class="w-8 h-8"
-        @error="($event.target as HTMLImageElement).style.display = 'none'"
+        style="image-rendering: -webkit-optimize-contrast"
+        @error="showLetter = true; faviconUrl = null"
       />
-      <span v-else class="text-2xl">🌐</span>
     </div>
 
     <!-- 名称 -->
-    <p class="text-sm font-medium text-white/90 leading-tight truncate w-full">
+    <p class="text-xs sm:text-sm font-medium text-white/90 leading-tight truncate w-full">
       {{ bookmark.name }}
     </p>
   </div>
@@ -74,5 +89,10 @@ function openUrl() {
   background: rgba(255, 255, 255, 0.1);
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.letter-avatar {
+  letter-spacing: 0;
+  line-height: 1;
 }
 </style>

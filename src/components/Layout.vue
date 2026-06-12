@@ -11,7 +11,7 @@ provideBookmarkEditor()
 <template>
   <div class="min-h-screen flex flex-col">
     <!-- 顶部搜索区域 -->
-    <header class="relative z-20 pt-8 pb-6 px-4">
+    <header class="relative z-20 pt-14 sm:pt-8 pb-4 sm:pb-6 px-4">
       <div class="max-w-3xl mx-auto text-center">
         <h1 class="text-2xl font-medium text-white/90 mb-5 tracking-wide">
           Hao123 工作台

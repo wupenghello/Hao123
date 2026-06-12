@@ -68,7 +68,7 @@ function onSelectCity(city: CityItem) {
           leave-to-class="opacity-0 scale-97"
         >
           <div
-            class="relative z-10 w-[420px] max-h-[85vh] flex flex-col rounded-3xl glass-dark
+            class="relative z-10 w-[92vw] max-w-[420px] max-h-[90vh] sm:max-h-[85vh] flex flex-col rounded-3xl glass-dark
                    shadow-2xl shadow-black/20 will-change-transform"
             @click.stop
           >

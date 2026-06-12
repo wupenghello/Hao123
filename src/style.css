@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* 亮色主题 CSS 变量（预留，未来主题切换时使用） */
 :root {
   --color-primary: #3b82f6;
   --color-primary-hover: #2563eb;
@@ -19,7 +20,6 @@ body {
   animation: gradientShift 20s ease infinite;
   min-height: 100vh;
   color: var(--color-text);
-  overflow: hidden;
 }
 
 @keyframes gradientShift {
@@ -42,34 +42,8 @@ body {
 
 #app {
   min-height: 100vh;
-}
-
-/* 搜索框毛玻璃效果 */
-.glass {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-/* 图标居中卡片悬浮效果 */
-.icon-card {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.icon-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
-}
-
-/* 卡片悬浮效果（兼容旧用法） */
-.card-hover {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.card-hover:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 自定义滚动条 */

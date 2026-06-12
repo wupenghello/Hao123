@@ -33,18 +33,17 @@ function handleDelete(id: string) {
   <CategoryTabs v-model="activeCategoryId" />
   <div class="mt-4">
     <div
-      v-if="currentBookmarks.length > 0 || true"
-      class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-3"
+      class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-3"
     >
       <!-- 添加书签按钮（网格第一位） -->
       <button
         @click="startAdd"
-        class="bookmark-card group relative cursor-pointer rounded-2xl p-4 flex flex-col items-center justify-center transition-all duration-300 ease-out min-h-[120px]"
+        class="add-card group relative cursor-pointer rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center transition-all duration-300 ease-out min-h-[100px] sm:min-h-[120px]"
       >
-        <div class="w-14 h-14 flex items-center justify-center mb-3 transition-transform duration-300 group-hover:scale-110">
-          <IconPlus class="w-7 h-7 text-white/20 group-hover:text-white/50 transition-colors" />
+        <div class="w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center mb-2 sm:mb-3 transition-transform duration-300 group-hover:scale-110">
+          <IconPlus class="w-6 h-6 sm:w-7 sm:h-7 text-white/20 group-hover:text-white/50 transition-colors" />
         </div>
-        <span class="text-[11px] font-medium text-white/20 group-hover:text-white/40 transition-colors">添加</span>
+        <span class="text-[10px] sm:text-[11px] font-medium text-white/20 group-hover:text-white/40 transition-colors">添加</span>
       </button>
 
       <BookmarkCard
@@ -63,11 +62,11 @@ function handleDelete(id: string) {
 </template>
 
 <style scoped>
-.bookmark-card {
+.add-card {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.bookmark-card:hover {
+.add-card:hover {
   background: rgba(255, 255, 255, 0.08);
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);

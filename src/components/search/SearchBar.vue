@@ -28,16 +28,21 @@ function closeDropdown(e: Event) {
   }
 }
 
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault()
+    document.querySelector<HTMLInputElement>('#search-input')?.focus()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', closeDropdown)
-  document.addEventListener('keydown', (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-      e.preventDefault()
-      document.querySelector<HTMLInputElement>('#search-input')?.focus()
-    }
-  })
+  document.addEventListener('keydown', handleKeydown)
 })
-onUnmounted(() => document.removeEventListener('click', closeDropdown))
+onUnmounted(() => {
+  document.removeEventListener('click', closeDropdown)
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
