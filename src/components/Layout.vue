@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import SearchBar from '@/components/SearchBar.vue'
-import BookmarkGrid from '@/components/BookmarkGrid.vue'
-import BookmarkForm from '@/components/BookmarkForm.vue'
-import ClockWidget from '@/components/ClockWidget.vue'
+import { provideBookmarkEditor } from '@/composables/useBookmarkEditor'
+import SearchBar from '@/components/search/SearchBar.vue'
+import BookmarkGrid from '@/components/bookmark/BookmarkGrid.vue'
+import BookmarkForm from '@/components/bookmark/BookmarkForm.vue'
+import ClockWidget from '@/components/clock/ClockWidget.vue'
+
+provideBookmarkEditor()
 </script>
 
 <template>

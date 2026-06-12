@@ -3,7 +3,6 @@ import { getFaviconUrl } from '@/utils/favicon'
 import type { Bookmark } from '@/types'
 import IconEdit from '~icons/mdi/pencil'
 import IconDelete from '~icons/mdi/delete'
-import IconOpen from '~icons/mdi/open-in-new'
 
 const props = defineProps<{
   bookmark: Bookmark

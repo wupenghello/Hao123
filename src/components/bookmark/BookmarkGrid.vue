@@ -1,35 +1,35 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useBookmarkStore } from '@/stores/bookmarks'
-import BookmarkCard from '@/components/BookmarkCard.vue'
-import CategoryTabs from '@/components/CategoryTabs.vue'
+import { useCategoryStore } from '@/stores/categories'
+import { useBookmarkEditor } from '@/composables/useBookmarkEditor'
+import BookmarkCard from '@/components/bookmark/BookmarkCard.vue'
+import CategoryTabs from '@/components/bookmark/CategoryTabs.vue'
+import type { Bookmark } from '@/types'
 
-const store = useBookmarkStore()
-const categoryTabs = ref<InstanceType<typeof CategoryTabs> | null>(null)
+const bookmarkStore = useBookmarkStore()
+const categoryStore = useCategoryStore()
+const { startEdit } = useBookmarkEditor()
 
-const currentCategoryId = computed(
-  () => categoryTabs.value?.activeCategoryId ?? store.categories[0]?.id
-)
+const activeCategoryId = ref<string>(categoryStore.categories[0]?.id ?? '')
 
 const currentBookmarks = computed(() =>
-  store.getBookmarksByCategory(currentCategoryId.value ?? '')
+  bookmarkStore.getBookmarksByCategory(activeCategoryId.value)
 )
 
-function handleEdit(bookmark: any) {
-  window.dispatchEvent(
-    new CustomEvent('edit-bookmark', { detail: bookmark })
-  )
+function handleEdit(bookmark: Bookmark) {
+  startEdit(bookmark)
 }
 
 function handleDelete(id: string) {
   if (confirm('确定要删除这个书签吗？')) {
-    store.deleteBookmark(id)
+    bookmarkStore.deleteBookmark(id)
   }
 }
 </script>
 
 <template>
-  <CategoryTabs ref="categoryTabs" />
+  <CategoryTabs v-model="activeCategoryId" />
   <div class="mt-4">
     <div
       v-if="currentBookmarks.length > 0"

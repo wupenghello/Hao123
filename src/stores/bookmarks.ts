@@ -1,11 +1,10 @@
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
-import { defaultBookmarks, defaultCategories } from '@/utils/default-bookmarks'
+import { defaultBookmarks } from '@/utils/default-bookmarks'
 import { getFaviconUrl } from '@/utils/favicon'
-import type { Bookmark, Category } from '@/types'
+import type { Bookmark } from '@/types'
 
 export const useBookmarkStore = defineStore('bookmarks', () => {
-  const categories = useStorage<Category[]>('hao123-categories', defaultCategories)
   const bookmarks = useStorage<Bookmark[]>('hao123-bookmarks', defaultBookmarks)
 
   function getBookmarksByCategory(categoryId: string): Bookmark[] {
@@ -43,32 +42,16 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
     }
   }
 
-  function addCategory(name: string, icon: string) {
-    const newCategory: Category = {
-      id: `cat-${Date.now()}`,
-      name,
-      icon,
-      order: categories.value.length,
-    }
-    categories.value.push(newCategory)
-  }
-
-  function deleteCategory(id: string) {
-    const index = categories.value.findIndex((c) => c.id === id)
-    if (index !== -1) {
-      categories.value.splice(index, 1)
-      bookmarks.value = bookmarks.value.filter((b) => b.categoryId !== id)
-    }
+  function deleteBookmarksByCategory(categoryId: string) {
+    bookmarks.value = bookmarks.value.filter((b) => b.categoryId !== categoryId)
   }
 
   return {
-    categories,
     bookmarks,
     getBookmarksByCategory,
     addBookmark,
     updateBookmark,
     deleteBookmark,
-    addCategory,
-    deleteCategory,
+    deleteBookmarksByCategory,
   }
 })

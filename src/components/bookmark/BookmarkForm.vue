@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useBookmarkStore } from '@/stores/bookmarks'
+import { useCategoryStore } from '@/stores/categories'
+import { useBookmarkEditor } from '@/composables/useBookmarkEditor'
 import type { Bookmark } from '@/types'
 import IconPlus from '~icons/mdi/plus'
 import IconClose from '~icons/mdi/close'
 
-const store = useBookmarkStore()
+const bookmarkStore = useBookmarkStore()
+const categoryStore = useCategoryStore()
+const { editingBookmark, stopEdit } = useBookmarkEditor()
 
 const showForm = ref(false)
 const isEditing = ref(false)
@@ -22,7 +26,7 @@ function openAddForm() {
   name.value = ''
   url.value = ''
   description.value = ''
-  categoryId.value = store.categories[0]?.id ?? ''
+  categoryId.value = categoryStore.categories[0]?.id ?? ''
   showForm.value = true
 }
 
@@ -38,20 +42,21 @@ function openEditForm(bookmark: Bookmark) {
 
 function closeForm() {
   showForm.value = false
+  stopEdit()
 }
 
 function handleSubmit() {
   if (!name.value.trim() || !url.value.trim()) return
 
   if (isEditing.value) {
-    store.updateBookmark(editingId.value, {
+    bookmarkStore.updateBookmark(editingId.value, {
       name: name.value.trim(),
       url: url.value.trim(),
       description: description.value.trim() || undefined,
       categoryId: categoryId.value,
     })
   } else {
-    store.addBookmark({
+    bookmarkStore.addBookmark({
       name: name.value.trim(),
       url: url.value.trim(),
       description: description.value.trim() || undefined,
@@ -62,14 +67,12 @@ function handleSubmit() {
   closeForm()
 }
 
-// 监听编辑事件
-function handleEditEvent(e: Event) {
-  const customEvent = e as CustomEvent<Bookmark>
-  openEditForm(customEvent.detail)
-}
-
-onMounted(() => window.addEventListener('edit-bookmark', handleEditEvent))
-onUnmounted(() => window.removeEventListener('edit-bookmark', handleEditEvent))
+// 监听编辑状态变化，自动打开编辑表单
+watch(editingBookmark, (bookmark) => {
+  if (bookmark) {
+    openEditForm(bookmark)
+  }
+})
 </script>
 
 <template>
@@ -141,7 +144,7 @@ onUnmounted(() => window.removeEventListener('edit-bookmark', handleEditEvent))
               v-model="categoryId"
               class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
             >
-              <option v-for="cat in store.categories" :key="cat.id" :value="cat.id">
+              <option v-for="cat in categoryStore.categories" :key="cat.id" :value="cat.id">
                 {{ cat.name }}
               </option>
             </select>

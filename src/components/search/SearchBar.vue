@@ -1,28 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useSearch } from '@/composables/useSearch'
+import { useSearchStore } from '@/stores/search'
 import IconSearch from '~icons/mdi/magnify'
 import IconChevronDown from '~icons/mdi/chevron-down'
 
-const { searchEngines, currentEngine, search, switchEngine } = useSearch()
+const searchStore = useSearchStore()
 
 const query = ref('')
 const showDropdown = ref(false)
 
 function handleSearch() {
-  search(query.value)
-}
-
-function handleKeydown(e: KeyboardEvent) {
-  // Ctrl/Cmd + K 聚焦搜索框
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault()
-    document.querySelector<HTMLInputElement>('#search-input')?.focus()
-  }
+  searchStore.search(query.value)
 }
 
 function selectEngine(id: string) {
-  switchEngine(id)
+  searchStore.setEngine(id)
   showDropdown.value = false
 }
 
@@ -36,7 +28,15 @@ function closeDropdown(e: Event) {
   }
 }
 
-onMounted(() => document.addEventListener('click', closeDropdown))
+onMounted(() => {
+  document.addEventListener('click', closeDropdown)
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault()
+      document.querySelector<HTMLInputElement>('#search-input')?.focus()
+    }
+  })
+})
 onUnmounted(() => document.removeEventListener('click', closeDropdown))
 </script>
 
@@ -48,9 +48,9 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
         <button
           class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors pr-3 border-r border-gray-200"
           @click="toggleDropdown"
-          :title="`当前搜索引擎: ${currentEngine.name}`"
+          :title="`当前搜索引擎: ${searchStore.currentEngine.name}`"
         >
-          <span>{{ currentEngine.name }}</span>
+          <span>{{ searchStore.currentEngine.name }}</span>
           <IconChevronDown class="w-4 h-4" />
         </button>
 
@@ -61,14 +61,14 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
             class="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 min-w-[160px]"
           >
             <button
-              v-for="engine in searchEngines"
+              v-for="engine in searchStore.engines"
               :key="engine.id"
               @click="selectEngine(engine.id)"
               class="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-blue-50 transition-colors"
-              :class="engine.id === currentEngine.id ? 'text-blue-600 bg-blue-50/50' : 'text-gray-700'"
+              :class="engine.id === searchStore.currentEngine.id ? 'text-blue-600 bg-blue-50/50' : 'text-gray-700'"
             >
               <span>{{ engine.name }}</span>
-              <span v-if="engine.id === currentEngine.id" class="ml-auto text-blue-500">✓</span>
+              <span v-if="engine.id === searchStore.currentEngine.id" class="ml-auto text-blue-500">✓</span>
             </button>
           </div>
         </Transition>
@@ -79,7 +79,7 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
         id="search-input"
         v-model="query"
         type="text"
-        :placeholder="`在 ${currentEngine.name} 中搜索...`"
+        :placeholder="`在 ${searchStore.currentEngine.name} 中搜索...`"
         class="flex-1 mx-3 bg-transparent outline-none text-gray-800 placeholder-gray-400"
         @keydown.enter="handleSearch"
       />

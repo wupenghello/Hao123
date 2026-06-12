@@ -30,5 +30,11 @@ export const useSearchStore = defineStore('search', () => {
     currentEngineId.value = id
   }
 
-  return { engines, currentEngineId, currentEngine, setEngine }
+  function search(query: string) {
+    if (!query.trim()) return
+    const url = currentEngine.value.searchUrl.replace('{query}', encodeURIComponent(query.trim()))
+    window.open(url, '_blank')
+  }
+
+  return { engines, currentEngineId, currentEngine, setEngine, search }
 })

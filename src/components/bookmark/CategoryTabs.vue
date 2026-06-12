@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { useBookmarkStore } from '@/stores/bookmarks'
-import { ref, computed } from 'vue'
+import { useCategoryStore } from '@/stores/categories'
 
-const store = useBookmarkStore()
-const activeCategoryId = ref<string>(store.categories[0]?.id ?? '')
+const props = defineProps<{
+  modelValue: string
+}>()
 
-const activeCategory = computed(() =>
-  store.categories.find((c) => c.id === activeCategoryId.value)
-)
+const emit = defineEmits<{
+  'update:modelValue': [id: string]
+}>()
+
+const store = useCategoryStore()
 
 function selectCategory(id: string) {
-  activeCategoryId.value = id
+  emit('update:modelValue', id)
 }
-
-defineExpose({ activeCategoryId })
 </script>
 
 <template>
@@ -24,7 +24,7 @@ defineExpose({ activeCategoryId })
       @click="selectCategory(cat.id)"
       class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200"
       :class="
-        activeCategoryId === cat.id
+        modelValue === cat.id
           ? 'bg-blue-500 text-white shadow-md'
           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
       "
