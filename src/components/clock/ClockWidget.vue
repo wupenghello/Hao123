@@ -2,24 +2,17 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 
 const time = ref('')
-const date = ref('')
 
 let timer: ReturnType<typeof setInterval>
 
 function updateTime() {
   const now = new Date()
-  time.value = now.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-  date.value = now.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  })
+  const month = now.getMonth() + 1
+  const day = now.getDate()
+  const weekday = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()]
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  time.value = `周${weekday}  ${month}月${day}日  ${hh}:${mm}`
 }
 
 onMounted(() => {
@@ -31,8 +24,7 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="text-white/70">
-    <p class="text-2xl font-light tracking-widest">{{ time }}</p>
-    <p class="text-sm mt-1 opacity-70">{{ date }}</p>
+  <div class="fixed top-2 right-3 z-30 select-none">
+    <span class="text-white text-[13px] font-normal tracking-[-0.01em] leading-none">{{ time }}</span>
   </div>
 </template>

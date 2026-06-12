@@ -42,32 +42,32 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
 
 <template>
   <div class="relative w-full max-w-2xl mx-auto">
-    <div class="flex items-center glass rounded-full shadow-lg px-5 py-3 border border-white/30">
+    <div class="flex items-center glass rounded-full shadow-xl px-5 py-3.5">
       <!-- 搜索引擎选择器 -->
       <div class="relative engine-selector">
         <button
-          class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors pr-3 border-r border-gray-200"
+          class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors pr-4 border-r border-gray-200/80"
           @click="toggleDropdown"
           :title="`当前搜索引擎: ${searchStore.currentEngine.name}`"
         >
-          <span>{{ searchStore.currentEngine.name }}</span>
-          <IconChevronDown class="w-4 h-4" />
+          <span class="font-medium">{{ searchStore.currentEngine.name }}</span>
+          <IconChevronDown class="w-4 h-4 transition-transform" :class="showDropdown ? 'rotate-180' : ''" />
         </button>
 
         <!-- 下拉菜单 -->
         <Transition name="dropdown">
           <div
             v-if="showDropdown"
-            class="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 min-w-[160px]"
+            class="absolute top-full left-0 mt-2.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100/80 py-2 z-50 min-w-[170px]"
           >
             <button
               v-for="engine in searchStore.engines"
               :key="engine.id"
               @click="selectEngine(engine.id)"
-              class="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-blue-50 transition-colors"
-              :class="engine.id === searchStore.currentEngine.id ? 'text-blue-600 bg-blue-50/50' : 'text-gray-700'"
+              class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+              :class="engine.id === searchStore.currentEngine.id ? 'text-blue-600 bg-blue-50/60' : 'text-gray-600 hover:bg-gray-50'"
             >
-              <span>{{ engine.name }}</span>
+              <span class="font-medium">{{ engine.name }}</span>
               <span v-if="engine.id === searchStore.currentEngine.id" class="ml-auto text-blue-500">✓</span>
             </button>
           </div>
@@ -80,23 +80,25 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
         v-model="query"
         type="text"
         :placeholder="`在 ${searchStore.currentEngine.name} 中搜索...`"
-        class="flex-1 mx-3 bg-transparent outline-none text-gray-800 placeholder-gray-400"
+        class="flex-1 mx-4 bg-transparent outline-none text-gray-800 placeholder-gray-400/70 text-[15px]"
         @keydown.enter="handleSearch"
       />
 
       <!-- 搜索按钮 -->
       <button
         @click="handleSearch"
-        class="p-1.5 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+        class="px-4 py-1.5 rounded-full bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors shadow-sm"
       >
-        <IconSearch class="w-5 h-5" />
+        <IconSearch class="w-4 h-4 inline-block -mt-0.5" />
+        <span class="ml-1">搜索</span>
       </button>
     </div>
 
     <!-- 快捷键提示 -->
-    <div class="text-center mt-2">
-      <span class="text-xs text-white/60">
-        按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded text-white/80">Ctrl+K</kbd> 聚焦搜索
+    <div class="text-center mt-3">
+      <span class="text-xs text-white/50">
+        <kbd class="px-1.5 py-0.5 bg-white/10 rounded text-white/60 text-[11px] font-mono">⌘K</kbd>
+        聚焦搜索
       </span>
     </div>
   </div>
@@ -105,11 +107,11 @@ onUnmounted(() => document.removeEventListener('click', closeDropdown))
 <style scoped>
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .dropdown-enter-from,
 .dropdown-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-6px);
 }
 </style>

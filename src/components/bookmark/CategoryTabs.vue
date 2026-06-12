@@ -17,19 +17,24 @@ function selectCategory(id: string) {
 </script>
 
 <template>
-  <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+  <div class="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin border-b border-gray-200/60">
     <button
       v-for="cat in store.categories"
       :key="cat.id"
       @click="selectCategory(cat.id)"
-      class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200"
+      class="relative px-4 py-2 text-sm whitespace-nowrap transition-colors duration-200"
       :class="
         modelValue === cat.id
-          ? 'bg-blue-500 text-white shadow-md'
-          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          ? 'text-gray-800 font-semibold'
+          : 'text-gray-400 hover:text-gray-600'
       "
     >
       {{ cat.name }}
+      <!-- 底部指示器 -->
+      <span
+        v-if="modelValue === cat.id"
+        class="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-blue-500"
+      />
     </button>
   </div>
 </template>

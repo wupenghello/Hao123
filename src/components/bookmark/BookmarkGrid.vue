@@ -30,10 +30,10 @@ function handleDelete(id: string) {
 
 <template>
   <CategoryTabs v-model="activeCategoryId" />
-  <div class="mt-4">
+  <div class="mt-5">
     <div
       v-if="currentBookmarks.length > 0"
-      class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"
+      class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-4"
     >
       <BookmarkCard
         v-for="bookmark in currentBookmarks"
@@ -43,9 +43,9 @@ function handleDelete(id: string) {
         @delete="handleDelete"
       />
     </div>
-    <div v-else class="text-center py-12 text-gray-400">
-      <p class="text-lg">📭</p>
-      <p class="mt-2 text-sm">该分类下暂无书签</p>
+    <div v-else class="text-center py-16 text-gray-400">
+      <p class="text-3xl mb-2">📭</p>
+      <p class="text-sm">该分类下暂无书签</p>
     </div>
   </div>
 </template>

@@ -76,30 +76,30 @@ watch(editingBookmark, (bookmark) => {
 </script>
 
 <template>
-  <!-- 添加按钮 -->
+  <!-- 添加书签虚线卡片 -->
   <button
     @click="openAddForm"
-    class="mt-4 flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600 transition-colors"
+    class="mt-4 w-20 h-20 rounded-2xl border-2 border-dashed border-gray-300/60 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors duration-200"
   >
-    <IconPlus class="w-5 h-5" />
-    <span>添加书签</span>
+    <IconPlus class="w-6 h-6" />
+    <span class="text-[10px] font-medium">添加</span>
   </button>
 
   <!-- 表单弹窗 -->
   <Transition name="modal">
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <!-- 遮罩层 -->
-      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeForm" />
+      <div class="absolute inset-0 bg-black/30 backdrop-blur-md" @click="closeForm" />
 
       <!-- 表单 -->
-      <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <div class="relative bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-md p-7">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-lg font-semibold text-gray-800">
             {{ isEditing ? '编辑书签' : '添加书签' }}
           </h2>
           <button
             @click="closeForm"
-            class="p-1 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+            class="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition-colors"
           >
             <IconClose class="w-5 h-5" />
           </button>
@@ -107,42 +107,42 @@ watch(editingBookmark, (bookmark) => {
 
         <form @submit.prevent="handleSubmit" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">网站名称 *</label>
+            <label class="block text-sm font-medium text-gray-600 mb-1.5">网站名称 *</label>
             <input
               v-model="name"
               type="text"
               placeholder="例如：Google"
               required
-              class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">网址 URL *</label>
+            <label class="block text-sm font-medium text-gray-600 mb-1.5">网址 URL *</label>
             <input
               v-model="url"
               type="url"
               placeholder="https://www.google.com"
               required
-              class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+            <label class="block text-sm font-medium text-gray-600 mb-1.5">描述</label>
             <input
               v-model="description"
               type="text"
               placeholder="简短描述（可选）"
-              class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors placeholder-gray-400/60"
             />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">分类</label>
+            <label class="block text-sm font-medium text-gray-600 mb-1.5">分类</label>
             <select
               v-model="categoryId"
-              class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              class="w-full px-3.5 py-2.5 bg-gray-50/80 border border-gray-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-300 transition-colors text-gray-700"
             >
               <option v-for="cat in categoryStore.categories" :key="cat.id" :value="cat.id">
                 {{ cat.name }}
@@ -150,17 +150,17 @@ watch(editingBookmark, (bookmark) => {
             </select>
           </div>
 
-          <div class="flex gap-3 pt-2">
+          <div class="flex gap-3 pt-3">
             <button
               type="button"
               @click="closeForm"
-              class="flex-1 py-2.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+              class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-medium hover:bg-gray-50 transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
-              class="flex-1 py-2.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+              class="flex-1 py-2.5 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors shadow-sm"
             >
               {{ isEditing ? '保存' : '添加' }}
             </button>
@@ -174,7 +174,7 @@ watch(editingBookmark, (bookmark) => {
 <style scoped>
 .modal-enter-active,
 .modal-leave-active {
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .modal-enter-from,
 .modal-leave-to {
@@ -182,6 +182,6 @@ watch(editingBookmark, (bookmark) => {
 }
 .modal-enter-from .relative,
 .modal-leave-to .relative {
-  transform: scale(0.95);
+  transform: scale(0.95) translateY(8px);
 }
 </style>
