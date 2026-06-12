@@ -100,7 +100,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 快捷键提示 -->
-    <div class="text-center mt-3 flex items-center justify-center gap-4">
+    <div class="mt-3 flex items-center gap-4">
       <span class="text-xs text-white/30">
         <kbd class="px-1.5 py-0.5 bg-white/8 rounded text-white/40 text-[11px] font-mono border border-white/10">⌘K</kbd>
         聚焦搜索
