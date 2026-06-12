@@ -23,5 +23,16 @@ export const useCategoryStore = defineStore('categories', () => {
     }
   }
 
-  return { categories, addCategory, deleteCategory }
+  function getSortedCategories(): Category[] {
+    return [...categories.value].sort((a, b) => a.order - b.order)
+  }
+
+  function reorderCategories(reorderedIds: string[]) {
+    reorderedIds.forEach((id, index) => {
+      const cat = categories.value.find((c) => c.id === id)
+      if (cat) cat.order = index
+    })
+  }
+
+  return { categories, addCategory, deleteCategory, getSortedCategories, reorderCategories }
 })

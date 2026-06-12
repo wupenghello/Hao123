@@ -46,6 +46,13 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
     bookmarks.value = bookmarks.value.filter((b) => b.categoryId !== categoryId)
   }
 
+  function reorderBookmarks(_categoryId: string, reorderedIds: string[]) {
+    reorderedIds.forEach((id, index) => {
+      const bm = bookmarks.value.find((b) => b.id === id)
+      if (bm) bm.order = index
+    })
+  }
+
   return {
     bookmarks,
     getBookmarksByCategory,
@@ -53,5 +60,6 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
     updateBookmark,
     deleteBookmark,
     deleteBookmarksByCategory,
+    reorderBookmarks,
   }
 })

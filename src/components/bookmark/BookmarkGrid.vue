@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useDraggable } from 'vue-draggable-plus'
 import { useBookmarkStore } from '@/stores/bookmarks'
 import { useCategoryStore } from '@/stores/categories'
 import { useBookmarkEditor } from '@/composables/useBookmarkEditor'
@@ -12,11 +13,28 @@ const bookmarkStore = useBookmarkStore()
 const categoryStore = useCategoryStore()
 const { startEdit, startAdd } = useBookmarkEditor()
 
-const activeCategoryId = ref<string>(categoryStore.categories[0]?.id ?? '')
+const activeCategoryId = ref<string>(categoryStore.getSortedCategories()[0]?.id ?? '')
 
 const currentBookmarks = computed(() =>
   bookmarkStore.getBookmarksByCategory(activeCategoryId.value)
 )
+
+const gridRef = ref<HTMLElement>()
+const bookmarkIds = ref<string[]>([])
+
+watch(currentBookmarks, (val) => {
+  bookmarkIds.value = val.map((b) => b.id)
+}, { immediate: true })
+
+useDraggable(gridRef, bookmarkIds, {
+  animation: 150,
+  draggable: '[data-bookmark]',
+  filter: '.add-card',
+  preventOnFilter: true,
+  onEnd: () => {
+    bookmarkStore.reorderBookmarks(activeCategoryId.value, bookmarkIds.value)
+  },
+})
 
 function handleEdit(bookmark: Bookmark) {
   startEdit(bookmark)
@@ -33,9 +51,10 @@ function handleDelete(id: string) {
   <CategoryTabs v-model="activeCategoryId" />
   <div class="mt-4">
     <div
+      ref="gridRef"
       class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-3"
     >
-      <!-- 添加书签按钮（网格第一位） -->
+      <!-- 添加书签按钮（网格第一位，不可拖拽） -->
       <button
         @click="startAdd"
         class="add-card group relative cursor-pointer rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center transition-all duration-300 ease-out min-h-[100px] sm:min-h-[120px]"
@@ -46,13 +65,17 @@ function handleDelete(id: string) {
         <span class="text-[10px] sm:text-[11px] font-medium text-white/20 group-hover:text-white/40 transition-colors">添加</span>
       </button>
 
-      <BookmarkCard
+      <div
         v-for="bookmark in currentBookmarks"
         :key="bookmark.id"
-        :bookmark="bookmark"
-        @edit="handleEdit"
-        @delete="handleDelete"
-      />
+        :data-bookmark="bookmark.id"
+      >
+        <BookmarkCard
+          :bookmark="bookmark"
+          @edit="handleEdit"
+          @delete="handleDelete"
+        />
+      </div>
     </div>
     <div v-if="currentBookmarks.length === 0" class="text-center py-16 text-white/30">
       <p class="text-4xl mb-3">📭</p>
@@ -70,5 +93,13 @@ function handleDelete(id: string) {
   background: rgba(255, 255, 255, 0.08);
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.sortable-ghost {
+  opacity: 0.3;
+}
+
+.sortable-drag {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 </style>
