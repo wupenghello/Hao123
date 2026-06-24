@@ -1,30 +1,3 @@
-export interface Bookmark {
-  id: string
-  name: string
-  url: string
-  description?: string
-  categoryId: string
-  order: number
-  favicon?: string
-  visitCount?: number
-  lastVisitedAt?: number
-  createdAt: number
-}
-
-export interface Category {
-  id: string
-  name: string
-  icon: string
-  order: number
-}
-
-export interface SearchEngine {
-  id: string
-  name: string
-  icon: string
-  searchUrl: string // 含 {query} 占位符
-}
-
 // 丫丫天气 API 类型
 export interface WeatherObserve {
   cityId: string
