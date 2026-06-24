@@ -27,7 +27,9 @@ All persistent state uses `useStorage<T>(key, default)` (`src/composables/useSto
 ```
 App.vue (router-view)
   └─ Layout.vue (single-page layout)
-       └─ status/StatusBar.vue   (top-right: WeatherWidget + StatusTime)
+       └─ status/StatusBar.vue   (顶部状态栏外壳：固定高度，三栏插槽)
+            ↑ 通过具名插槽注入内容，Layout.vue 填充 #right(WeatherWidget + StatusTime)
+            ↑ 可用插槽：#left / #center / #right
 ```
 
 ### Stores
