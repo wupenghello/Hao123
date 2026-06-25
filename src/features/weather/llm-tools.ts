@@ -63,12 +63,14 @@ function num(s: string | undefined | null): number | undefined {
   return isNaN(n) ? undefined : n
 }
 
-/** LLM 传入的 days 归一为合法值，非法则回退默认 */
+/** LLM 传入的 days 归一为合法值，非法则回退默认（兼容数字字符串如 "15"） */
 function pickDays(days: unknown): DailyDays {
-  return [3, 7, 10, 15].includes(days as number) ? (days as DailyDays) : 7
+  const n = Number(days)
+  return ([3, 7, 10, 15] as number[]).includes(n) ? (n as DailyDays) : 7
 }
 function pickHours(hours: unknown): HourlyHours {
-  return [24, 72, 168].includes(hours as number) ? (hours as HourlyHours) : 24
+  const n = Number(hours)
+  return ([24, 72, 168] as number[]).includes(n) ? (n as HourlyHours) : 24
 }
 
 /**

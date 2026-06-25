@@ -4,7 +4,7 @@
  * 用途：和风 7 天预报已含每日 sunrise/sunset，但预报拉取失败或高纬极昼/极夜
  *      场景下会缺失；此函数可仅凭城市经纬度算出日出日落，作为面板兜底。
  *
- * 时区按经度取整近似（中国全域约 UTC+8），返回值即"本地钟表时间"。
+ * 时区统一按北京时间 UTC+8（城市库为中国全域），返回值即"本地钟表时间"。
  */
 
 const DEG = Math.PI / 180
@@ -39,8 +39,9 @@ interface SunTimes {
  * 极昼/极夜情形返回 null
  */
 export function calcSunTimes(lat: number, lng: number, date = new Date()): SunTimes {
-  // 时区（小时）：按经度每 15° 一个时区近似；中国全域约 +8
-  const tz = Math.round(lng / 15)
+  // 时区（小时）：城市库为中国全域，统一用北京时间 UTC+8（civil time），
+  // 不能按经度推算地理时区——否则西部城市（成都/拉萨/乌鲁木齐）会偏差 1~2 小时
+  const tz = 8
   const n = dayOfYear(date)
   const lngHour = lng / 15
 
@@ -74,8 +75,10 @@ export function calcSunTimes(lat: number, lng: number, date = new Date()): SunTi
     return local
   }
 
+  const rise = calc(tRise, true)
+  const set = calc(tSet, false)
   return {
-    sunrise: calc(tRise, true) != null ? toHHMM(calc(tRise, true)!) : null,
-    sunset: calc(tSet, false) != null ? toHHMM(calc(tSet, false)!) : null,
+    sunrise: rise != null ? toHHMM(rise) : null,
+    sunset: set != null ? toHHMM(set) : null,
   }
 }

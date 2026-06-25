@@ -39,12 +39,14 @@ export const useWeatherStore = defineStore('weather', () => {
     data: Ref<T | null>
     city: Ref<string | null>
     failed: Ref<boolean> // 该城市下曾请求失败，避免反复请求消耗配额
+    inflight: { city: string; promise: Promise<T | null> } | null // 进行中的请求，用于并发去重
+    abort: AbortController | null // 该城市在途请求的控制器，切换城市时 abort 以防旧结果污染新城市
   }
   const lazySlots: LazySlot<unknown>[] = [
-    { data: hourly as Ref<unknown>, city: ref<string | null>(null), failed: ref(false) },
-    { data: indices as Ref<unknown>, city: ref<string | null>(null), failed: ref(false) },
-    { data: air as Ref<unknown>, city: ref<string | null>(null), failed: ref(false) },
-    { data: warnings as Ref<unknown>, city: ref<string | null>(null), failed: ref(false) },
+    { data: hourly as Ref<unknown>, city: ref<string | null>(null), failed: ref(false), inflight: null, abort: null },
+    { data: indices as Ref<unknown>, city: ref<string | null>(null), failed: ref(false), inflight: null, abort: null },
+    { data: air as Ref<unknown>, city: ref<string | null>(null), failed: ref(false), inflight: null, abort: null },
+    { data: warnings as Ref<unknown>, city: ref<string | null>(null), failed: ref(false), inflight: null, abort: null },
   ]
 
   /**
@@ -115,55 +117,82 @@ export const useWeatherStore = defineStore('weather', () => {
    * 按需数据懒加载通用方法：
    *   - 命中缓存（同城市 + 已有数据）直接返回，节省接口配额
    *   - 同城市曾失败则不重复请求（避免反复消耗配额）
+   *   - 同城市有进行中的请求则复用（避免 hover+click 等并发场景重复请求）
    *   - 失败静默不阻塞核心展示，但记录到 regionalUnsupported 以便 UI 说明
    */
   async function ensureLazy<T>(
     slot: LazySlot<T>,
-    fetcher: (city: string) => Promise<T>,
+    fetcher: (city: string, signal: AbortSignal) => Promise<T>,
     force = false,
   ): Promise<T | null> {
-    if (!force && slot.city.value === cityCoord.value) {
+    const city = cityCoord.value
+    if (!force && slot.city.value === city) {
       if (slot.data.value) return slot.data.value
       if (slot.failed.value) return null // 该城市已确认不可用，不重复请求
     }
-    try {
-      const result = await fetcher(cityCoord.value)
-      slot.data.value = result
-      slot.city.value = cityCoord.value
-      slot.failed.value = false
-      return result
-    } catch (e) {
-      if ((e as Error)?.name === 'AbortError') return null
-      slot.failed.value = true
-      slot.city.value = cityCoord.value
-      // 204=该地区无数据 / 403=地区受限：标记为区域性不可用
-      if (e instanceof WeatherApiError && (e.code === '204' || e.code === '403')) {
-        regionalUnsupported.value = true
-      }
-      console.warn('[weather] 按需数据获取失败：', toMessage(e, '未知错误'))
-      return null
+    // 同城市已有进行中的请求：复用，不再发起新请求
+    if (!force && slot.inflight && slot.inflight.city === city) {
+      return slot.inflight.promise
     }
+
+    // 新建控制器：切换城市时 resetLazy 会 abort 它，旧请求即便 resolve 也会在
+    // catch(AbortError) 分支被丢弃，不会把旧城市数据写进共享 ref
+    slot.abort?.abort()
+    const controller = new AbortController()
+    slot.abort = controller
+
+    const run = (async (): Promise<T | null> => {
+      try {
+        const result = await fetcher(city, controller.signal)
+        slot.data.value = result
+        slot.city.value = city
+        slot.failed.value = false
+        return result
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return null
+        slot.failed.value = true
+        slot.city.value = city
+        // 204=该地区无数据 / 403=地区受限：标记为区域性不可用
+        if (e instanceof WeatherApiError && (e.code === '204' || e.code === '403')) {
+          regionalUnsupported.value = true
+        }
+        console.warn('[weather] 按需数据获取失败：', toMessage(e, '未知错误'))
+        return null
+      }
+    })()
+
+    const entry = { city, promise: run }
+    slot.inflight = entry
+    // 仅清理仍指向本次请求的 inflight/abort，避免覆盖更晚发起的请求
+    run.finally(() => {
+      if (slot.inflight === entry) slot.inflight = null
+      if (slot.abort === controller) slot.abort = null
+    })
+    return run
   }
 
   /** 清空按需数据缓存（切换城市时调用，避免闪现上一个城市的数据） */
   function resetLazy() {
     for (const s of lazySlots) {
+      s.abort?.abort() // 取消旧城市在途请求，防止其 resolve 后污染新城市
+      s.abort = null
       s.data.value = null
       s.city.value = null
       s.failed.value = false
+      s.inflight = null // 丢弃旧城市进行中的请求引用，避免其结果污染新城市
     }
     regionalUnsupported.value = false
   }
 
   // 各按需接口的 ensure 方法（force=true 强制刷新）
   const ensureHourly = (force = false) =>
-    ensureLazy(lazySlots[0] as LazySlot<WeatherHourly[]>, (c) => weatherApi.hourly(c, 24), force)
+    ensureLazy(lazySlots[0] as LazySlot<WeatherHourly[]>, (c, signal) => weatherApi.hourly(c, 24, { signal }), force)
   const ensureIndices = (force = false) =>
-    ensureLazy(lazySlots[1] as LazySlot<WeatherIndex[]>, (c) => weatherApi.indices(c), force)
+    ensureLazy(lazySlots[1] as LazySlot<WeatherIndex[]>, (c, signal) => weatherApi.indices(c, '0', { signal }), force)
   const ensureAir = (force = false) =>
-    ensureLazy(lazySlots[2] as LazySlot<WeatherAir>, (c) => weatherApi.air(c), force)
+    ensureLazy(lazySlots[2] as LazySlot<WeatherAir>, (c, signal) => weatherApi.air(c, { signal }), force)
   const ensureWarnings = (force = false) =>
-    ensureLazy(lazySlots[3] as LazySlot<WeatherWarning[]>, (c) => weatherApi.warnings(c), force)
+    ensureLazy(lazySlots[3] as LazySlot<WeatherWarning[]>, (c, signal) => weatherApi.warnings(c, { signal }), force)
 
   /**
    * 通过浏览器 Geolocation API 自动定位

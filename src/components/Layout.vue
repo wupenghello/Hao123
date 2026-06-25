@@ -2,6 +2,7 @@
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import { WeatherWidget } from '@/features/weather'
+import { ZentaoPanel } from '@/features/zentao'
 </script>
 
 <template>
@@ -15,6 +16,8 @@ import { WeatherWidget } from '@/features/weather'
     </StatusBar>
 
     <!-- 主内容区：后续在此添加书签 / 搜索 / 快捷入口等组件 -->
-    <main class="flex-1 min-h-0" />
+    <main class="flex-1 min-h-0 p-6">
+      <ZentaoPanel />
+    </main>
   </div>
 </template>

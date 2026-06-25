@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => {
   const qweatherHost = env.VITE_QWEATHER_API_HOST || 'devapi.qweather.com'
   const qweatherTarget = `https://${qweatherHost}`
 
+  // 禅道服务器地址（形如 http://zentao.example.com 或带子路径 http://host/zentao）。
+  // 走 /zentao 代理转发，规避浏览器跨域与 Set-Cookie 丢失问题。
+  const zentaoTarget = env.VITE_ZENTAO_BASE || 'http://localhost'
+
   return {
     plugins: [
       vue(),
@@ -40,6 +44,12 @@ export default defineConfig(({ mode }) => {
           target: qweatherTarget,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/qgeo/, ''),
+        },
+        // 禅道（ZenTao）：鉴权 + 我的任务/Bug 等接口
+        '/zentao': {
+          target: zentaoTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/zentao/, ''),
         },
       },
     },

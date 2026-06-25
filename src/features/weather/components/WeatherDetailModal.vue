@@ -69,7 +69,9 @@ function barStyle(day: WeatherDaily) {
 }
 
 function getWeekday(dateStr: string): string {
-  const d = new Date(dateStr)
+  // fxDate 形如 '2026-06-25'，new Date('YYYY-MM-DD') 会被当作 UTC 午夜解析，
+  // 与本地 now 的 toDateString() 比较时在 UTC 负偏移时区会漂移一天——故手动按本地解析
+  const d = parseLocalDate(dateStr)
   const today = new Date()
   if (d.toDateString() === today.toDateString()) return '今天'
   const tomorrow = new Date(today)
@@ -79,7 +81,13 @@ function getWeekday(dateStr: string): string {
 }
 
 function isToday(dateStr: string): boolean {
-  return new Date(dateStr).toDateString() === new Date().toDateString()
+  return parseLocalDate(dateStr).toDateString() === new Date().toDateString()
+}
+
+/** 把 'YYYY-MM-DD' 解析为本地午夜的 Date，避免 UTC 解析导致的跨时区日期漂移 */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1)
 }
 
 /** 逐小时标签：首项显示"现在"，其余取 ISO8601 时间里的 HH:MM */

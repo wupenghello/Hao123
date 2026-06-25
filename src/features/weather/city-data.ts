@@ -433,7 +433,7 @@ export function searchCities(keyword: string): CityItem[] {
   const k = keyword.trim().toLowerCase()
   return allCities.filter(
     (c) =>
-      c.name.includes(k) ||
-      c.province.includes(k),
+      c.name.toLowerCase().includes(k) ||
+      c.province.toLowerCase().includes(k),
   )
 }
