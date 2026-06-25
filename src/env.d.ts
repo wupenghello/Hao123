@@ -7,7 +7,7 @@ declare module '~icons/*' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_YYTIANQI_API_KEY: string
+  readonly VITE_QWEATHER_API_KEY: string
 }
 
 interface ImportMeta {

@@ -4,7 +4,7 @@
  * 包含：搜索框 + 搜索结果列表 + 省份分组折叠列表
  */
 import { ref, computed } from 'vue'
-import { provinceGroups, searchCities, type CityItem } from '@/utils/city-data'
+import { provinceGroups, searchCities, type CityItem } from '../city-data'
 import IconChevronRight from '~icons/mdi/chevron-right'
 
 const props = defineProps<{

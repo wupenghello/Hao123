@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
-import WeatherWidget from '@/components/weather/WeatherWidget.vue'
+import { WeatherWidget } from '@/features/weather'
 </script>
 
 <template>

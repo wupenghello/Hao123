@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useWeatherStore } from '@/stores/weather'
-import { getWeatherIcon } from '@/utils/weather-icons'
-import WeatherHoverCard from '@/components/weather/WeatherHoverCard.vue'
-import WeatherDetailModal from '@/components/weather/WeatherDetailModal.vue'
+import { useWeatherStore } from '../store'
+import { getWeatherIcon } from '../icons'
+import WeatherHoverCard from './WeatherHoverCard.vue'
+import WeatherDetailModal from './WeatherDetailModal.vue'
+import IconLoading from '~icons/mdi/loading'
+import IconAlertCircleOutline from '~icons/mdi/alert-circle-outline'
 
 const store = useWeatherStore()
 const hoverVisible = ref(false)
@@ -11,8 +13,8 @@ const modalVisible = ref(false)
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 
 const currentIcon = computed(() => {
-  const numtq = store.observe?.numtq
-  return numtq ? getWeatherIcon(numtq) : null
+  const icon = store.now?.icon
+  return icon ? getWeatherIcon(icon) : null
 })
 
 function onMouseEnter() {
@@ -44,9 +46,21 @@ onUnmounted(() => {
     @mouseleave="onMouseLeave"
     @click="onClick"
   >
-    <component v-if="currentIcon" :is="currentIcon" class="w-[13px] h-[13px] mr-1" />
-    <span v-if="store.observe" class="tabular-nums mr-1">{{ store.observe.qw }}°</span>
-    <span v-if="store.observe">{{ store.observe.cityName }}</span>
+    <template v-if="store.now">
+      <component v-if="currentIcon" :is="currentIcon" class="w-[13px] h-[13px] mr-1" />
+      <span class="tabular-nums mr-1">{{ store.now.temp }}°</span>
+      <span>{{ store.cityName }}</span>
+    </template>
+    <!-- 首次加载中：显示已持久化的城市名 + 旋转图标，避免状态栏空白 -->
+    <template v-else-if="store.loading">
+      <IconLoading class="w-[13px] h-[13px] mr-1 animate-spin text-white/55" />
+      <span class="text-white/55">{{ store.cityName }}</span>
+    </template>
+    <!-- 加载失败且无数据：轻量错误提示，点击仍可打开弹窗查看详情/重试 -->
+    <template v-else-if="store.error">
+      <IconAlertCircleOutline class="w-[13px] h-[13px] mr-1 text-amber-300/80" />
+      <span class="text-white/55">天气暂不可用</span>
+    </template>
 
     <!-- Hover 简易卡片 -->
     <Transition
