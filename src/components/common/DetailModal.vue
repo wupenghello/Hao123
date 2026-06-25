@@ -153,6 +153,9 @@ onUnmounted(() => {
             class="dm-card relative z-10 w-[90vw] max-w-[880px] max-h-[88vh] flex flex-col overflow-hidden"
             @click.stop
           >
+            <!-- HUD 四角科技边框 + 入场微光（纯装饰，不参与布局/交互） -->
+            <div class="dm-corners" aria-hidden="true" />
+
             <!-- 顶部渐变条（呼应主题 navy→teal，配色由调用方通过 accent class 提供） -->
             <div class="dm-accent" :class="accent" />
 
@@ -227,25 +230,90 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 卡片：呼应 body 的 navy→teal 渐变主题的玻璃面板 */
+/* 卡片：呼应 body 的 navy→teal 渐变主题的玻璃面板 + HUD 全息质感 */
 .dm-card {
   border-radius: 20px;
+  /* 多层背景：底层细网格（HUD 质感）→ 上层主题渐变（半透明压淡网格，保证文字对比度） */
   background:
-    linear-gradient(160deg, rgba(30, 58, 95, 0.92) 0%, rgba(15, 23, 42, 0.94) 55%, rgba(13, 64, 64, 0.92) 100%);
+    linear-gradient(160deg, rgba(30, 58, 95, 0.92) 0%, rgba(15, 23, 42, 0.94) 55%, rgba(13, 64, 64, 0.92) 100%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 28px);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.12);
+  /* 发光描边：外投影 + 内顶高光 + 青色描边光晕 */
   box-shadow:
     0 24px 70px -12px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(45, 212, 191, 0.18),
+    0 0 32px -4px rgba(45, 212, 191, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   contain: layout paint;
 }
 
-/* 顶部渐变高光条（基础尺寸；具体配色由调用方在自身样式里给 accent class 定义 background） */
+/* HUD 四角科技边框：用一个装饰层的 ::before/::after 各画一条对角线上的两角 */
+.dm-corners {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 20px;
+  overflow: hidden;
+}
+/* 左上 + 右下 角 */
+.dm-corners::before,
+.dm-corners::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(94, 234, 212, 0.55);
+  border-style: solid;
+  filter: drop-shadow(0 0 4px rgba(94, 234, 212, 0.5));
+}
+.dm-corners::before {
+  top: 9px;
+  left: 9px;
+  border-width: 2px 0 0 2px;
+  border-top-left-radius: 6px;
+}
+.dm-corners::after {
+  bottom: 9px;
+  right: 9px;
+  border-width: 0 2px 2px 0;
+  border-bottom-right-radius: 6px;
+}
+
+/* 入场微光：一道 45° 高光带扫过卡片一次（配合 appear Transition） */
+.dm-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 20px;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.08) 48%, rgba(94, 234, 212, 0.06) 52%, transparent 70%);
+  background-size: 250% 100%;
+  background-position: 150% 0;
+  animation: dm-sheen 0.9s ease-out 0.05s both;
+}
+@keyframes dm-sheen {
+  from { background-position: 150% 0; }
+  to { background-position: -120% 0; }
+}
+
+/* 顶部渐变高光条（基础尺寸；配色由调用方在自身样式里给 accent class 定义 background）
+   升级为流光：背景拉宽后平移 + 同色发光 */
 .dm-accent {
-  height: 3px;
+  height: 4px;
   width: 100%;
   flex-shrink: 0;
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.5);
+  animation: dm-accent-flow 3.5s linear infinite;
+}
+@keyframes dm-accent-flow {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
 }
 
 /* 图片预览大图：固定上限 + 百分比，二者取小，避免超出视口或拉伸失真 */
@@ -258,5 +326,11 @@ onUnmounted(() => {
   border-radius: 10px;
   box-shadow: 0 24px 70px -12px rgba(0, 0, 0, 0.6);
   cursor: default;
+}
+
+/* 降低动效偏好：关闭持续流光与入场微光 */
+@media (prefers-reduced-motion: reduce) {
+  .dm-accent { animation: none; }
+  .dm-card::after { animation: none; background: none; }
 }
 </style>

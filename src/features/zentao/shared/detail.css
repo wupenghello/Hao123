@@ -34,12 +34,16 @@
 .zt-icon-task {
   color: #7dd3fc;
   background: rgba(56, 189, 248, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.25);
+  box-shadow:
+    inset 0 0 0 1px rgba(56, 189, 248, 0.25),
+    0 0 14px -2px rgba(56, 189, 248, 0.55);
 }
 .zt-icon-bug {
   color: #fda4af;
   background: rgba(251, 113, 133, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.25);
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 113, 133, 0.25),
+    0 0 14px -2px rgba(251, 113, 133, 0.55);
 }
 
 /* 顶部渐变高光条配色（供 DetailModal 的 accent 插槽用） */
@@ -71,13 +75,25 @@
   margin-top: 3px;
 }
 
-/* 区块标题 */
+/* 区块标题（HUD 数据分区：前缀发光竖条） */
 .zt-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: rgba(125, 211, 252, 0.7);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   margin-bottom: 10px;
+}
+.zt-section-title::before {
+  content: '';
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: #2dd4bf;
+  box-shadow: 0 0 6px rgba(45, 212, 191, 0.8);
+  flex-shrink: 0;
 }
 
 /* 信息键值对：宽屏下两列排布 */
@@ -126,7 +142,9 @@
   height: 7px;
   border-radius: 50%;
   background: #2dd4bf;
-  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+  box-shadow:
+    0 0 0 3px rgba(45, 212, 191, 0.15),
+    0 0 8px rgba(45, 212, 191, 0.7);
   flex-shrink: 0;
 }
 .zt-tl-label {
@@ -273,4 +291,7 @@
 }
 .zt-external-link:hover {
   background: rgba(45, 212, 191, 0.2);
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 234, 212, 0.4),
+    0 0 14px -2px rgba(45, 212, 191, 0.6);
 }
