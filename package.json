@@ -1,5 +1,6 @@
 {
   "name": "hao123",
+  "description": "极简个人工作台：聚合和风天气与禅道任务管理，纯前端、本地持久化",
   "private": true,
   "version": "0.0.0",
   "type": "module",

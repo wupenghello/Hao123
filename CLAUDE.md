@@ -20,18 +20,19 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 
 ```
 App.vue (router-view)
   └─ Layout.vue (single-page layout)
-       └─ status/StatusBar.vue   (顶部状态栏外壳：固定高度，三栏插槽)
-            ↑ 通过具名插槽注入内容，Layout.vue 填充 #right(WeatherWidget + StatusTime)
-            ↑ 可用插槽：#left / #center / #right
+       ├─ status/StatusBar.vue   (顶部状态栏外壳：固定高度，三栏插槽)
+       │    ↑ 通过具名插槽注入内容，Layout.vue 填充 #right(WeatherWidget + StatusTime)
+       │    ↑ 可用插槽：#left / #center / #right
+       └─ <main> 主内容区：渲染 <ZentaoPanel />（来自禅道特性模块）
 
-`WeatherWidget` 来自天气特性模块 `@/features/weather`（见下节）；外部只从该 barrel 引入，不触达模块内部路径。
+`WeatherWidget` 来自天气特性模块 `@/features/weather`，`ZentaoPanel` 来自禅道特性模块 `@/features/zentao`（均见下节）；外部只从各自 barrel 引入，不触达模块内部路径。
 ```
 
 ### 天气模块（`src/features/weather/`，自包含特性模块）
@@ -48,6 +49,21 @@ App.vue (router-view)
 | `components/` | `WeatherWidget` 等 Vue 组件（对外只导出 `WeatherWidget`，其余为内部实现） |
 
 **和风 API Host：** 新版账户需在 `.env` 配 `VITE_QWEATHER_API_HOST`（专用域名），dev 代理见 `vite.config.ts` 的 `/qweather`、`/qgeo`。
+
+### 禅道模块（`src/features/zentao/`，自包含特性模块）
+
+禅道集成同样收拢为自包含特性模块，外部统一从 `@/features/zentao` 引入（barrel `index.ts`）；`task/` 与 `bug/` 子模块互不依赖：
+
+| 路径 | 职责 |
+|---|---|
+| `shared/` | 公共层：`http.ts`（鉴权 HTTP 核心，自动带 session cookie）、`session.ts`（会话 store，持久化 session ID 到 `hao123-zentao-sid`）、`types.ts` / `ui.ts` / `detail.css` |
+| `task/` | 「我的任务」：`types.ts` · `api.ts` · `store.ts` · `ui.ts` · `components/TaskPanel`(+`TaskDetailModal`) |
+| `bug/` | 「我的 Bug」：`types.ts` · `api.ts` · `store.ts` · `ui.ts` · `components/BugPanel`(+`BugDetailModal`) |
+| `components/ZentaoPanel.vue` | 容器组件，把任务、Bug 两块并排组合；对外只导出 `ZentaoPanel` |
+
+任务 / Bug 详情弹窗均复用项目级公共组件 `@/components/common/DetailModal.vue`。
+
+**环境变量：** `.env` 需配 `VITE_ZENTAO_BASE` / `VITE_ZENTAO_ACCOUNT` / `VITE_ZENTAO_PASSWORD`；dev 代理见 `vite.config.ts` 的 `/zentao`（规避浏览器跨域与 `Set-Cookie` 丢失）。
 
 ### Icons
 
