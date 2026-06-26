@@ -19,6 +19,7 @@ import TaskDetailModal from '../task/components/TaskDetailModal.vue'
 import BugDetailModal from '../bug/components/BugDetailModal.vue'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
+import IconClipboardCheck from '~icons/mdi/clipboard-check-outline'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
@@ -83,9 +84,13 @@ onUnmounted(() => {
     <!-- 加载中 -->
     <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">加载中…</div>
 
-    <!-- 空态 -->
-    <div v-else-if="empty" class="px-4 py-8 text-center text-sm text-white/45">
-      🎉 当前没有指派给你的任务或 Bug
+    <!-- 空态：清闲卡片（图标光晕 + 标题 + 副文案），撑起首页主角的视觉分量 -->
+    <div v-else-if="empty" class="zt-inbox-empty">
+      <span class="zt-inbox-empty-icon">
+        <IconClipboardCheck class="w-6 h-6" />
+      </span>
+      <p class="zt-inbox-empty-title">没有指派给你的任务或 Bug</p>
+      <p class="zt-inbox-empty-sub">新的指派会出现在这里，趁现在喘口气</p>
     </div>
 
     <!-- 待办列表（任务在前、Bug 在后） -->
@@ -185,6 +190,36 @@ onUnmounted(() => {
   border-radius: 5px;
   font-size: 11px;
   font-weight: 500;
+}
+
+/* 空态：清闲卡片 —— 无待办时撑起主角视觉分量，沿用 header 脉冲的青色调，不喧宾夺主 */
+.zt-inbox-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 16px;
+  text-align: center;
+}
+.zt-inbox-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 4px;
+  border-radius: 9999px;
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.1);
+  box-shadow: 0 0 22px rgba(45, 212, 191, 0.15);
+}
+.zt-inbox-empty-title {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.zt-inbox-empty-sub {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 /* 头部状态点：有待办时青色脉冲，无则灰静止 */
