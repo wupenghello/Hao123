@@ -23,6 +23,16 @@ export interface ToolActivity {
   detail?: string
   /** 执行状态 */
   status: 'running' | 'done' | 'error'
+  /** 开始时间戳（ms） */
+  startTime?: number
+  /** 结束时间戳（ms） */
+  endTime?: number
+  /** 工具返回的原始结果（用于预览） */
+  result?: string
+  /** 是否展开预览详情 */
+  expanded?: boolean
+  /** 执行耗时（ms），结束时计算 */
+  duration?: number
 }
 
 /** 对话消息（与 DeepSeek/OpenAI chat/completions 的 message 对齐） */

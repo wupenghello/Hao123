@@ -37,6 +37,17 @@ import type { ChatMessage, ToolActivity } from './types'
 /** agent 循环最大轮数，防止工具调用失控 */
 const MAX_ROUNDS = 5
 
+/**
+ * 工具结果用于 UI 预览的截断长度。完整结果仍保存在 tool 消息里供模型消费，
+ * 这里只截断挂在 activity 上的预览——activity 随消息一起被 useStorage 深监听持久化，
+ * 若存完整结果（kb.search 一次可达数十 KB），多次工具调用会把 localStorage 撑爆。
+ */
+const RESULT_PREVIEW_MAX = 800
+function previewResultJson(result: unknown): string {
+  const json = JSON.stringify(result)
+  return json.length > RESULT_PREVIEW_MAX ? json.slice(0, RESULT_PREVIEW_MAX) + '\n…（已截断，完整结果已带入上下文）' : json
+}
+
 // ============ 轻量意图分类（本地回答，省 LLM 调用）============
 
 type LocalIntent = { type: 'time'; answer: string } | { type: 'ui'; action: () => void; answer: string }
@@ -278,6 +289,8 @@ export const useChatStore = defineStore('chat', () => {
           label: toolLabel(c.function.name),
           detail: toolDetail(c.function.name, parsedArgs[i]),
           status: 'running' as const,
+          startTime: Date.now(),
+          expanded: false,
         }))
 
         // 并行执行所有工具调用
@@ -288,16 +301,23 @@ export const useChatStore = defineStore('chat', () => {
             const args = parsedArgs[i]
             if (args.__parseError) {
               activity.status = 'error'
+              activity.endTime = Date.now()
+              activity.duration = activity.endTime - activity.startTime!
               return `工具参数解析失败，原始内容: ${String(args.raw || '').slice(0, 200)}`
             }
             let result: unknown
             try {
               result = await callTool(call.function.name, args)
               activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+              activity.result = previewResultJson(result)
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
               activity.status = 'error'
+              activity.result = previewResultJson(result)
             }
+            // 记录结束时间和耗时
+            activity.endTime = Date.now()
+            activity.duration = activity.endTime - activity.startTime!
             // 工具结果原样返回（不截断），保证信息完整；如个别工具结果过大，
             // 后续在切片层控制片段大小，而非在工具层丢数据。
             return JSON.stringify(result)
@@ -391,6 +411,91 @@ export const useChatStore = defineStore('chat', () => {
     await runAgentLoop()
   }
 
+  /**
+   * 重试单个失败的工具调用。
+   * 成功后用新结果替换对应 tool 消息，截断其后的旧答复并重跑 agent 循环，
+   * 让模型基于新结果重新作答（否则可见的助手回答仍是失败时的旧文本）。
+   * @param messageIndex 消息索引
+   * @param activityIndex 活动索引
+   */
+  async function retryTool(messageIndex: number, activityIndex: number) {
+    if (streaming.value) return
+    const msg = messages.value[messageIndex]
+    if (!msg || !msg.activities || !msg.tool_calls) return
+
+    const activity = msg.activities[activityIndex]
+    const toolCall = msg.tool_calls[activityIndex]
+    if (!activity || !toolCall) return
+
+    // 重置活动状态
+    activity.status = 'running'
+    activity.startTime = Date.now()
+    activity.endTime = undefined
+    activity.duration = undefined
+    activity.result = undefined
+
+    // 参数解析单独处理，给出准确的「参数解析失败」语义（而非混入「工具执行失败」）
+    let args: Record<string, unknown>
+    try {
+      args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {}
+    } catch {
+      activity.status = 'error'
+      activity.result = previewResultJson({ error: '工具参数解析失败，原始内容已不可用' })
+      activity.endTime = Date.now()
+      activity.duration = activity.endTime - activity.startTime!
+      return
+    }
+
+    let result: unknown
+    try {
+      result = await callTool(toolCall.function.name, args)
+      activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+      activity.result = previewResultJson(result)
+      activity.endTime = Date.now()
+      activity.duration = activity.endTime - activity.startTime!
+
+      // await 期间用户可能已发起新对话；此时放弃后续重跑，避免与进行中的循环抢改消息
+      if (streaming.value) return
+      if (activity.status !== 'done') return
+
+      // 用新结果更新对应的 tool 消息
+      let toolMsgIndex = -1
+      for (let i = messageIndex + 1; i < messages.value.length; i++) {
+        if (messages.value[i].role === 'tool' && messages.value[i].tool_call_id === toolCall.id) {
+          messages.value[i].content = JSON.stringify(result)
+          toolMsgIndex = i
+          break
+        }
+      }
+      if (toolMsgIndex < 0) return
+
+      // 截断到「本条 assistant 发起的连续 tool 消息」末尾（多工具并行也安全），
+      // 丢弃其后基于失败结果生成的旧答复，再重跑让模型重新作答。
+      let lastToolIdx = toolMsgIndex
+      for (let i = toolMsgIndex + 1; i < messages.value.length; i++) {
+        if (messages.value[i].role === 'tool') lastToolIdx = i
+        else break
+      }
+      messages.value = messages.value.slice(0, lastToolIdx + 1)
+      await runAgentLoop()
+    } catch (e) {
+      result = { error: (e as Error)?.message || '工具执行失败' }
+      activity.status = 'error'
+      activity.result = previewResultJson(result)
+      activity.endTime = Date.now()
+      activity.duration = activity.endTime - activity.startTime!
+    }
+  }
+
+  /**
+   * 切换工具活动详情展开/收起
+   */
+  function toggleActivityExpand(messageIndex: number, activityIndex: number) {
+    const msg = messages.value[messageIndex]
+    if (!msg?.activities?.[activityIndex]) return
+    msg.activities[activityIndex].expanded = !msg.activities[activityIndex].expanded
+  }
+
   return {
     open,
     messages,
@@ -408,5 +513,7 @@ export const useChatStore = defineStore('chat', () => {
     send,
     regenerate,
     rate,
+    retryTool,
+    toggleActivityExpand,
   }
 })

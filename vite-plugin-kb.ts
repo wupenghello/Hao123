@@ -24,39 +24,70 @@ const VIRTUAL_ID = 'virtual:kb-docs'
 const RESOLVED_ID = '\0' + VIRTUAL_ID
 
 /**
- * 读取本地文件夹下全部 .md 文档，解析标题（首个 # 一级标题）。
- * 跳过子目录与不可读文件（不因单个坏文件拖垮整个知识库）。
+ * 递归读取文件夹下全部 .md 文档，解析标题（首个 # 一级标题）。
+ * 遍历子目录（Obsidian 等笔记库普遍按文件夹分类存放，顶层往往没有 .md），
+ * 但跳过隐藏目录（.obsidian / .trash / .git 等是配置/回收站，非知识内容）
+ * 与不可读文件，不因单个坏文件拖垮整个知识库。
+ *
+ * 类型判定用 fs.statSync（跟随符号链接），使链接进来的子目录 / .md 也能被收录
+ * （云同步、共享笔记常用 symlink / junction 接入）；并用 realpath 集合防环，
+ * 避免链接回指祖先造成无限递归。
  * 目录不存在时返回 null，由调用方决定是报错还是降级为空。
  */
 function readLocalDir(dir: string): { doc: string; title: string; content: string }[] | null {
   if (!dir || !fs.existsSync(dir)) return null
-  let entries: string[]
-  try {
-    entries = fs.readdirSync(dir)
-  } catch {
-    return []
-  }
-  return entries
-    .filter((f) => /\.md$/i.test(f))
-    .flatMap((f) => {
-      const full = path.join(dir, f)
-      // 跳过子目录（如 .md 结尾的文件夹）与不可读文件，避免 EISDIR/EACCES 中断
-      let stat
+  const out: { doc: string; title: string; content: string }[] = []
+  const visited = new Set<string>()
+
+  const walk = (folder: string) => {
+    // 用真实路径防环（symlink / junction 回指祖先时不再二次下钻）
+    let real: string
+    try {
+      real = fs.realpathSync(folder)
+    } catch {
+      return
+    }
+    if (visited.has(real)) return
+    visited.add(real)
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const ent of entries) {
+      // 跳过隐藏项（.obsidian / .trash / .DS_Store 等）
+      if (ent.name.startsWith('.')) continue
+      const full = path.join(folder, ent.name)
+      // statSync 跟随符号链接判定真实类型；Dirent 的 isDirectory/isFile
+      // 对 symlink 返回 false，会让链接进来的目录/文件被静默丢弃。
+      let stat: fs.Stats
       try {
         stat = fs.statSync(full)
       } catch {
-        return []
+        continue
       }
-      if (!stat.isFile()) return []
+      if (stat.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!stat.isFile() || !/\.md$/i.test(ent.name)) continue
       let raw: string
       try {
         raw = fs.readFileSync(full, 'utf-8')
       } catch {
-        return []
+        continue
       }
-      const doc = f.replace(/\.md$/i, '')
-      return { doc, title: docTitle(raw, doc), content: raw }
-    })
+      // doc 用相对根目录的路径（POSIX 斜杠、去扩展名）：既保证跨子目录唯一，
+      // 也把分类（如 06-环境入口）带进标识，回传给 LLM 时更有上下文。
+      const rel = path.relative(dir, full).replace(/\\/g, '/').replace(/\.md$/i, '')
+      out.push({ doc: rel, title: docTitle(raw, rel), content: raw })
+    }
+  }
+
+  walk(dir)
+  return out
 }
 
 /**
@@ -89,15 +120,22 @@ export function kbPlugin(source: string): Plugin {
     configureServer(server) {
       if (!isLocal || !dir || !fs.existsSync(dir)) return
       server.watcher.add(dir)
-      server.watcher.on('change', (file) => {
-        if (file && path.resolve(file).startsWith(dir) && /\.md$/i.test(file)) {
-          const mod = server.moduleGraph.getModuleById(RESOLVED_ID)
-          if (mod) {
-            server.moduleGraph.invalidateModule(mod)
-            server.ws.send({ type: 'full-reload' })
-          }
+      // 仅 .md 且不在隐藏目录（.obsidian / .trash 等）下才触发重载，
+      // 与 readLocalDir 的收录口径保持一致。
+      // change/add/unlink 都要管：新增或删除 .md 也需让虚拟模块失效，否则
+      // 递归收录的新文档不生效（用户得手动刷新，甚至读到模块图里的旧缓存）。
+      const reloadIfKb = (file: string) => {
+        const rel = path.relative(dir, file).replace(/\\/g, '/')
+        if (!rel || rel.split('/').some((seg) => seg.startsWith('.')) || !/\.md$/i.test(file)) return
+        const mod = server.moduleGraph.getModuleById(RESOLVED_ID)
+        if (mod) {
+          server.moduleGraph.invalidateModule(mod)
+          server.ws.send({ type: 'full-reload' })
         }
-      })
+      }
+      server.watcher.on('change', reloadIfKb)
+      server.watcher.on('add', reloadIfKb)
+      server.watcher.on('unlink', reloadIfKb)
     },
   }
 }
