@@ -23,7 +23,7 @@ import { useStorage } from '@/composables/useStorage'
 import { useWeatherStore } from '@/features/weather'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
-import { callTool, toolLabel, toolDetail, selectToolsForIntent } from './tools'
+import { callTool, toolLabel, toolDetail, selectToolsForIntent, kbEnabled } from './tools'
 import {
   daypart,
   formatDate,
@@ -82,6 +82,11 @@ function buildCapabilitiesFromTools(): string[] {
     lines.push('- 禅道（只读查看，无法新建或修改）：我的任务列表与详情、我的 Bug 列表与详情。')
   }
 
+  // 检查是否有知识库工具（依据真实配置：已配置来源才暴露 kb.search）
+  if (kbEnabled) {
+    lines.push('- 项目知识库：开发/测试/预发/生产各环境域名、部署流程、个人笔记、常见问答等内部文档。')
+  }
+
   return lines
 }
 
@@ -94,6 +99,7 @@ const STATIC_SYSTEM_PROMPT = [
   '',
   '# 工作方式',
   '- 涉及天气或禅道数据时，必须先调用对应工具拿到真实数据再回答，绝不凭空编造数字或结论。',
+  '- 涉及项目内部信息（环境域名、部署流程、内部约定、笔记、FAQ）时，先调用 kb.search 检索知识库再回答，绝不凭记忆编造地址或流程。',
   '- 用户没指明地点/日期时，用下方「当前上下文」里的默认城市与当前日期补全，直接执行，不要反问。',
   '- 一个问题可能需要多次/多个工具配合（如先搜城市再查天气、先列任务再看详情），自行规划。',
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',

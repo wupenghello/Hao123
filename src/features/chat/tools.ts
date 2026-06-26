@@ -8,6 +8,8 @@
  */
 import { weatherToolDefs, callWeatherTool } from '@/features/weather'
 import { zentaoToolDefs, callZentaoTool } from '@/features/zentao'
+import { kbToolDefs, callKbTool } from '@/features/kb'
+import { kbConfig } from '@/features/kb/config'
 import type { LlmToolDef } from './llm/types'
 
 /** OpenAI 兼容的工具声明形态 */
@@ -28,10 +30,14 @@ function toOpenAi(defs: LlmToolDef[]): OpenAiTool[] {
   return defs.map((d) => ({ type: 'function', function: { ...d, name: toWireName(d.name) } }))
 }
 
-/** 喂给 DeepSeek 的全部工具（天气 + 禅道只读查看） */
+/** 知识库是否已配置（有本地路径或远程 URL）；未配置时不把 kb 工具暴露给模型 */
+export const kbEnabled = kbConfig.hasSource
+
+/** 喂给 DeepSeek 的全部工具（天气 + 禅道只读查看 + 知识库检索） */
 export const openAiTools: OpenAiTool[] = [
   ...toOpenAi(weatherToolDefs),
   ...toOpenAi(zentaoToolDefs),
+  ...(kbEnabled ? toOpenAi(kbToolDefs) : []),
 ]
 
 /**
@@ -52,15 +58,29 @@ export function selectToolsForIntent(userMessage: string): OpenAiTool[] {
     '任务', 'bug', '缺陷', '禅道', '工时', '进度', '指派', '待办',
     '需求', '故事', '测试', '修复', '解决', '优先级',
   ]
+  // 知识库意图关键词（项目内部信息：环境/域名/部署等）
+  // 注意「测试」同时是禅道关键词——「测试环境域名」会同时命中禅道+知识库，
+  // 下面用「命中类别的并集」处理，把两类都给模型，避免误判。
+  const kbKeywords = [
+    '环境', '域名', '部署', '发布', '上线', '笔记', 'faq', '常见问题',
+    '知识库', '地址', '文档',
+  ]
 
   const hasWeather = weatherKeywords.some((kw) => text.includes(kw))
   const hasZentao = zentaoKeywords.some((kw) => text.includes(kw))
+  // 知识库关键词命中后，仍需 kbEnabled（已配置来源）才纳入，避免未配置时塞空工具
+  const hasKb = kbEnabled && kbKeywords.some((kw) => text.includes(kw))
 
-  // 明确只涉及一类 → 只传该类工具
-  if (hasWeather && !hasZentao) return toOpenAi(weatherToolDefs)
-  if (hasZentao && !hasWeather) return toOpenAi(zentaoToolDefs)
+  // 命中任意一类 → 返回命中类别的并集（多类同时命中时都给模型，由它自行选择）
+  if (hasWeather || hasZentao || hasKb) {
+    const defs: LlmToolDef[] = []
+    if (hasWeather) defs.push(...weatherToolDefs)
+    if (hasZentao) defs.push(...zentaoToolDefs)
+    if (hasKb) defs.push(...kbToolDefs)
+    return toOpenAi(defs)
+  }
 
-  // 涉及两类或都匹配不到 → 传全部
+  // 都没匹配到 → 传全部（兜底，最可能是项目知识类问题或通用闲聊）
   return openAiTools
 }
 
@@ -73,6 +93,7 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
   const realName = fromWireName(name)
   if (realName.startsWith('weather.')) return callWeatherTool(realName, args)
   if (realName.startsWith('zentao.')) return callZentaoTool(realName, args)
+  if (realName.startsWith('kb.')) return callKbTool(realName, args)
   throw new Error(`未知工具：${realName}`)
 }
 
@@ -88,6 +109,7 @@ const TOOL_LABELS: Record<string, string> = {
   'zentao__task_detail': '查询任务详情',
   'zentao__my_bugs': '查询我的 Bug',
   'zentao__bug_detail': '查询 Bug 详情',
+  'kb__search': '检索知识库',
 }
 
 /** 取工具的人类可读标签；未知工具回退为还原后的原始名 */
@@ -101,7 +123,8 @@ export function toolLabel(wireName: string): string {
  */
 export function toolDetail(_wireName: string, args: Record<string, unknown>): string {
   const parts: string[] = []
-  const loc = (args.city as string) || (args.coord as string) || (args.keyword as string)
+  const loc =
+    (args.city as string) || (args.coord as string) || (args.keyword as string) || (args.query as string)
   if (loc) parts.push(String(loc))
   if (args.days) parts.push(`${args.days} 天`)
   if (args.hours) parts.push(`${args.hours} 小时`)

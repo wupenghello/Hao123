@@ -65,6 +65,29 @@ App.vue (router-view)
 
 **环境变量：** `.env` 需配 `VITE_ZENTAO_BASE` / `VITE_ZENTAO_ACCOUNT` / `VITE_ZENTAO_PASSWORD`；dev 代理见 `vite.config.ts` 的 `/zentao`（规避浏览器跨域与 `Set-Cookie` 丢失）。
 
+### 知识库模块（`src/features/kb/`，自包含特性模块）
+
+知识库以工具形式暴露给 LLM，与天气 / 禅道工具层同构（`kbToolDefs` + `callKbTool`），在 `chat/tools.ts` 聚合并按意图分发；外部统一从 `@/features/kb` 引入：
+
+| 路径 | 职责 |
+|---|---|
+| `config.ts` | KB 来源配置（`kbConfig`，env `VITE_KB_SOURCE` 驱动；`isRemote` / `hasSource`） |
+| `shared.ts` | 公共谓词 `isHttpSource`（Node 插件与浏览器侧 config 共用，无 fs 依赖） |
+| `types.ts` | 文档原文 `RawDoc` / 片段 `KbChunk` 类型 |
+| `source.ts` | 加载文档原文 `loadKbDocs`：本地走虚拟模块、远程 fetch manifest（带超时 + abort + 形状校验，in-flight Promise 去重） |
+| `chunker.ts` | 按二级标题切分片段 `chunkDoc` + 标题提取 `docTitle`（纯函数；入口去 `\r` 兼容 CRLF） |
+| `loader.ts` | 加载 + 切片 + 缓存 `getKbChunks`（缓存 Promise 去重并发）+ `clearKbCache` |
+| `search.ts` | 关键词检索 `searchKb`（async；中文双字 bigram + 英文词，标题加权，适配 <50 篇） |
+| `llm-tools.ts` | LLM 工具层 `kbToolDefs`（声明）+ `callKbTool`（执行，工具名 `kb.search`；出错返回 `{error}` 对齐禅道） |
+
+**文档不放进项目：** 通过 `.env` 的 `VITE_KB_SOURCE` 指向项目外的来源，二选一：
+- 本地文件夹路径（如 `D:/projects/hao123-kb`，Windows 用正斜杠）：由根目录 `vite-plugin-kb.ts` 在 dev/构建时读取 `*.md` 并注入虚拟模块 `virtual:kb-docs`；dev 改文档后刷新生效（插件已声明文件依赖并触发热更新），生产随构建打进包。**目录不存在时构建直接报错**（不静默打包空库）。
+- http(s) URL：前端运行时 fetch，须返回 JSON 数组 `[{doc,title,content}, ...]`；浏览器直接 fetch 无代理，地址须同源或开放 CORS。
+
+未配置（`VITE_KB_SOURCE` 为空）时不把 kb 工具暴露给模型，system prompt 也不宣称知识库能力（`chat/tools.ts` 的 `kbEnabled` 门控）。
+
+首个 `#` 为文档标题、`##` 为段落切分点。**检索后端可替换：** 当前为浏览器内关键词检索，日后换向量 / 外部 RAG 仅改 `search.ts`，工具接口与上层不变。
+
 ### Icons
 
 Use `import IconXxx from '~icons/<collection>/<name>'` (e.g., `~icons/mdi/pencil`). The `unplugin-icons` plugin auto-installs from `@iconify/json`. Type declarations are in `src/env.d.ts`.

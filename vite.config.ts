@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import Icons from 'unplugin-icons/vite'
+import { kbPlugin } from './vite-plugin-kb'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -20,6 +21,11 @@ export default defineConfig(({ mode }) => {
   // DeepSeek（OpenAI 兼容）API 地址；走 /deepseek 代理转发，规避浏览器跨域。
   const deepseekTarget = env.VITE_DEEPSEEK_BASE || 'https://api.deepseek.com'
 
+  // 知识库来源（VITE_KB_SOURCE）：本地文件夹路径或 http manifest URL。
+  // 本地路径由根目录 vite-plugin-kb.ts 在 dev/构建时读取并注入虚拟模块；
+  // 远程 URL 由前端直接 fetch（见 source.ts），需地址同源或开放 CORS。
+  const kbSource = env.VITE_KB_SOURCE || ''
+
   return {
     plugins: [
       vue(),
@@ -28,6 +34,8 @@ export default defineConfig(({ mode }) => {
         compiler: 'vue3',
         autoInstall: true,
       }),
+      // 知识库本地源：读取 VITE_KB_SOURCE 指向的文件夹，注入 'virtual:kb-docs'
+      kbPlugin(kbSource),
     ],
     resolve: {
       alias: {

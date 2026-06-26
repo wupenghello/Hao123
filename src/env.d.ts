@@ -28,6 +28,13 @@ interface ImportMetaEnv {
   readonly VITE_DEEPSEEK_MODEL?: string
   /** LLM API 根地址（可选，默认 https://api.deepseek.com） */
   readonly VITE_DEEPSEEK_BASE?: string
+  /** 知识库来源：本地文件夹路径（如 D:/projects/hao123-kb）或 manifest 的 http URL */
+  readonly VITE_KB_SOURCE?: string
+}
+
+/** 知识库虚拟模块（由 vite-plugin-kb.ts 在 dev/构建时注入本地文档原文） */
+declare module 'virtual:kb-docs' {
+  export const docs: { doc: string; title: string; content: string }[]
 }
 
 interface ImportMeta {
