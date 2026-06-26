@@ -20,7 +20,7 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 

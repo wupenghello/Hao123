@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import { authApi, ZentaoApiError } from './http'
+import { ZENTAO_MOCK } from './mock'
 import type { ZentaoUser } from './types'
 
 /**
@@ -18,7 +19,8 @@ export const useZentaoSession = defineStore('zentao-session', () => {
   // ============ 凭证（来自 .env，构建期注入）============
   const account = import.meta.env.VITE_ZENTAO_ACCOUNT || ''
   const password = import.meta.env.VITE_ZENTAO_PASSWORD || ''
-  const configured = !!(import.meta.env.VITE_ZENTAO_BASE && account && password)
+  // 演示模式视为已配置（无需真实地址即可预览）；否则要求三项齐全
+  const configured = ZENTAO_MOCK || !!(import.meta.env.VITE_ZENTAO_BASE && account && password)
 
   // ============ 会话（缓存复用，避免每次进页面都重新登录）============
   const sessionID = useStorage<string>('hao123-zentao-sid', '')
@@ -43,6 +45,8 @@ export const useZentaoSession = defineStore('zentao-session', () => {
    * @returns 可用的 sessionID
    */
   async function ensureSession(force = false, signal?: AbortSignal): Promise<string> {
+    // 演示模式：不连真实禅道，返回占位会话；后续 api 层会短路到本地假数据
+    if (ZENTAO_MOCK) return 'mock-session'
     if (!configured) {
       throw new ZentaoApiError('no-key', '未配置禅道连接信息，请在 .env 中设置 VITE_ZENTAO_BASE / ACCOUNT / PASSWORD')
     }

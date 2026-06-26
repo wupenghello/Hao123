@@ -6,6 +6,7 @@
  *   Bug 详情  GET  bug-view-<id>.json?zentaosid=
  */
 import { request, toArray, ZentaoApiError, type RequestOptions } from '../shared/http'
+import { ZENTAO_MOCK, mockMyBugs, mockBugDetail } from '../shared/mock'
 import type { ZentaoBug, MyBugData, BugDetailData } from './types'
 
 export const bugApi = {
@@ -22,6 +23,7 @@ export const bugApi = {
     limit = 500,
     opts?: RequestOptions,
   ): Promise<ZentaoBug[]> {
+    if (ZENTAO_MOCK) return mockMyBugs(status)
     const env = await request(`my-bug-${status}-id_desc-1-${limit}`, sid, {}, opts)
     return toArray<ZentaoBug>((env.data as MyBugData)?.bugs)
   },
@@ -32,6 +34,11 @@ export const bugApi = {
    * 真实产品/项目名从顶层补全。
    */
   async bugDetail(sid: string, id: string | number, opts?: RequestOptions): Promise<ZentaoBug> {
+    if (ZENTAO_MOCK) {
+      const b = mockBugDetail(id)
+      if (!b) throw new ZentaoApiError('parse', '未能获取 Bug 详情')
+      return b
+    }
     const env = await request(`bug-view-${id}`, sid, {}, opts)
     const data = env.data as BugDetailData
     const bug = data?.bug

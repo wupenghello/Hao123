@@ -21,6 +21,7 @@
  */
 import { weatherApi, WeatherApiError, type DailyDays, type HourlyHours } from './api'
 import { searchCities, type CityItem } from './city-data'
+import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
 import type {
   WeatherNow,
   WeatherDaily,
@@ -33,19 +34,6 @@ import type {
 export interface LocationInput {
   city?: string
   coord?: string // "纬度,经度"
-}
-
-/** provider 无关的工具声明（喂给 LLM 的部分，不含执行器） */
-export interface LlmToolDef {
-  name: string
-  description: string
-  /** 参数的 JSON Schema（provider 无关） */
-  parameters: Record<string, unknown>
-}
-
-/** 完整工具：声明 + 执行器。P 默认宽松，便于注册成统一数组 */
-export interface LlmTool<P = Record<string, unknown>, R = unknown> extends LlmToolDef {
-  execute(params: P): Promise<R>
 }
 
 // ============ 小工具 ============
@@ -153,7 +141,10 @@ const locationProps = {
 /** 1. 实况天气 */
 const currentTool: LlmTool<LocationInput> = {
   name: 'weather.current',
-  description: '查询某城市/坐标的实时天气：温度、体感、天气现象、湿度、风力、降水、能见度等。',
+  description:
+    '查询某城市当前此刻的实时天气（温度、体感、天气现象、湿度、风力、降水、能见度等）。' +
+    '【适用】用户问"现在天气""外面多少度""在下雨吗""今天冷不冷"等当前时刻的问题。' +
+    '【不适用】用户问"明天""这周""未来几天"——请用 forecast_daily 或 forecast_hourly。',
   parameters: { type: 'object', properties: locationProps },
   async execute(params) {
     const { coord, name } = resolveLocation(params)
@@ -165,7 +156,10 @@ const currentTool: LlmTool<LocationInput> = {
 /** 2. 每日预报 */
 const dailyTool: LlmTool<LocationInput & { days?: number }> = {
   name: 'weather.forecast_daily',
-  description: '查询未来每日天气预报（白天/夜间天气、最高最低温、风力、日出日落），默认 7 天，可选 3/7/10/15 天。',
+  description:
+    '查询未来每日天气预报（白天/夜间天气、最高最低温、风力、日出日落），默认 7 天，可选 3/7/10/15 天。' +
+    '【适用】用户问"明天天气""这周会下雨吗""下周冷不冷""未来几天天气"等按天维度的问题。' +
+    '【不适用】用户问"现在""今天几点会下雨"——请用 current 或 forecast_hourly。',
   parameters: {
     type: 'object',
     properties: { ...locationProps, days: { type: 'integer', enum: [3, 7, 10, 15], description: '预报天数，默认 7' } },
@@ -180,7 +174,10 @@ const dailyTool: LlmTool<LocationInput & { days?: number }> = {
 /** 3. 逐小时预报 */
 const hourlyTool: LlmTool<LocationInput & { hours?: number }> = {
   name: 'weather.forecast_hourly',
-  description: '查询逐小时天气预报（每小时温度、天气、降水概率、湿度、风力），默认 24 小时，可选 24/72/168 小时。',
+  description:
+    '查询逐小时天气预报（每小时温度、天气、降水概率、湿度、风力），默认 24 小时，可选 24/72/168 小时。' +
+    '【适用】用户问"今天下午几点下雨""晚上温度多少""未来两天每小时天气"等精细到小时的问题。' +
+    '【不适用】用户只问"明天天气"而不需要逐小时细节——请用 forecast_daily（更省 token）。',
   parameters: {
     type: 'object',
     properties: { ...locationProps, hours: { type: 'integer', enum: [24, 72, 168], description: '预报时长（小时），默认 24' } },
@@ -195,7 +192,10 @@ const hourlyTool: LlmTool<LocationInput & { hours?: number }> = {
 /** 4. 分钟级降水 */
 const precipTool: LlmTool<LocationInput> = {
   name: 'weather.precipitation',
-  description: '查询未来 2 小时分钟级降水预报（逐 5 分钟降水量与降水类型），并给出文字摘要。适合回答"现在/马上会不会下雨"。',
+  description:
+    '查询未来 2 小时分钟级降水预报（逐 5 分钟降水量与降水类型），并给出文字摘要。' +
+    '【适用】用户问"马上会不会下雨""出门要带伞吗""接下来一小时降水"等短时降水问题。' +
+    '【不适用】用户问"明天会不会下雨"——请用 forecast_daily。',
   parameters: { type: 'object', properties: locationProps },
   async execute(params) {
     const { coord, name } = resolveLocation(params)
@@ -212,7 +212,10 @@ const precipTool: LlmTool<LocationInput> = {
 /** 5. 生活指数 */
 const indicesTool: LlmTool<LocationInput & { types?: string }> = {
   name: 'weather.life_indices',
-  description: '查询生活指数（穿衣、紫外线、洗车、感冒、运动、舒适度等，最多 16 项），默认返回全部。',
+  description:
+    '查询生活指数（穿衣、紫外线、洗车、感冒、运动、舒适度等，最多 16 项），默认返回全部。' +
+    '【适用】用户问"今天穿什么""紫外线强吗""适合运动吗""要不要戴口罩"等生活建议类问题。' +
+    '【不适用】用户只问温度/天气现象——请用 current。',
   parameters: {
     type: 'object',
     properties: {
@@ -237,7 +240,10 @@ const indicesTool: LlmTool<LocationInput & { types?: string }> = {
 /** 6. 城市搜索（本地库，不消耗 API 配额） */
 const searchTool: LlmTool<{ keyword: string }, CityItem[]> = {
   name: 'weather.search_city',
-  description: '在城市库中搜索城市，返回名称、所属省份、经纬度。用于在调用其它天气工具前确认城市名/坐标。不消耗 API 额度。',
+  description:
+    '在城市库中搜索城市，返回名称、所属省份、经纬度。' +
+    '【适用】用户提到的城市名模糊（如"浙""杭"）需要确认，或需要获取城市坐标时。不消耗 API 额度。' +
+    '【不适用】用户已给出完整城市名（如"北京""上海"）——直接传 city 给其它天气工具即可。',
   parameters: {
     type: 'object',
     properties: { keyword: { type: 'string', description: '城市名或省份关键字，如 "北京"、"浙江"' } },

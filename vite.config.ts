@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
   // 走 /zentao 代理转发，规避浏览器跨域与 Set-Cookie 丢失问题。
   const zentaoTarget = env.VITE_ZENTAO_BASE || 'http://localhost'
 
+  // DeepSeek（OpenAI 兼容）API 地址；走 /deepseek 代理转发，规避浏览器跨域。
+  const deepseekTarget = env.VITE_DEEPSEEK_BASE || 'https://api.deepseek.com'
+
   return {
     plugins: [
       vue(),
@@ -50,6 +53,21 @@ export default defineConfig(({ mode }) => {
           target: zentaoTarget,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/zentao/, ''),
+        },
+        // DeepSeek（OpenAI 兼容）：LLM 对话 / 工具调用
+        // 代理层注入 API Key，客户端不再携带，防止密钥暴露在前端包中
+        '/deepseek': {
+          target: deepseekTarget,
+          changeOrigin: true,
+          configure: (proxy) => {
+            const apiKey = env.VITE_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY || ''
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) {
+                proxyReq.setHeader('Authorization', `Bearer ${apiKey}`)
+              }
+            })
+          },
+          rewrite: (path) => path.replace(/^\/deepseek/, ''),
         },
       },
     },

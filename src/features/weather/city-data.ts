@@ -437,3 +437,27 @@ export function searchCities(keyword: string): CityItem[] {
       c.province.toLowerCase().includes(k),
   )
 }
+
+/**
+ * 按经纬度找最近的城市（Haversine 球面距离）
+ * GPS 自动定位时和风 GeoAPI 不可用，用本地城市库反查最近城市名兜底
+ */
+export function nearestCity(lat: number, lng: number): CityItem {
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const cosLat1 = Math.cos(toRad(lat))
+  let best = allCities[0]
+  let bestDist = Infinity
+  for (const c of allCities) {
+    const dLat = toRad(c.lat - lat)
+    const dLng = toRad(c.lng - lng)
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      cosLat1 * Math.cos(toRad(c.lat)) * Math.sin(dLng / 2) ** 2
+    const dist = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+    if (dist < bestDist) {
+      bestDist = dist
+      best = c
+    }
+  }
+  return best
+}

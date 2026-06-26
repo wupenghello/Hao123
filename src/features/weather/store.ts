@@ -2,6 +2,7 @@ import { ref, computed, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import { weatherApi, WeatherApiError } from './api'
+import { nearestCity } from './city-data'
 import { calcSunTimes } from './sun-times'
 import type {
   WeatherNow,
@@ -214,10 +215,10 @@ export const useWeatherStore = defineStore('weather', () => {
           locateMode.value = 'auto'
           locating.value = false
           resetLazy()
-          // GeoAPI 反查城市名；该账户 GeoAPI 不可用时会失败，回退通用标签，
-          // 避免把陈旧城市名（如默认"北京"）误显示到 GPS 定位结果上
+          // GeoAPI 反查城市名；该账户 GeoAPI 不可用时会失败，回退本地城市库按坐标最近匹配，
+          // 既不显示无意义的"当前位置"，也避免陈旧城市名（如默认"北京"）误挂到 GPS 定位结果上
           const name = await weatherApi.lookupByCoord(lng, lat).catch(() => null)
-          cityName.value = name || '当前位置'
+          cityName.value = name || nearestCity(Number(lat), Number(lng)).name
           fetchWeather()
           resolve(true)
         },

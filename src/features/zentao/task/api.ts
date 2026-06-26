@@ -6,6 +6,7 @@
  *   任务详情  GET  task-view-<id>.json?zentaosid=
  */
 import { request, toArray, ZentaoApiError, type RequestOptions } from '../shared/http'
+import { ZENTAO_MOCK, mockMyTasks, mockTaskDetail } from '../shared/mock'
 import type { ZentaoTask, MyTaskData, TaskDetailData } from './types'
 
 export const taskApi = {
@@ -23,6 +24,7 @@ export const taskApi = {
     limit = 200,
     opts?: RequestOptions,
   ): Promise<ZentaoTask[]> {
+    if (ZENTAO_MOCK) return mockMyTasks(status)
     const env = await request(`my-task-${status}-id_desc-1-${limit}`, sid, {}, opts)
     return toArray<ZentaoTask>((env.data as MyTaskData)?.tasks)
   },
@@ -33,6 +35,11 @@ export const taskApi = {
    * 真实项目名在响应**顶层** project.name（task.projectName 常缺失），这里合并进 task。
    */
   async taskDetail(sid: string, id: string | number, opts?: RequestOptions): Promise<ZentaoTask> {
+    if (ZENTAO_MOCK) {
+      const t = mockTaskDetail(id)
+      if (!t) throw new ZentaoApiError('parse', '未能获取任务详情')
+      return t
+    }
     const env = await request(`task-view-${id}`, sid, {}, opts)
     const data = env.data as TaskDetailData
     const task = data?.task

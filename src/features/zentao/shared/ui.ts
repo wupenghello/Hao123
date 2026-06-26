@@ -69,6 +69,70 @@ export function hasDeadline(deadline?: string): boolean {
 }
 
 /**
+ * 把禅道截止日期（yyyy-MM-dd）解析为「本地零点」的 Date。
+ *
+ * 关键：`new Date("2024-06-25")` 按规范解析为 **UTC 零点**，与本地零点存在时区差，
+ * 在负 UTC 偏移（美洲）会把「今天到期」误判为已逾期。这里补上 `T00:00:00` 让其按
+ * **本地时间**解析，再与本地零点的 today 比较，保证任何时区下「今天到期」都不算逾期。
+ */
+function deadlineToLocalMidnight(deadline: string): Date | null {
+  // 已是 yyyy-MM-dd 或带时间；统一取前 10 位补本地零点
+  const day = deadline.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+  const d = new Date(`${day}T00:00:00`)
+  return isNaN(d.getTime()) ? null : d
+}
+
+/** 今日本地零点 */
+function localTodayMidnight(): Date {
+  const t = new Date()
+  t.setHours(0, 0, 0, 0)
+  return t
+}
+
+/** 任务/工单是否已逾期（截止日早于今天，按本地时区比较） */
+export function isOverdue(deadline?: string): boolean {
+  if (!hasDeadline(deadline)) return false
+  const dl = deadlineToLocalMidnight(deadline!)
+  if (!dl) return false
+  return dl.getTime() < localTodayMidnight().getTime()
+}
+
+/** 把 pri/severity 这类「string | number」规整为合法优先级数字；空/0/非法返回 null（视为未设置） */
+function toPriorityNum(v: string | number | undefined | null): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  if (!n || Number.isNaN(n)) return null // '' / '0' / 0 → 视为未设置，不误判为最高优先级
+  return n
+}
+
+/** 紧急任务判定结构（任务） */
+export interface UrgentTaskLike {
+  pri?: string | number
+  deadline?: string
+  status?: string
+}
+/** 紧急 Bug 判定结构 */
+export interface UrgentBugLike {
+  severity?: string | number
+  status?: string
+}
+
+/** 任务是否紧急：非终态 + 优先级 1~2，或已逾期 */
+export function isUrgentTask(t: UrgentTaskLike): boolean {
+  const s = t.status
+  if (s === 'done' || s === 'closed' || s === 'cancel') return false
+  const pri = toPriorityNum(t.pri)
+  if (pri != null && pri <= 2) return true
+  return isOverdue(t.deadline)
+}
+
+/** Bug 是否紧急：待解决（active）且严重度 1~2 */
+export function isUrgentBug(b: UrgentBugLike): boolean {
+  return b.status === 'active' && (toPriorityNum(b.severity) ?? 99) <= 2
+}
+
+/**
  * 过滤禅道的「伪值」：任务关闭后 assignedTo 会变成状态词（closed/done/cancel），
  * 还有空串 / '0' / '0000-00-00' 等，这些不该作为真实内容展示。
  * @returns 有意义的文本，否则空串

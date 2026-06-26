@@ -19,6 +19,13 @@ export const useTaskStore = defineStore('zentao-task', () => {
   const error = ref<string | null>(null)
   const count = computed(() => tasks.value.length)
 
+  // ============ 「指派给我」列表（首页待办提醒用，assignedTo 维度，与上面 finishedBy 独立）============
+  const assigned = ref<ZentaoTask[]>([])
+  const assignedLoading = ref(false)
+  const assignedError = ref<string | null>(null)
+  const assignedCount = computed(() => assigned.value.length)
+  let assignedAbort: AbortController | null = null
+
   // ============ 详情（点击列表项弹窗，按 id 懒加载 + 缓存）============
   const detailOpen = ref(false)
   const detail = ref<ZentaoTask | null>(null)
@@ -64,8 +71,50 @@ export const useTaskStore = defineStore('zentao-task', () => {
   }
 
   function stop() {
+    // 中止所有进行中的请求：列表 / 指派给我 / 详情。
+    // 详情也要中止——否则 ZentaoInbox 卸载时点击行的详情请求仍会跑完并把陈旧结果写回 store。
     abortController?.abort()
     abortController = null
+    assignedAbort?.abort()
+    assignedAbort = null
+    detailAbort?.abort()
+    detailAbort = null
+    // 被中止请求的 finally 会因 `xxxAbort === controller` 不成立而跳过复位，
+    // 这里主动复位各 loading，避免「中止后 loading 永远卡在 true」。
+    loading.value = false
+    assignedLoading.value = false
+    detailLoading.value = false
+  }
+
+  /**
+   * 拉取「指派给我」(assignedTo) 的任务，供首页待办提醒展示。
+   * 与 load()（finishedBy 维度）相互独立，各用各的 abortController 与状态，互不覆盖。
+   */
+  async function loadAssigned() {
+    assignedAbort?.abort()
+    const controller = new AbortController()
+    assignedAbort = controller
+    const signal = controller.signal
+
+    assignedLoading.value = true
+    assignedError.value = null
+
+    try {
+      const result = await session.withSession(
+        (sid) => taskApi.myTasks(sid, 'assignedTo', 200, { signal }),
+        signal,
+      )
+      if (signal.aborted) return
+      assigned.value = result
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return
+      assignedError.value = session.toMessage(e, '任务加载失败')
+    } finally {
+      if (assignedAbort === controller) {
+        assignedLoading.value = false
+        assignedAbort = null
+      }
+    }
   }
 
   /**
@@ -129,6 +178,12 @@ export const useTaskStore = defineStore('zentao-task', () => {
     error,
     load,
     stop,
+    // 「指派给我」列表（首页待办提醒）
+    assigned,
+    assignedCount,
+    assignedLoading,
+    assignedError,
+    loadAssigned,
     // 详情
     detailOpen,
     detail,
