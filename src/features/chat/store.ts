@@ -30,16 +30,12 @@ import {
   formatTime,
   truncateHistory,
   cleanupEmptyAssistant,
-  truncateAtJsonBoundary,
   MAX_HISTORY_TOKENS,
 } from './utils'
 import type { ChatMessage, ToolActivity } from './types'
 
 /** agent 循环最大轮数，防止工具调用失控 */
 const MAX_ROUNDS = 5
-
-/** 工具结果最大字符数；超过时在 JSON 边界处截断（约 6000 token） */
-const MAX_TOOL_RESULT = 4000
 
 // ============ 轻量意图分类（本地回答，省 LLM 调用）============
 
@@ -302,11 +298,9 @@ export const useChatStore = defineStore('chat', () => {
               result = { error: (e as Error)?.message || '工具执行失败' }
               activity.status = 'error'
             }
-            const serialized = JSON.stringify(result)
-            // 在 JSON 边界处截断，避免模型收到残缺 JSON
-            return serialized.length > MAX_TOOL_RESULT
-              ? truncateAtJsonBoundary(serialized, MAX_TOOL_RESULT)
-              : serialized
+            // 工具结果原样返回（不截断），保证信息完整；如个别工具结果过大，
+            // 后续在切片层控制片段大小，而非在工具层丢数据。
+            return JSON.stringify(result)
           }),
         )
 

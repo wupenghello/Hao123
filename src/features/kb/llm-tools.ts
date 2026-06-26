@@ -8,7 +8,8 @@
  *
  * 设计原则：
  *   - 数据来源可配置（本地文件夹 / 远程 manifest，见 config.ts），无固定后端依赖；
- *   - 返回值做「LLM 友好」裁剪（每个片段正文截断，省 token）；
+ *   - 片段正文原样返回（不截断），保证信息完整；如需省 token，应在切片层控制片段大小，
+ *     而非在工具层丢尾巴——否则长段落后半段（如凭据表里的 WiFi 项）会永远取不到；
  *   - 检索后端可替换（关键词 → 向量 / 外部 RAG 服务），工具接口不变。
  */
 import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
@@ -46,7 +47,7 @@ const searchTool: LlmTool<{ query: string; top_k?: number }> = {
         doc: h.doc,
         docTitle: h.docTitle,
         section: h.section || undefined,
-        content: h.content.length > 800 ? h.content.slice(0, 800) + '…' : h.content,
+        content: h.content,
       })),
     }
   },
