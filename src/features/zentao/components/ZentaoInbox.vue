@@ -20,6 +20,7 @@ import BugDetailModal from '../bug/components/BugDetailModal.vue'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
 import IconClipboardCheck from '~icons/mdi/clipboard-check-outline'
+import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
@@ -36,6 +37,16 @@ const empty = computed(
     !bugStore.assignedLoading &&
     total.value === 0,
 )
+/** 有错误（任意一个模块加载失败） */
+const hasError = computed(
+  () => taskStore.assignedError || bugStore.assignedError,
+)
+/** 统一的错误文案 */
+const errorMessage = computed(() => {
+  if (taskStore.assignedError) return taskStore.assignedError
+  if (bugStore.assignedError) return bugStore.assignedError
+  return null
+})
 
 // ============ 紧急项检测（逻辑集中在 shared/ui，与 WelcomePage 共用）============
 const urgentCount = computed(() => {
@@ -60,10 +71,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section
-    v-if="taskStore.configured || bugStore.configured"
-    class="w-full rounded-xl bg-white/[0.04] ring-1 ring-white/10 backdrop-blur-sm overflow-hidden"
-  >
+  <section class="w-full rounded-xl bg-white/[0.04] ring-1 ring-white/10 backdrop-blur-sm overflow-hidden">
     <!-- 头部 -->
     <header class="flex items-center gap-2 px-4 h-11 border-b border-white/10">
       <span class="zt-inbox-pulse" :class="{ 'is-active': total > 0, 'is-urgent': urgentCount > 0 }" />
@@ -76,13 +84,34 @@ onUnmounted(() => {
         v-if="urgentCount > 0"
         class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-rose-200 bg-rose-400/15 ring-1 ring-rose-400/25"
       >{{ urgentCount }} 紧急</span>
-      <span class="ml-auto text-[11px] text-white/35">
+      <span v-if="taskStore.configured && bugStore.configured" class="ml-auto text-[11px] text-white/35">
         {{ taskStore.assignedCount }} 任务 · {{ bugStore.assignedCount }} Bug
       </span>
     </header>
 
+    <!-- 未配置 -->
+    <div v-if="!taskStore.configured && !bugStore.configured" class="flex flex-col items-center gap-2 py-8 text-center text-white/50">
+      <IconAlert class="w-7 h-7 text-amber-300/70" />
+      <p class="text-sm">未配置禅道连接信息</p>
+      <p class="text-xs text-white/40">请在 .env 中设置 VITE_ZENTAO_BASE / ACCOUNT / PASSWORD 后重启 dev</p>
+    </div>
+
     <!-- 加载中 -->
-    <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">加载中…</div>
+    <div v-else-if="loading" class="px-4 py-8 text-center text-sm text-white/45">
+      {{ taskStore.loggingIn || bugStore.loggingIn ? '正在登录禅道…' : '加载中…' }}
+    </div>
+
+    <!-- 错误 -->
+    <div v-else-if="hasError" class="flex flex-col items-center gap-2 py-8 text-center text-white/55">
+      <IconAlert class="w-7 h-7 text-rose-300/70" />
+      <p class="text-sm">{{ errorMessage }}</p>
+      <button
+        class="mt-1 px-3 h-7 rounded-md text-xs bg-white/10 text-white/80 hover:bg-white/15"
+        @click="taskStore.loadAssigned(); bugStore.loadAssigned()"
+      >
+        重试
+      </button>
+    </div>
 
     <!-- 空态：清闲卡片（图标光晕 + 标题 + 副文案），撑起首页主角的视觉分量 -->
     <div v-else-if="empty" class="zt-inbox-empty">
