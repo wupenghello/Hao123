@@ -36,6 +36,7 @@ import IconPlus from '~icons/mdi/plus'
 import IconPencil from '~icons/mdi/pencil-outline'
 import IconTrash from '~icons/mdi/trash-can-outline'
 import IconClip from '~icons/mdi/paperclip'
+import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
@@ -88,6 +89,17 @@ const loading = computed(
     (taskStore.assignedLoading || bugStore.assignedLoading) &&
     items.value.length === 0,
 )
+/** 禅道正在登录中（加载态文案区分，复刻自旧 ZentaoInbox 的登录提示） */
+const zentaoLoggingIn = computed(() => taskStore.loggingIn || bugStore.loggingIn)
+/** 禅道加载出错（任一模块失败即视为出错，本地待办不受影响） */
+const hasError = computed(() => !!(taskStore.assignedError || bugStore.assignedError))
+/** 统一错误文案（任务优先于 Bug） */
+const errorMessage = computed(() => taskStore.assignedError || bugStore.assignedError)
+/** 重试：重新拉取已配置模块的指派项 */
+function retryZentao() {
+  if (taskStore.configured) taskStore.loadAssigned()
+  if (bugStore.configured) bugStore.loadAssigned()
+}
 const urgentCount = computed(
   () =>
     taskStore.assigned.filter((t) => isUrgentTask(t)).length +
@@ -206,7 +218,24 @@ onUnmounted(() => {
     </header>
 
     <!-- 加载中 -->
-    <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">加载中…</div>
+    <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">
+      {{ zentaoLoggingIn ? '正在登录禅道…' : '加载中…' }}
+    </div>
+
+    <!-- 禅道加载出错且清单无内容可兜底：占满提示 + 重试（本地待办存在时走下面的清单，不被遮蔽） -->
+    <div
+      v-else-if="hasError && total === 0"
+      class="flex flex-col items-center gap-2 py-8 text-center"
+    >
+      <IconAlert class="w-7 h-7 text-rose-300/70" />
+      <p class="text-sm text-white/55">{{ errorMessage }}</p>
+      <button
+        class="mt-1 px-3 h-7 rounded-md text-xs bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
+        @click="retryZentao"
+      >
+        重试
+      </button>
+    </div>
 
     <!-- 空态 -->
     <div v-else-if="isEmpty" class="zt-empty">
