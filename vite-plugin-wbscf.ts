@@ -260,12 +260,64 @@ setInterval(function(){if(!stopped)xhr();},1500);
 </script></body></html>`
   }
 
+  /**
+   * 启动 Claude Code（新开独立终端窗口，cwd = root）。
+   * 用 spawnSync 同步捕获 spawn 失败（终端程序不存在 / 权限 / 路径错误），避免 spawn 异步
+   * 'error' 事件晚于 HTTP 响应返回，造成前端「已启动」假成功。与 spawnService 不同：
+   * claude 是交互式终端窗口、无端口可探测就绪，无法靠轮询兜底，故必须同步拿到 spawn 结果。
+   */
+  function spawnClaude(): { ok: boolean; error?: string } {
+    if (!root) return { ok: false, error: '未配置 VITE_WBSCF_WEB_ROOT' }
+    try {
+      let r: ReturnType<typeof spawnSync>
+      if (process.platform === 'win32') {
+        // 优先 Windows Terminal（wt）：现代标签页终端，Claude Code TUI 体验最佳，不弹老版 cmd 黑框。
+        // wt 是 Store 应用，未安装时 spawnSync 返回 ENOENT（执行别名 stub 偶尔也给异常错误）→
+        // 回退到系统自带 PowerShell（仍是独立窗口，但非老 cmd）。两种方式都同步检测 spawn 失败。
+        // root 来自受信任的开发环境变量（path.resolve 后的路径）。
+        // wt 直接 CreateProcess("claude") 不查 PATHEXT，找不到 npm 全局 shim（实际文件是 claude.cmd），
+        // 故用 PowerShell 包装让 shell 解析 shim；窗口仍是 Windows Terminal（非老 cmd 黑框）。
+        // `--` 必需：wt 规定以 `-` 开头的 commandline 参数（-NoExit/-Command）前必须用 -- 分隔，
+        // 否则会被当成 wt 自己的选项而报错。
+        r = spawnSync('wt', ['-d', root, '--', 'powershell', '-NoExit', '-Command', 'claude'], {
+          stdio: 'ignore',
+        })
+        if (r.error) {
+          r = spawnSync(
+            'powershell',
+            ['-NoExit', '-Command', `Set-Location -LiteralPath '${root}'; claude`],
+            { stdio: 'ignore' },
+          )
+        }
+      } else if (process.platform === 'darwin') {
+        // macOS：osascript 新开 Terminal 窗口，路径转义引号避免注入
+        const safePath = root.replace(/"/g, '\\"')
+        const script = `tell application "Terminal" to do script "cd \\"${safePath}\\" && claude; exec bash"`
+        r = spawnSync('osascript', ['-e', script], { stdio: 'ignore' })
+      } else {
+        // Linux：x-terminal-emulator 是 Debian/Ubuntu 专属，Arch/Fedora/CentOS 缺失时 spawnSync
+        // 同步返回 ENOENT，据此报错而非假成功（用户可自行安装终端模拟器）。
+        const safePath = root.replace(/"/g, '\\"')
+        r = spawnSync(
+          'x-terminal-emulator',
+          ['-e', 'sh', '-c', `cd "${safePath}" && claude; exec bash`],
+          { stdio: 'ignore' },
+        )
+      }
+      if (r.error) return { ok: false, error: r.error.message }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
   return {
     name: 'wbscf-dev-services',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const reqUrl = req.url ?? ''
-        if (!reqUrl.startsWith('/wbscf/')) return next()
+        // 处理 wbscf 和 claude 两类接口，其他请求放行
+        if (!reqUrl.startsWith('/wbscf/') && !reqUrl.startsWith('/claude/')) return next()
         void (async () => {
           const u = new URL(reqUrl, 'http://localhost')
           const pathname = u.pathname.replace(/\/+$/, '') || '/'
@@ -292,6 +344,24 @@ setInterval(function(){if(!stopped)xhr();},1500);
             res.end(launcherHtml(svc))
             return
           }
+
+          // Claude Code 接口（仅允许 GET，对齐 wbscf 接口规范）
+          if (pathname === '/claude/status' && req.method === 'GET') {
+            // 复用 snapshot() 的 enabled 判定（与 wbscf 同源，避免两处 root 有效性逻辑各自维护而漂移）
+            sendJson(res, 200, { enabled: snapshot().enabled })
+            return
+          }
+          if (pathname === '/claude/launch' && req.method === 'GET') {
+            const result = spawnClaude()
+            sendJson(res, result.ok ? 200 : 500, result)
+            return
+          }
+          // 其他 /claude/* 路径返回 404
+          if (reqUrl.startsWith('/claude/')) {
+            sendJson(res, 404, { error: 'not found' })
+            return
+          }
+
           next()
         })().catch((err) => {
           if (!res.headersSent) sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
@@ -307,6 +377,7 @@ setInterval(function(){if(!stopped)xhr();},1500);
         cleaned = true
         for (const [, st] of states) killTree(st)
         states.clear()
+        // Claude 是独立终端窗口，用户自己管理，Hao123 退出不强制关闭
       }
       process.on('exit', cleanup)
       process.once('SIGINT', () => { cleanup(); process.exit(0) })

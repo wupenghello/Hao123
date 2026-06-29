@@ -98,6 +98,9 @@ function buildCapabilitiesFromTools(): string[] {
   if (has('wbscf')) {
     lines.push('- wbscf-web 本地 dev 服务：查询账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP 各本地 dev 服务的端口、地址与运行状态（在跑 / 启动中 / 未启动）；并可启动某个服务，与用户在状态栏点击「localhost」走同一条启动路径（已在运行则不重复拉起）。')
   }
+  if (has('claude')) {
+    lines.push('- Claude Code CLI：查询启动功能可用性，并可在wbscf-web代码库根目录下新开独立终端窗口启动Claude Code，与用户点击状态栏「Claude」按钮效果完全一致。')
+  }
 
   return lines
 }

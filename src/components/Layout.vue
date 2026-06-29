@@ -2,6 +2,7 @@
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
+import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
 import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
@@ -16,7 +17,9 @@ useChatHotkeys()
     <StatusBar>
       <template #left>
         <span class="status-brand">Hao123</span>
-        <!-- 工作台导航：内部系统入口（账号/买卖家/运营/ERP 带 dev/test/pre 子菜单） -->
+        <!-- Claude Code 启动按钮：在 wbscf 项目根目录下新开终端拉起 Claude CLI -->
+        <ClaudeButton />
+        <!-- 工作台导航：内部系统入口（账号/买卖家/运营/ERP 带 dev/test/pre 子菜单，内部自带分隔线） -->
         <StatusNav />
       </template>
       <template #right>
