@@ -30,6 +30,10 @@ interface ImportMetaEnv {
   readonly VITE_DEEPSEEK_BASE?: string
   /** 知识库来源：本地文件夹路径（如 D:/projects/hao123-kb）或 manifest 的 http URL */
   readonly VITE_KB_SOURCE?: string
+  /** wbscf-web 代码库根目录（如 D:/projects/wbscf-web），仅 dev 用于拉起本地 dev 服务 */
+  readonly VITE_WBSCF_WEB_ROOT?: string
+  /** wbscf-web 包管理器（可选，默认 pnpm）：pnpm / npm / yarn */
+  readonly VITE_WBSCF_PKG_MGR?: string
 }
 
 /** 知识库虚拟模块（由 vite-plugin-kb.ts 在 dev/构建时注入本地文档原文） */

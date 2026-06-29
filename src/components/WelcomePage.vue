@@ -14,8 +14,10 @@
 import { computed, ref, onMounted } from 'vue'
 import { useChatStore, useWelcomeGuide, ASSISTANT_NAME } from '@/features/chat'
 import { useWeatherStore } from '@/features/weather'
-import { useTaskStore, useBugStore, ZentaoInbox } from '@/features/zentao'
+import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
+import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
+import UnifiedInbox from '@/components/UnifiedInbox.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import IconSpark from '~icons/mdi/star-four-points'
 
@@ -24,6 +26,7 @@ const { headline } = useWelcomeGuide()
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
+const localStore = useLocalTaskStore()
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -40,7 +43,7 @@ const dateStr = computed(() => {
   return `${d.getMonth() + 1}/${d.getDate()} ${week}`
 })
 
-// ============ 今日概览（聚合天气 + 任务 + Bug 为一句话情报条）============
+// ============ 今日概览（聚合天气 + 任务 + Bug + 本地待办 为一句话情报条）============
 const dailySummary = computed(() => {
   const parts: string[] = []
 
@@ -59,17 +62,23 @@ const dailySummary = computed(() => {
     parts.push(activeBugs > 0 ? `${activeBugs} 个待修 Bug` : `${bc} 个 Bug`)
   }
 
+  const lc = localStore.openCount
+  if (lc > 0) {
+    parts.push(`${lc} 个本地待办`)
+  }
+
   if (!parts.length) return null
 
-  // 无任务/Bug 时给一句「一切就绪」收尾；否则纯数据，不加 emoji（项目统一用 Iconify 图标）
-  const prefix = tc === 0 && bc === 0 ? '一切就绪，' : ''
+  // 无任何待办时给一句「一切就绪」收尾；否则纯数据，不加 emoji（项目统一用 Iconify 图标）
+  const prefix = tc === 0 && bc === 0 && lc === 0 ? '一切就绪，' : ''
   return prefix + parts.join(' · ')
 })
 
-// ============ 紧急项检测（逻辑集中在 zentao/shared/ui，与 ZentaoInbox 共用，避免口径漂移）============
+// ============ 紧急项检测（禅道口径集中在 zentao/shared/ui，本地待办口径在 local-tasks/ui）============
 const hasUrgentItems = computed(() =>
   taskStore.assigned.some(t => isUrgentTask(t)) ||
-  bugStore.assigned.some(b => isUrgentBug(b)),
+  bugStore.assigned.some(b => isUrgentBug(b)) ||
+  localStore.open.some(t => isUrgentLocalTask(t)),
 )
 
 // ============ 首次访问引导 ============
@@ -126,9 +135,9 @@ function finishOnboarding() {
           </button>
         </Transition>
 
-        <!-- 收件箱 = 主角（指派给我的任务 / Bug） -->
+        <!-- 统一收件箱 = 主角（指派给我的禅道任务/Bug + 本地待办，整合为一条清单） -->
         <div class="mt-3">
-          <ZentaoInbox />
+          <UnifiedInbox />
         </div>
       </div>
     </div>

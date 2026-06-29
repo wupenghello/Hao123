@@ -31,6 +31,7 @@ import IconWeather from '~icons/mdi/weather-partly-cloudy'
 import IconTask from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
 import IconSpark from '~icons/mdi/star-four-points'
+import IconClip from '~icons/mdi/clipboard-list-outline'
 import IconThumbUp from '~icons/mdi/thumb-up-outline'
 import IconThumbDown from '~icons/mdi/thumb-down-outline'
 import IconThumbUpFill from '~icons/mdi/thumb-up'
@@ -52,6 +53,7 @@ const abilityTags = [
   { icon: IconWeather, label: '查天气', text: '北京今天的天气怎么样', color: 'tag-weather' },
   { icon: IconTask, label: '看任务', text: '看看我的待办任务', color: 'tag-task' },
   { icon: IconBug, label: '查 Bug', text: '看看我有哪些 bug', color: 'tag-bug' },
+  { icon: IconClip, label: '记待办', text: '记一下明天要交周报', color: 'tag-local' },
   { icon: IconSpark, label: '知识库', text: '搜索知识库：环境配置', color: 'tag-kb' },
 ]
 
@@ -74,6 +76,10 @@ const suggestionTemplates = [
   { prefix: '搜一下', full: '搜索知识库：部署流程', icon: 'kb' },
   { prefix: '搜索', full: '搜索知识库：环境域名', icon: 'kb' },
   { prefix: '怎么', full: '怎么配置开发环境？请搜索知识库', icon: 'kb' },
+  { prefix: '记一下', full: '记一下明天要交周报', icon: 'local' },
+  { prefix: '提醒我', full: '提醒我下午三点开会', icon: 'local' },
+  { prefix: '加个待办', full: '加个待办：周报改完发群里', icon: 'local' },
+  { prefix: '我的待办', full: '看看我的本地待办', icon: 'local' },
 ]
 
 /** 当前的联想提示 */
@@ -359,10 +365,11 @@ const awaitingFirstToken = computed(() => {
 })
 
 const suggestionIcon = (kind: string) =>
-  kind === 'weather' ? IconWeather : kind === 'task' ? IconTask : kind === 'bug' ? IconBug : IconSpark
+  kind === 'weather' ? IconWeather : kind === 'task' ? IconTask : kind === 'bug' ? IconBug : kind === 'local' ? IconClip : IconSpark
 
 // 工具类型对应的颜色类
 const toolColorClass = (toolName: string) => {
+  if (toolName.includes('本地待办')) return 'tool-local'
   if (toolName.includes('天气') || toolName.includes('weather')) return 'tool-weather'
   if (toolName.includes('任务') || toolName.includes('task')) return 'tool-task'
   if (toolName.includes('Bug') || toolName.includes('bug') || toolName.includes('缺陷')) return 'tool-bug'
@@ -865,7 +872,7 @@ onUnmounted(() => {
             <div class="relative z-10 flex items-center gap-3 px-4 h-9 border-t border-white/8 shrink-0 text-[11px] text-white/30">
               <div class="flex items-center gap-1">
                 <IconSpark class="w-3 h-3 text-teal-300/60" />
-                <span>{{ ASSISTANT_NAME }} · 天气 / 禅道</span>
+                <span>{{ ASSISTANT_NAME }} · 天气 / 禅道 / 待办</span>
               </div>
               <span v-if="store.feedbackStats.up + store.feedbackStats.down > 0" class="flex items-center gap-1.5 text-white/25">
                 <span class="flex items-center gap-0.5">
@@ -1219,6 +1226,14 @@ onUnmounted(() => {
 .cmd-activity.tool-kb :deep(.animate-spin) {
   color: rgba(252, 211, 77, 0.9) !important;
 }
+.cmd-activity.tool-local {
+  background: rgba(94, 234, 212, 0.1);
+  border-color: rgba(94, 234, 212, 0.3);
+  border-left-color: rgba(94, 234, 212, 0.6);
+}
+.cmd-activity.tool-local :deep(.animate-spin) {
+  color: rgba(94, 234, 212, 0.9) !important;
+}
 
 /* ============ 消息操作 ============ */
 .cmd-actions {
@@ -1311,6 +1326,13 @@ onUnmounted(() => {
 .ability-tag.tag-kb:hover {
   background: rgba(251, 191, 36, 0.15);
   border-color: rgba(251, 191, 36, 0.5);
+}
+.ability-tag.tag-local {
+  border-color: rgba(94, 234, 212, 0.3);
+}
+.ability-tag.tag-local:hover {
+  background: rgba(94, 234, 212, 0.15);
+  border-color: rgba(94, 234, 212, 0.5);
 }
 
 /* ============ 输入联想过渡动画 ============ */

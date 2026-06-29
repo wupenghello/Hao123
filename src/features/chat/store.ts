@@ -23,7 +23,7 @@ import { useStorage } from '@/composables/useStorage'
 import { useWeatherStore } from '@/features/weather'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
-import { callTool, toolLabel, toolDetail, selectToolsForIntent, kbEnabled } from './tools'
+import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
 import {
   daypart,
   formatDate,
@@ -77,21 +77,26 @@ function detectLocalIntent(text: string): LocalIntent | null {
 function buildCapabilitiesFromTools(): string[] {
   const lines: string[] = []
 
-  // 检查是否有天气工具
-  const hasWeather = selectToolsForIntent('天气').some((t) => t.function.name.startsWith('weather'))
-  if (hasWeather) {
+  // 能力是否存在直接看已注册工具集（openAiTools），不再靠关键词猜测——
+  // 工具全量喂给模型，由模型自行决定何时调用，避免「手写触发词」这种脆弱且易漏的匹配。
+  const wireNames = openAiTools.map((t) => t.function.name) // 形如 weather__current
+  const has = (prefix: string) => wireNames.some((n) => n.startsWith(prefix + '__'))
+
+  if (has('weather')) {
     lines.push('- 天气：实时天气、未来 3/7/10/15 天预报、逐小时预报、分钟级降水、生活指数（穿衣/运动/紫外线等）。')
   }
-
-  // 检查是否有禅道工具（始终存在，但运行时可能未配置）
-  const hasZentao = selectToolsForIntent('任务').some((t) => t.function.name.startsWith('zentao'))
-  if (hasZentao) {
+  if (has('zentao')) {
     lines.push('- 禅道（只读查看，无法新建或修改）：我的任务列表与详情、我的 Bug 列表与详情。')
   }
-
-  // 检查是否有知识库工具（依据真实配置：已配置来源才暴露 kb.search）
+  // 知识库按真实配置门控（未配置来源时不暴露 kb.search）
   if (kbEnabled) {
     lines.push('- 项目知识库：开发/测试/预发/生产各环境域名、部署流程、个人笔记、常见问答等内部文档。')
+  }
+  if (has('local')) {
+    lines.push('- 本地待办（可增删改查）：查看 / 新建 / 修改 / 完成 / 删除用户手动创建的待办任务，可带图片与文件附件。')
+  }
+  if (has('wbscf')) {
+    lines.push('- wbscf-web 本地 dev 服务：查询账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP 各本地 dev 服务的端口、地址与运行状态（在跑 / 启动中 / 未启动）；并可启动某个服务，与用户在状态栏点击「localhost」走同一条启动路径（已在运行则不重复拉起）。')
   }
 
   return lines
@@ -107,6 +112,7 @@ const STATIC_SYSTEM_PROMPT = [
   '# 工作方式',
   '- 涉及天气或禅道数据时，必须先调用对应工具拿到真实数据再回答，绝不凭空编造数字或结论。',
   '- 涉及项目内部信息（环境域名、部署流程、内部约定、笔记、FAQ）时，先调用 kb.search 检索知识库再回答，绝不凭记忆编造地址或流程。',
+  '- 用户说「记一下」「提醒我」「加个待办：…」等要落一条待办时，用 local.create 创建本地待办；查看/完成/修改同理调用对应工具。删除任务（local.delete）前先向用户确认。',
   '- 用户没指明地点/日期时，用下方「当前上下文」里的默认城市与当前日期补全，直接执行，不要反问。',
   '- 一个问题可能需要多次/多个工具配合（如先搜城市再查天气、先列任务再看详情），自行规划。',
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',
@@ -247,9 +253,10 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     streaming.value = true
 
-    // 获取最后一条用户消息，用于动态工具选择
-    const lastUserMsg = messages.value.filter((m) => m.role === 'user').pop()?.content || ''
-    const toolsForThisTurn = selectToolsForIntent(lastUserMsg)
+    // 工具全量下发给模型，由模型自行决定是否调用、调用哪个——
+    // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
+    // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
+    const toolsForThisTurn = openAiTools
 
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -307,7 +314,7 @@ export const useChatStore = defineStore('chat', () => {
             }
             let result: unknown
             try {
-              result = await callTool(call.function.name, args)
+              result = await callTool(call.function.name, args, signal)
               activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
               activity.result = previewResultJson(result)
             } catch (e) {
@@ -446,9 +453,14 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
 
+    // 单独重跑一个工具：起一个临时 AbortController，让用户「停止」也能中断长任务（如 wbscf.launch）
+    abortController?.abort()
+    const retryController = new AbortController()
+    abortController = retryController
+
     let result: unknown
     try {
-      result = await callTool(toolCall.function.name, args)
+      result = await callTool(toolCall.function.name, args, retryController.signal)
       activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
       activity.result = previewResultJson(result)
       activity.endTime = Date.now()

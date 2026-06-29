@@ -14,12 +14,13 @@
 import { ref, computed, type ComputedRef } from 'vue'
 import { useWeatherStore } from '@/features/weather'
 import { useZentaoSession, callZentaoTool } from '@/features/zentao'
+import { useLocalTaskStore } from '@/features/local-tasks'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { daypart } from './utils'
 
 export interface Suggestion {
-  icon: 'weather' | 'task' | 'bug'
+  icon: 'weather' | 'task' | 'bug' | 'local'
   text: string
 }
 
@@ -28,7 +29,7 @@ const FALLBACK: Suggestion[] = [
   { icon: 'weather', text: '今天天气怎么样？' },
   { icon: 'task', text: '我现在有哪些开发任务？' },
   { icon: 'bug', text: '测试给我提了哪些 Bug？' },
-  { icon: 'weather', text: '未来三天会下雨吗？' },
+  { icon: 'local', text: '记一下明天要交周报' },
 ]
 
 const headline = ref('')
@@ -112,6 +113,17 @@ async function buildContext(): Promise<string> {
     lines.push(bugs.length ? `测试提给我的 Bug（${bugs.length} 个）：\n${bugs.join('\n')}` : '当前没有测试提给我的 Bug。')
   }
 
+  // 本地待办（手动创建、与禅道无关，始终可用）
+  const localStore = useLocalTaskStore()
+  const localTasks = localStore.open
+    .slice(0, 8)
+    .map((t) => `「${t.title}」（${label(PRI, t.pri) ? `优先级${label(PRI, t.pri)}` : ''}${t.deadline ? `，截止${t.deadline}` : ''}）`)
+  lines.push(
+    localTasks.length
+      ? `我的本地待办（${localStore.openCount} 个）：\n${localTasks.join('\n')}`
+      : '当前没有本地待办。',
+  )
+
   return lines.join('\n')
 }
 
@@ -127,7 +139,7 @@ function parseGuide(raw: string): Guide | null {
     const valid = list
       .filter((x: unknown): x is Suggestion => {
         const s = x as Suggestion
-        return !!s && typeof s.text === 'string' && ['weather', 'task', 'bug'].includes(s.icon)
+        return !!s && typeof s.text === 'string' && ['weather', 'task', 'bug', 'local'].includes(s.icon)
       })
       .map((x: Suggestion) => ({ icon: x.icon, text: String(x.text).trim() }))
       .filter((x: Suggestion) => x.text)
@@ -165,16 +177,17 @@ async function generate() {
         '# 工作项说明',
         '- 「我的开发任务」来自禅道，是用户需要亲自完成的工作项。',
         '- 「测试提给我的 Bug」是其他同事指派给用户、需要用户修复的缺陷；严重级别越高越该优先处理。',
-        '- 助手（你）能查询：天气、以及这些任务/Bug 的列表与详情（只读）。',
+        '- 「我的本地待办」是用户手动创建的待办（与禅道无关，纯本地）；助手可查看 / 新建 / 完成 / 修改 / 删除它们。',
+        '- 助手（你）能查询：天气、以及这些任务/Bug 的列表与详情（只读），并能管理本地待办（可增删改查）。',
         '',
         '# 你的任务',
         '基于下面的真实上下文，站在「帮用户安排接下来该干什么」的角度，输出：',
         '1. headlines：2~3 条不同角度的行动建议（工作优先 / 天气关怀 / 轻松问候），每条不超过 30 字，口吻像贴心的同事。',
         '   例：「先解决 2 个严重 Bug，再推进进行中的任务」「今天有雨，出门记得带伞 ☂️」。',
-        '2. suggestions：3~4 条用户口吻的快捷提问，尽量点名具体的任务/Bug，自然可直接发给助手，每条不超过 20 字；没有的类别就不出现。',
+        '2. suggestions：3~4 条用户口吻的快捷提问，尽量点名具体的任务/Bug/本地待办，自然可直接发给助手，每条不超过 20 字；没有的类别就不出现。',
         '',
         '# 输出格式',
-        '只输出 JSON：{"headlines":["...","..."],"suggestions":[{"icon":"weather|task|bug","text":"..."}]}，不要任何额外文字或解释。',
+        '只输出 JSON：{"headlines":["...","..."],"suggestions":[{"icon":"weather|task|bug|local","text":"..."}]}，不要任何额外文字或解释。',
       ].join('\n'),
     }
     const user = { role: 'user' as const, content: context || '（暂无更多上下文，给出通用的天气与工作类引导）' }

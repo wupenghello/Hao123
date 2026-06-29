@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import StatusBar from '@/components/status/StatusBar.vue'
+import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
@@ -15,8 +16,8 @@ useChatHotkeys()
     <StatusBar>
       <template #left>
         <span class="status-brand">Hao123</span>
-        <span class="status-brand-dot">·</span>
-        <span class="status-brand-sub">工作台</span>
+        <!-- 工作台导航：内部系统入口（账号/买卖家/运营/ERP 带 dev/test/pre 子菜单） -->
+        <StatusNav />
       </template>
       <template #right>
         <WeatherWidget />
@@ -43,14 +44,6 @@ useChatHotkeys()
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   letter-spacing: -0.01em;
-}
-.status-brand-dot {
-  color: rgba(255, 255, 255, 0.25);
-  font-size: 13px;
-}
-.status-brand-sub {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
 }
 </style>
 

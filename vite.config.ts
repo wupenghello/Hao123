@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import Icons from 'unplugin-icons/vite'
 import { kbPlugin } from './vite-plugin-kb'
+import { wbscfPlugin } from './vite-plugin-wbscf'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -26,6 +27,12 @@ export default defineConfig(({ mode }) => {
   // 远程 URL 由前端直接 fetch（见 source.ts），需地址同源或开放 CORS。
   const kbSource = env.VITE_KB_SOURCE || ''
 
+  // wbscf-web 代码库根目录（VITE_WBSCF_WEB_ROOT）：指向 wbscf-web 仓库，由根目录
+  // vite-plugin-wbscf.ts 在 dev 时读其 package.json、拉起 dev:* 脚本并探测端口，
+  // 让状态栏导航的 localhost 入口可「点击启动/打开本地服务」。生产构建无 dev server，自动降级。
+  const wbscfRoot = env.VITE_WBSCF_WEB_ROOT || ''
+  const wbscfPkgMgr = env.VITE_WBSCF_PKG_MGR || 'pnpm'
+
   return {
     plugins: [
       vue(),
@@ -36,6 +43,8 @@ export default defineConfig(({ mode }) => {
       }),
       // 知识库本地源：读取 VITE_KB_SOURCE 指向的文件夹，注入 'virtual:kb-docs'
       kbPlugin(kbSource),
+      // wbscf-web 本地 dev 服务：拉起 dev:* 脚本并探测端口（仅 dev，提供 /wbscf/* 中间件）
+      wbscfPlugin({ root: wbscfRoot, pkgMgr: wbscfPkgMgr }),
     ],
     resolve: {
       alias: {
