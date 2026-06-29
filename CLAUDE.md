@@ -137,9 +137,9 @@ App.vue (router-view)
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
 | `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，最多 5 轮）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；abort / retry / 重新生成；👍/👎 反馈统计 |
 | `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
-| `welcome-guide.ts` | 首页开场引导：LLM 站在前端视角生成 headline + 快捷问题（失败回退静态兜底，模块级单例只生成一次） |
+| `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次）；首页「行动建议」已合并进晨报，不再产 headline |
 | `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |
-| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口）/ `MorningBriefing.vue`（首页晨报卡） |
+| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口）/ `MorningBriefing.vue`（首页晨报卡；开头即「今天先抓什么」行动建议 + 卡片底部深聊入口） |
 
 **System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
 

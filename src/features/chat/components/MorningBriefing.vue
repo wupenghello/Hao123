@@ -13,11 +13,17 @@
  */
 import { computed } from 'vue'
 import { useBriefing, renderMarkdown, ASSISTANT_NAME } from '@/features/chat'
+import { useChatStore } from '../store'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
 import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const { briefing, generating, error, refresh } = useBriefing()
+const chat = useChatStore()
+/** 承接原首页「下一步建议」条的深聊入口：看完简报想细聊，拉起小吴 */
+function openChat() {
+  chat.show()
+}
 
 const html = computed(() => (briefing.value ? renderMarkdown(briefing.value.content) : ''))
 
@@ -68,6 +74,14 @@ const relTime = computed(() => {
 
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
       <div v-else-if="html" class="mb-body" v-html="html" />
+
+      <!-- 深聊入口（承接原首页「下一步建议」条：看完简报想细聊，拉起小吴） -->
+      <footer v-if="html" class="mb-foot">
+        <button class="mb-ask" :title="`问${ASSISTANT_NAME}`" @click="openChat">
+          <IconSpark class="w-3 h-3" />
+          <span>想细聊？问 {{ ASSISTANT_NAME }} →</span>
+        </button>
+      </footer>
     </section>
   </Transition>
 </template>
@@ -178,6 +192,27 @@ const relTime = computed(() => {
   color: #a5b4fc;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* 深聊入口（卡片底部，承接原首页「下一步建议」条的深聊语义） */
+.mb-foot {
+  padding: 4px 14px 12px;
+}
+.mb-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(199, 210, 254, 0.85);
+  background: rgba(129, 140, 248, 0.1);
+  transition: background 0.15s, color 0.15s;
+  cursor: pointer;
+}
+.mb-ask:hover {
+  background: rgba(129, 140, 248, 0.2);
+  color: #e0e7ff;
 }
 
 /* 首次生成骨架 */

@@ -1,15 +1,17 @@
 /**
- * 首页引导 —— 由 LLM 站在「前端开发」视角，根据真实工作项给出行动建议
+ * 首页引导 —— 由 LLM 站在「前端开发」视角，根据真实工作项生成命令面板的快捷提问
  *
  * 关键不在「让模型生成」，而在喂给模型足够的前提：
  *   - 用户是前端开发；禅道任务 = 我要做的开发工作；Bug = 测试指派给我、需要我修的；
  *   - 把任务/Bug 的状态、优先级、严重程度、截止日翻成中文一起给（编码模型用不上）。
- * 于是模型不再是套模板填数字，而是判断「现在最该干什么」：
- *   - headline：一句话行动推荐，顶在「快捷开始」前（如「先修测试提的严重 Bug，有 2 个还没解决」）；
- *   - suggestions：3~4 条点名具体工作项的快捷问题。
+ * 于是模型不再是套模板填数字，而是点名具体工作项，给出自然、可直接发给助手的快捷提问。
+ *
+ * 仅产出 suggestions（命令面板空态的快捷提问）。
+ * 首页的「今天先抓什么」行动建议已合并进每日晨报（briefing.ts）——同源同意图，
+ * 不再在首页单列一条，故本模块不再产 headline。
  *
  * 模型未配置 / 失败 / 解析不出 → 回退静态兜底，首屏始终有内容。
- * 一次 LLM 调用同时拿 headline + suggestions；结果模块级缓存，多个组件只生成一次。
+ * 结果模块级缓存，多个组件只生成一次。
  *
  * 上下文采集（天气 + 禅道 + 本地待办）已抽到 dashboard-context.ts，与每日晨报共享，
  * 并发时只发一次禅道请求。
@@ -32,8 +34,6 @@ const FALLBACK: Suggestion[] = [
   { icon: 'local', text: '记一下明天要交周报' },
 ]
 
-const headline = ref('')
-const headlines = ref<string[]>([])
 const suggestions = ref<Suggestion[]>(FALLBACK)
 /** 已尝试次数（含失败）；失败时允许重试，最多 MAX_ATTEMPTS 次 */
 let attempts = 0
@@ -43,10 +43,8 @@ let generating = false
 /** 成功后锁定：避免组件重复挂载时反复调用 LLM / 禅道（与文档承诺「只生成一次」一致） */
 let done = false
 
-interface Guide { headlines?: string[]; headline?: string; suggestions?: Suggestion[] }
-
-/** 解析模型输出的 JSON 对象 {headline, suggestions}；异常返回 null */
-function parseGuide(raw: string): Guide | null {
+/** 解析模型输出的 suggestions 数组；异常返回 null */
+function parseSuggestions(raw: string): Suggestion[] | null {
   const m = raw.match(/\{[\s\S]*\}/)
   if (!m) return null
   try {
@@ -60,13 +58,8 @@ function parseGuide(raw: string): Guide | null {
       .map((x: Suggestion) => ({ icon: x.icon, text: String(x.text).trim() }))
       .filter((x: Suggestion) => x.text)
       .slice(0, 4)
-    const headArr = Array.isArray(obj.headlines)
-      ? obj.headlines.map((h: unknown) => typeof h === 'string' ? h.trim() : '').filter(Boolean)
-      : []
-    const head = typeof obj.headline === 'string' ? obj.headline.trim() : ''
-    const headlines = headArr.length > 0 ? headArr : (head ? [head] : [])
-    if (!headlines.length && !valid.length) return null
-    return { headlines, suggestions: valid }
+    if (!valid.length) return null
+    return valid
   } catch {
     return null
   }
@@ -88,7 +81,7 @@ async function generate() {
     const sys = {
       role: 'system' as const,
       content: [
-        `你在为「${ASSISTANT_NAME}」工作台首页生成给用户的开场引导。`,
+        `你在为「${ASSISTANT_NAME}」工作台首页生成给用户的快捷提问。`,
         '',
         '# 工作项说明',
         '- 「我的开发任务」来自禅道，是用户需要亲自完成的工作项。',
@@ -97,13 +90,11 @@ async function generate() {
         '- 助手（你）能查询：天气、以及这些任务/Bug 的列表与详情（只读），并能管理本地待办（可增删改查）。',
         '',
         '# 你的任务',
-        '基于下面的真实上下文，站在「帮用户安排接下来该干什么」的角度，输出：',
-        '1. headlines：2~3 条不同角度的行动建议（工作优先 / 天气关怀 / 轻松问候），每条不超过 30 字，口吻像贴心的同事。',
-        '   例：「先解决 2 个严重 Bug，再推进进行中的任务」「今天有雨，出门记得带伞 ☂️」。',
-        '2. suggestions：3~4 条用户口吻的快捷提问，尽量点名具体的任务/Bug/本地待办，自然可直接发给助手，每条不超过 20 字；没有的类别就不出现。',
+        '基于下面的真实上下文，输出 3~4 条用户口吻的快捷提问（suggestions），尽量点名具体的任务/Bug/本地待办，',
+        '自然可直接发给助手，每条不超过 20 字；没有的类别就不出现。',
         '',
         '# 输出格式',
-        '只输出 JSON：{"headlines":["...","..."],"suggestions":[{"icon":"weather|task|bug|local","text":"..."}]}，不要任何额外文字或解释。',
+        '只输出 JSON：{"suggestions":[{"icon":"weather|task|bug|local","text":"..."}]}，不要任何额外文字或解释。',
       ].join('\n'),
     }
     const user = { role: 'user' as const, content: context || '（暂无更多上下文，给出通用的天气与工作类引导）' }
@@ -112,13 +103,9 @@ async function generate() {
       temperature: 0.7,
       responseFormat: { type: 'json_object' },
     })
-    const parsed = parseGuide(raw)
+    const parsed = parseSuggestions(raw)
     if (parsed) {
-      if (parsed.headlines?.length) {
-        headlines.value = parsed.headlines
-        headline.value = parsed.headlines[0]
-      }
-      if (parsed.suggestions?.length) suggestions.value = parsed.suggestions
+      suggestions.value = parsed
       // 成功即锁定，后续组件挂载不再重复调用
       done = true
     }
@@ -130,15 +117,9 @@ async function generate() {
   }
 }
 
-export function useWelcomeGuide(): {
-  headline: ComputedRef<string>
-  headlines: ComputedRef<string[]>
-  suggestions: ComputedRef<Suggestion[]>
-} {
+export function useWelcomeGuide(): { suggestions: ComputedRef<Suggestion[]> } {
   generate()
   return {
-    headline: computed(() => headline.value),
-    headlines: computed(() => headlines.value),
     suggestions: computed(() => suggestions.value),
   }
 }
