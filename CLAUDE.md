@@ -20,7 +20,7 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-morning-briefing`（每日晨报）. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-morning-briefing`（每日晨报）, `hao123-inbox-insight`（收件箱洞察 LLM 文案，按日 + 检测签名缓存）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 
@@ -139,15 +139,39 @@ App.vue (router-view)
 | `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
 | `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次）；首页「行动建议」已合并进晨报，不再产 headline |
 | `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |
+| `inbox-insight.ts` | **收件箱洞察（LLM 主动开口）**：基于 `insights` 模块的**确定性检测**（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞），命中才让 LLM 加工成一句自然提醒 + 具体建议（`useInboxInsight`，`hao123-inbox-insight` 按日 + 检测签名缓存）；LLM 未配置时组件侧回退检测模板 |
 | `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口）/ `MorningBriefing.vue`（首页晨报卡；开头即「今天先抓什么」行动建议 + 卡片底部深聊入口） |
 
 **System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
 
 **多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需配支持图片的模型**——默认 `deepseek-chat` 不支持视觉，发图会收到模型错误（走错误条提示，不崩）；要用图片功能把 `VITE_DEEPSEEK_MODEL` 换成 VL 模型（如 `qwen-vl-max`、`gpt-4o`）。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
 
+### 洞察模块（`src/features/insights/`，自包含特性模块）
+
+首页「AI 主动评估」的**确定性**来源——对收件箱工作项做纯启发式风险预测（逾期 / 临期 / 停滞），即时、确定、可解释，不依赖 LLM（即便 DeepSeek 未配置，首页也能体现「小吴在主动评估你的工作」）；与「晨报叙述」「交给小吴深聊」等需要自然语言的能力互补。外部统一从 `@/features/insights` 引入（barrel `index.ts`）：
+
+| 路径 | 职责 |
+|---|---|
+| `types.ts` | `WorkItem`（归一化工作项）/ `Prediction`（风险预测，含 `why` 可解释理由 + `action` 行动建议）/ `InsightSummary`（列表级汇总）/ `RiskLevel` |
+| `predict.ts` | 预测引擎（纯函数）：`predictItem`（单条取最强一档风险）+ `summarize`（汇总成状态条数据）+ 时间工具 `deadlineDays` / `parseZentaoTime`；截止日按本地零点比较，规避 UTC 误判 |
+| `composable.ts` | `useInboxInsights`：把禅道任务 / Bug / 本地待办三类 store 归一化为 `WorkItem[]`（含 `thread` 需求线标签）→ 跑预测 → 暴露 `predictions`（`${kind}-${id}` → `Prediction` 查表，与 UnifiedInbox 行 key 同口径）+ `summary` + `insights`（深度洞察） |
+| `detect.ts` | 深度洞察检测（纯函数）：`detectInsights` 扫工作项找出值得小吴**主动开口**的模式——同根因（同线索任务+Bug）/ Bug 集中 / 多项逾期 / 负载 / 高优停滞；按优先级排序、至多 2 条（克制）；命中才有洞察，不命中不渲染、不发 LLM |
+
+**预测口径：** 逾期（截止日早于今天）> 临期（今天 / 明天到期）> 停滞（未推进状态 + 超 5 天无变动 + 够分量），一条至多命中一档。每个预测必带一句 `why`（可解释性红线，避免「玄学噪音」）与一句用户口吻的 `action`。停滞只在「够分量」的项上触发（Bug `active` 即算；任务 / 本地要求 pri ≤ 3），避免低优积压刷屏。
+
+**洞察（Step 3）：** `detect.ts` 的检测是确定性的（可靠、即时、不烧 token），命中才发 LLM；`chat/inbox-insight.ts` 的 `useInboxInsight` 把检测结果交给 LLM 加工成「小吴的洞察」自然提醒 + 具体建议（按日 + 检测签名缓存，签名变化才重生成）。LLM 未配置时回退检测模板文案。
+
 ### 首页统一收件箱（`src/components/UnifiedInbox.vue`）
 
-首页不再分两块面板，而是把「指派给我的禅道任务 / Bug」与「本地待办」**整合进一条清单**（`UnifiedInbox`），按「紧急 → 优先级 → 截止日期」排序，用类型徽标（任务 / Bug / 本地）区分来源。禅道项只读（点击行 → 详情弹窗），本地项可交互（圆点勾选完成、点标题编辑、悬停出删除二次确认、附件指示）。新建按钮创建本地待办（禅道任务无法在此新建，禅道是只读来源）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `ZentaoInbox.vue` / `LocalTaskPanel.vue` 已并入此组件并移除。
+首页主角：把「指派给我的禅道任务 / Bug」与「本地待办」**整合进一条清单**（`UnifiedInbox`），用类型徽标（任务 / Bug / 本地）区分来源。排序与 AI 增强分层：
+
+- **主排序：** 「紧急 → 优先级 → 截止日期」（`sortKey`），紧急项左侧玫红描边。
+- **「小吴已就绪」状态条：** 顶部一条 AI 主动风险概况（N 逾期 · N 临期 · N 停滞 + 点题建议），数据来自 `useInboxInsights().summary`；LLM 已配置时整条可点 → 带概况让小吴排出处理顺序（无对话框，AI 先动）。
+- **行内风险徽标：** 每条有风险的工作项显示预测徽标（逾期 / 临期 / 停滞，`why` 走 tooltip），LLM 已配置时整枚可点 → 带上下文「交给小吴」跟进（`chat.show()` + `chat.send(action)`）。取代了原先静态的「逾期」徽标。
+- **「小吴的洞察」卡：** `detect.ts` 检测到值得主动一说的模式（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞，至多 2 条）时，在状态条下方主动开口——LLM 已配置则由 `useInboxInsight` 生成自然提醒 + 建议（按日 + 签名缓存，可手动「重新分析」），未配置则回退检测模板；「让小吴展开」带上下文深聊。无模式不渲染（克制）。
+- **需求线分组：** 同属一条需求 / 项目的禅道项（≥2 项）自动归入可折叠的彩色分组头（`threadOf` 按 storyTitle → projectName → productName / executionName 取线索；`threadColor` 按名 hash 取稳定配色），组间按各自最强项的紧急度排序、组内保持紧急度序——既「连成线」又不打乱「紧急优先」；本地待办与单条不成线的项并入「其他」流。
+
+禅道项只读（点击行 → 详情弹窗），本地项可交互（圆点勾选完成、点标题编辑、悬停出删除二次确认、附件指示）。新建按钮创建本地待办（禅道任务无法在此新建，禅道是只读来源）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `ZentaoInbox.vue` / `LocalTaskPanel.vue` 已并入此组件并移除。
 
 ### Icons
 

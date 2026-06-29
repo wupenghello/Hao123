@@ -27,6 +27,10 @@ import type { ZentaoTask, ZentaoBug } from '@/features/zentao'
 import { useLocalTaskStore, priBadge, deadlineLabel, isUrgentLocalTask } from '@/features/local-tasks'
 import type { LocalTask, LocalTaskFormPayload } from '@/features/local-tasks'
 import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormModal.vue'
+import { useInboxInsights } from '@/features/insights'
+import type { Prediction } from '@/features/insights'
+import type { Insight } from '@/features/insights'
+import { useChatStore, useInboxInsight } from '@/features/chat'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
 import IconCircle from '~icons/mdi/circle-outline'
@@ -37,10 +41,19 @@ import IconPencil from '~icons/mdi/pencil-outline'
 import IconTrash from '~icons/mdi/trash-can-outline'
 import IconClip from '~icons/mdi/paperclip'
 import IconAlert from '~icons/mdi/alert-circle-outline'
+import IconCalendarClock from '~icons/mdi/calendar-clock-outline'
+import IconPause from '~icons/mdi/pause-circle-outline'
+import IconSpark from '~icons/mdi/star-four-points'
+import IconRefresh from '~icons/mdi/refresh'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
+/** 小吴的「风险预测」——对收件箱工作项做启发式预测（逾期 / 临期 / 停滞）+ 汇总成状态条 */
+const { predictions, summary } = useInboxInsights()
+/** 小吴的「洞察」——检测到的模式 + LLM 解读（驱动「小吴的洞察」卡） */
+const { insights, content: insightContent, generating: insightGenerating, refresh: refreshInsight } = useInboxInsight()
+const chat = useChatStore()
 
 // ============ 统一清单（禅道任务 + 禅道 Bug + 本地待办，合并排序）============
 type InboxKind = 'task' | 'bug' | 'local'
@@ -48,15 +61,17 @@ interface InboxItem {
   key: string
   kind: InboxKind
   ref: ZentaoTask | ZentaoBug | LocalTask
+  /** 小吴对该项的风险预测（无风险则 null）——驱动行内风险徽标 + 「交给小吴」 */
+  risk: Prediction | null
 }
 
-function mkItem(kind: InboxKind, ref: InboxItem['ref']): InboxItem {
+function mkItem(kind: InboxKind, ref: InboxItem['ref']): Omit<InboxItem, 'risk'> {
   const id = (ref as { id: string | number }).id
   return { key: `${kind}-${id}`, kind, ref }
 }
 
 /** 排序键：[紧急(0在前) , 优先级(小在前) , 截止日期(早在前, 无则排末)]；稳定排序保留插入顺序 */
-function sortKey(it: InboxItem): [number, number, string] {
+function sortKey(it: Omit<InboxItem, 'risk'>): [number, number, string] {
   const urgent =
     it.kind === 'task'
       ? isUrgentTask(it.ref as ZentaoTask)
@@ -70,16 +85,18 @@ function sortKey(it: InboxItem): [number, number, string] {
 }
 
 const items = computed<InboxItem[]>(() => {
-  const list: InboxItem[] = [
+  const list: Omit<InboxItem, 'risk'>[] = [
     ...taskStore.assigned.map((t) => mkItem('task', t)),
     ...bugStore.assigned.map((b) => mkItem('bug', b)),
     ...localStore.open.map((t) => mkItem('local', t)),
   ]
-  return list.sort((a, b) => {
-    const ka = sortKey(a)
-    const kb = sortKey(b)
-    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2].localeCompare(kb[2])
-  })
+  return list
+    .sort((a, b) => {
+      const ka = sortKey(a)
+      const kb = sortKey(b)
+      return ka[0] - kb[0] || ka[1] - kb[1] || ka[2].localeCompare(kb[2])
+    })
+    .map((it) => ({ ...it, risk: predictions.value.get(it.key) ?? null }))
 })
 
 const zentaoConfigured = computed(() => taskStore.configured || bugStore.configured)
@@ -121,6 +138,117 @@ function isUrgent(it: InboxItem): boolean {
     : it.kind === 'bug'
       ? isUrgentBug(it.ref as ZentaoBug)
       : isUrgentLocalTask(it.ref as LocalTask)
+}
+
+// ============ 小吴：行内风险 → 一键交给小吴（无对话框，AI 带上下文接手）============
+/** 行内风险徽标点击：带上下文把这项交给小吴跟进（LLM 未配置则不响应，徽标仅作信息提示） */
+function askXiaowu(it: InboxItem) {
+  if (!chat.configured || !it.risk) return
+  chat.show()
+  void chat.send(it.risk.action)
+}
+/** 状态条「让小吴排一下」：把今天的风险概况交给小吴排出处理顺序与节奏 */
+function askXiaowuToPlan() {
+  if (!chat.configured) return
+  const s = summary.value
+  const parts = [
+    s.overdue && `${s.overdue} 项逾期`,
+    s.dueSoon && `${s.dueSoon} 项今明到期`,
+    s.stalled && `${s.stalled} 项停滞`,
+  ]
+    .filter(Boolean)
+    .join('、')
+  // 有风险 → 排处理顺序；清闲 → 看看怎么安排顺手
+  const body = parts
+    ? `今天有 ${parts}，帮我排出处理顺序和节奏，先点名最该收的。`
+    : '我手头这几项都没有紧迫的，帮我看看今天怎么安排比较顺手。'
+  chat.show()
+  void chat.send(body)
+}
+/** 「小吴的洞察」卡 → 让小吴就这条洞察展开分析（带上下文） */
+function askXiaowuInsight(ins?: Insight) {
+  if (!chat.configured || !ins) return
+  chat.show()
+  void chat.send(ins.action)
+}
+
+// ============ 需求线分组：把同属一条需求线 / 项目的禅道项自动连起来 ============
+interface ItemGroup {
+  key: string
+  label: string
+  /** 真正的簇（同一线索 ≥2 项）；单条不成线，并入「其他」 */
+  isCluster: boolean
+  items: InboxItem[]
+}
+
+/**
+ * 推断一条工作项所属的「需求线」：优先关联需求（storyTitle），其次项目 / 产品 / 迭代名。
+ * 本地待办无线索（手动创建、与禅道无关）。
+ */
+function threadOf(it: InboxItem): { key: string; label: string } | null {
+  if (it.kind === 'local') return null
+  const r = it.ref as ZentaoTask | ZentaoBug
+  const label =
+    (r as ZentaoTask).storyTitle ||
+    r.projectName ||
+    (it.kind === 'bug' ? (r as ZentaoBug).productName : (r as ZentaoTask).executionName)
+  const s = (label || '').trim()
+  return s ? { key: s, label: s } : null
+}
+
+/**
+ * 按需求线分组：同一线索 ≥2 项才成「簇」。
+ * 组间按各自最强项的紧急度排序（沿用 items 的紧急度序），组内保持紧急度序——
+ * 既「连成线」又不打乱「紧急优先」的主排序。
+ */
+const groups = computed<ItemGroup[]>(() => {
+  const sorted = items.value
+  const idx = new Map<string, number>()
+  sorted.forEach((it, i) => idx.set(it.key, i))
+
+  const byThread = new Map<string, InboxItem[]>()
+  const others: InboxItem[] = []
+  for (const it of sorted) {
+    const th = threadOf(it)
+    if (th) {
+      const arr = byThread.get(th.key) ?? []
+      arr.push(it)
+      byThread.set(th.key, arr)
+    } else {
+      others.push(it)
+    }
+  }
+
+  const clusters: ItemGroup[] = []
+  for (const [label, arr] of byThread) {
+    if (arr.length >= 2) clusters.push({ key: `thread:${label}`, label, isCluster: true, items: arr })
+    else others.push(...arr)
+  }
+
+  const all: ItemGroup[] = [...clusters]
+  if (others.length) all.push({ key: 'other', label: '', isCluster: false, items: others })
+  // 组间排序：以组内最强项（在 items 中最靠前）的紧急度为准
+  const rank = (g: ItemGroup) => Math.min(...g.items.map((it) => idx.get(it.key) ?? Number.POSITIVE_INFINITY))
+  return all.sort((a, b) => rank(a) - rank(b))
+})
+
+/** 折叠的簇 key 集合（默认全展开） */
+const collapsed = ref<Set<string>>(new Set())
+function toggleGroup(key: string) {
+  const next = new Set(collapsed.value)
+  next.has(key) ? next.delete(key) : next.add(key)
+  collapsed.value = next
+}
+function groupOpen(key: string) {
+  return !collapsed.value.has(key)
+}
+
+/** 需求线配色：按线索名 hash 取一个稳定颜色，让同一线一眼可辨 */
+const THREAD_COLORS = ['#818cf8', '#38bdf8', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#2dd4bf', '#fb7185']
+function threadColor(label: string): string {
+  let h = 0
+  for (const c of label) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return THREAD_COLORS[h % THREAD_COLORS.length]
 }
 
 // ============ 本地待办：新建 / 编辑（含附件）============
@@ -217,6 +345,72 @@ onUnmounted(() => {
       </div>
     </header>
 
+    <!-- 小吴已就绪：只要清单非空就常驻；有风险给出概况 + 点题，清闲时一句平稳收尾（无对话框，AI 先动） -->
+    <div
+      v-if="total > 0"
+      class="zt-insight"
+      :class="{ 'is-clickable': chat.configured, 'is-calm': summary.total === 0 }"
+      :title="chat.configured ? '让小吴排出处理顺序' : ''"
+      @click="askXiaowuToPlan"
+    >
+      <span class="zt-insight-spark"><IconSpark class="w-3 h-3" /></span>
+      <span class="zt-insight-name">小吴已就绪</span>
+      <template v-if="summary.total > 0">
+        <span class="zt-insight-stats">
+          <span v-if="summary.overdue" class="is-overdue">{{ summary.overdue }} 逾期</span>
+          <span v-if="summary.dueSoon" class="is-due">{{ summary.dueSoon }} 临期</span>
+          <span v-if="summary.stalled" class="is-stall">{{ summary.stalled }} 停滞</span>
+        </span>
+        <span class="zt-insight-head">{{ summary.headline }}</span>
+        <span v-if="chat.configured" class="zt-insight-go">让小吴排一下 →</span>
+      </template>
+      <span v-else class="zt-insight-head">一切平稳，没有需要紧急处理的，按自己的节奏来。</span>
+    </div>
+
+    <!-- 小吴的洞察：检测到值得说的模式时主动开口（LLM 解读 / 未配置走检测模板） -->
+    <div v-if="insights.length" class="zt-ic">
+      <header class="zt-ic-head">
+        <span class="zt-ic-spark"><IconSpark class="w-3 h-3" /></span>
+        <span class="zt-ic-title">小吴的洞察</span>
+        <button
+          v-if="chat.configured"
+          class="zt-ic-refresh"
+          :class="{ 'is-spinning': insightGenerating }"
+          :disabled="insightGenerating"
+          title="重新分析"
+          @click.stop="refreshInsight"
+        >
+          <IconRefresh class="w-3 h-3" />
+        </button>
+      </header>
+
+      <!-- LLM 解读中（无缓存） -->
+      <div v-if="chat.configured && insightGenerating && !insightContent" class="zt-ic-loading">
+        <span class="zt-ic-dot" />
+        <span class="zt-ic-dot" />
+        <span class="zt-ic-dot" />
+        <span class="zt-ic-loading-text">小吴正在看你的清单…</span>
+      </div>
+
+      <!-- LLM 解读正文 -->
+      <p v-else-if="insightContent" class="zt-ic-body">{{ insightContent }}</p>
+
+      <!-- 检测模板（LLM 未配置 / 尚未生成时） -->
+      <ul v-else class="zt-ic-list">
+        <li v-for="ins in insights" :key="ins.kind">
+          <span class="zt-ic-bullet" />
+          <span>{{ ins.title }}</span>
+        </li>
+      </ul>
+
+      <footer v-if="chat.configured" class="zt-ic-foot">
+        <button class="zt-ic-ask" @click.stop="askXiaowuInsight(insights[0])">
+          <IconSpark class="w-3 h-3" />
+          <span>让小吴展开 →</span>
+        </button>
+      </footer>
+    </div>
+
     <!-- 加载中 -->
     <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">
       {{ zentaoLoggingIn ? '正在登录禅道…' : '加载中…' }}
@@ -249,22 +443,46 @@ onUnmounted(() => {
 
     <!-- 统一清单 -->
     <ul v-else class="max-h-[46vh] overflow-y-auto">
-      <li
-        v-for="it in items"
-        :key="it.key"
-        class="zt-row"
-        :class="{ 'is-urgent': isUrgent(it), 'is-clickable': it.kind !== 'local' }"
-        @click="onRowClick(it)"
-      >
+      <template v-for="g in groups" :key="g.key">
+        <!-- 需求线分组头（仅 ≥2 项的簇显示；可折叠） -->
+        <li
+          v-if="g.isCluster"
+          class="zt-group-head"
+          :style="{ '--thread': threadColor(g.label) }"
+          @click="toggleGroup(g.key)"
+        >
+          <span class="zt-group-chev" :class="{ 'is-collapsed': !groupOpen(g.key) }">▾</span>
+          <span class="zt-group-dot" />
+          <span class="zt-group-label">需求线 · {{ g.label }}</span>
+          <span class="zt-group-count">{{ g.items.length }}</span>
+        </li>
+        <!-- 组内条目（簇折叠时隐藏；其他组始终显示） -->
+        <li
+          v-for="it in g.items"
+          :key="it.key"
+          v-show="g.isCluster ? groupOpen(g.key) : true"
+          class="zt-row"
+          :class="{ 'is-urgent': isUrgent(it), 'is-clickable': it.kind !== 'local', 'in-thread': g.isCluster }"
+          @click="onRowClick(it)"
+        >
+          <span v-if="g.isCluster" class="zt-thread-mark" :style="{ '--thread': threadColor(g.label) }" />
         <!-- 禅道任务 -->
         <template v-if="it.kind === 'task'">
           <IconCheckboxOutline class="w-4 h-4 text-sky-300/80 shrink-0" />
           <span class="zt-kind text-sky-200/90 bg-sky-400/10">任务</span>
           <span class="flex-1 min-w-0 truncate text-sm text-white/85">{{ (it.ref as ZentaoTask).name }}</span>
           <span
-            v-if="ztIsOverdue((it.ref as ZentaoTask).deadline)"
-            class="zt-badge ring-1 ring-inset text-rose-300 bg-rose-400/10 ring-rose-400/30"
-          >逾期</span>
+            v-if="it.risk"
+            class="zt-risk"
+            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
+            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
+            @click.stop="askXiaowu(it)"
+          >
+            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
+            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
+            <IconPause v-else class="w-3 h-3" />
+            {{ it.risk.label }}
+          </span>
           <span
             v-if="ztPri((it.ref as ZentaoTask).pri)"
             class="zt-badge ring-1 ring-inset"
@@ -285,6 +503,18 @@ onUnmounted(() => {
           <IconBug class="w-4 h-4 text-rose-300/80 shrink-0" />
           <span class="zt-kind text-rose-200/90 bg-rose-400/10">Bug</span>
           <span class="flex-1 min-w-0 truncate text-sm text-white/85">{{ (it.ref as ZentaoBug).title }}</span>
+          <span
+            v-if="it.risk"
+            class="zt-risk"
+            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
+            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
+            @click.stop="askXiaowu(it)"
+          >
+            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
+            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
+            <IconPause v-else class="w-3 h-3" />
+            {{ it.risk.label }}
+          </span>
           <span
             v-if="severityBadge((it.ref as ZentaoBug).severity)"
             class="zt-badge ring-1 ring-inset"
@@ -314,6 +544,18 @@ onUnmounted(() => {
             <p v-if="(it.ref as LocalTask).note" class="zt-note truncate">{{ (it.ref as LocalTask).note }}</p>
           </div>
           <span
+            v-if="it.risk"
+            class="zt-risk"
+            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
+            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
+            @click.stop="askXiaowu(it)"
+          >
+            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
+            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
+            <IconPause v-else class="w-3 h-3" />
+            {{ it.risk.label }}
+          </span>
+          <span
             v-if="deadlineLabel((it.ref as LocalTask).deadline)"
             class="zt-dl"
             :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
@@ -342,7 +584,8 @@ onUnmounted(() => {
             <IconPencil class="w-3.5 h-3.5" />
           </button>
         </template>
-      </li>
+        </li>
+      </template>
 
       <!-- 已完成（本地待办）折叠 -->
       <template v-if="localStore.doneCount">
@@ -417,6 +660,58 @@ onUnmounted(() => {
   opacity: 1;
 }
 
+/* 需求线分组头（可折叠） */
+.zt-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px 6px;
+  margin-top: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.zt-group-head:hover { background: rgba(255, 255, 255, 0.04); }
+.zt-group-chev { font-size: 10px; color: rgba(255, 255, 255, 0.4); transition: transform 0.15s; }
+.zt-group-chev.is-collapsed { transform: rotate(-90deg); }
+.zt-group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--thread);
+  box-shadow: 0 0 6px var(--thread);
+  flex-shrink: 0;
+}
+.zt-group-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zt-group-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 簇内条目：左侧线索色细条，与分组头圆点呼应——即使被紧急度打散也「连成线」 */
+.zt-thread-mark {
+  flex-shrink: 0;
+  width: 2px;
+  align-self: stretch;
+  margin: 3px 0;
+  border-radius: 2px;
+  background: var(--thread);
+  opacity: 0.55;
+}
+
 .zt-kind {
   flex-shrink: 0;
   font-size: 11px;
@@ -430,6 +725,176 @@ onUnmounted(() => {
   border-radius: 5px;
   font-size: 11px;
   font-weight: 500;
+}
+
+/* 小吴风险徽标（AI 预测：逾期 / 临期 / 停滞）；why 走 title，LLM 已配置时整枚可点 → 交给小吴 */
+.zt-risk {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.zt-risk.is-overdue { color: #fda4af; background: rgba(244, 63, 94, 0.12); box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.3); }
+.zt-risk.is-due-soon { color: #fcd34d; background: rgba(251, 191, 36, 0.1); box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28); }
+.zt-risk.is-stalled { color: #c4b5fd; background: rgba(139, 92, 246, 0.1); box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.25); }
+.zt-risk.is-ask { cursor: pointer; transition: filter 0.15s, transform 0.15s; }
+.zt-risk.is-ask:hover { filter: brightness(1.15); transform: translateY(-1px); }
+/* 逾期且可交互时，给一个克制的呼吸脉冲，强化「最该先处理」的提示 */
+.zt-risk.is-overdue.is-ask { animation: zt-risk-pulse 2.4s ease-in-out infinite; }
+@keyframes zt-risk-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.3); }
+  50% { box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.55), 0 0 0 3px rgba(244, 63, 94, 0.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zt-risk.is-overdue.is-ask { animation: none; }
+}
+
+/* 「小吴已就绪」状态条：首页 AI 主动风险概况（玻璃渐变，区别于清单的 teal，与晨报卡同语言） */
+.zt-insight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(120deg, rgba(129, 140, 248, 0.1), rgba(56, 189, 248, 0.04));
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.zt-insight.is-clickable { cursor: pointer; transition: background 0.15s; }
+.zt-insight.is-clickable:hover { background: linear-gradient(120deg, rgba(129, 140, 248, 0.18), rgba(56, 189, 248, 0.08)); }
+/* 清闲态（无风险）：转 teal，呼应「一切平稳」 */
+.zt-insight.is-calm { background: linear-gradient(120deg, rgba(45, 212, 191, 0.08), rgba(56, 189, 248, 0.03)); }
+.zt-insight.is-calm .zt-insight-spark { color: #5eead4; background: rgba(45, 212, 191, 0.16); }
+.zt-insight.is-calm.is-clickable:hover { background: linear-gradient(120deg, rgba(45, 212, 191, 0.14), rgba(56, 189, 248, 0.06)); }
+.zt-insight-spark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: #a5b4fc;
+  background: rgba(129, 140, 248, 0.18);
+  flex-shrink: 0;
+}
+.zt-insight-name { font-weight: 600; color: rgba(255, 255, 255, 0.9); }
+.zt-insight-stats { display: inline-flex; gap: 6px; }
+.zt-insight-stats span { padding: 1px 6px; border-radius: 5px; font-weight: 500; }
+.zt-insight-stats .is-overdue { color: #fda4af; background: rgba(244, 63, 94, 0.12); }
+.zt-insight-stats .is-due { color: #fcd34d; background: rgba(251, 191, 36, 0.1); }
+.zt-insight-stats .is-stall { color: #c4b5fd; background: rgba(139, 92, 246, 0.1); }
+.zt-insight-head { color: rgba(255, 255, 255, 0.55); }
+.zt-insight-go { margin-left: auto; color: #a5b4fc; flex-shrink: 0; }
+
+/* 「小吴的洞察」卡：LLM 主动开口的深度发现（与状态条同语言，更突出） */
+.zt-ic {
+  padding: 0 16px 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(120deg, rgba(129, 140, 248, 0.08), rgba(56, 189, 248, 0.03));
+}
+.zt-ic-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 0 7px;
+}
+.zt-ic-spark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: #a5b4fc;
+  background: rgba(129, 140, 248, 0.18);
+  flex-shrink: 0;
+}
+.zt-ic-title { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+.zt-ic-refresh {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.zt-ic-refresh:hover:not(:disabled) { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.08); }
+.zt-ic-refresh:disabled { cursor: default; }
+.zt-ic-refresh.is-spinning svg { animation: zt-risk-spin 0.9s linear infinite; }
+@keyframes zt-risk-spin { to { transform: rotate(360deg); } }
+
+.zt-ic-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* 检测模板列表（LLM 未配置 / 尚未生成时的兜底） */
+.zt-ic-list { margin: 0; padding: 0; list-style: none; }
+.zt-ic-list li {
+  position: relative;
+  padding: 3px 0 3px 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+}
+.zt-ic-bullet {
+  position: absolute;
+  left: 2px;
+  top: 11px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(165, 180, 252, 0.7);
+}
+
+/* LLM 生成中骨架 */
+.zt-ic-loading { display: flex; align-items: center; gap: 5px; padding: 2px 0; }
+.zt-ic-loading-text { margin-left: 6px; font-size: 12.5px; color: rgba(255, 255, 255, 0.5); }
+.zt-ic-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(165, 180, 252, 0.7);
+  animation: zt-ic-bounce 1.2s ease-in-out infinite;
+}
+.zt-ic-dot:nth-child(2) { animation-delay: 0.15s; }
+.zt-ic-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes zt-ic-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* 「让小吴展开」入口 */
+.zt-ic-foot { padding: 7px 0 0; }
+.zt-ic-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: rgba(199, 210, 254, 0.85);
+  background: rgba(129, 140, 248, 0.12);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.zt-ic-ask:hover { background: rgba(129, 140, 248, 0.22); color: #e0e7ff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zt-ic-refresh.is-spinning svg { animation: none; }
+  .zt-ic-dot { animation: none; }
 }
 .zt-dl {
   flex-shrink: 0;
