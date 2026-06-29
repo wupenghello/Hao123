@@ -20,7 +20,7 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-morning-briefing`（每日晨报）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 
@@ -125,6 +125,25 @@ App.vue (router-view)
 - 拉起用 `VITE_WBSCF_PKG_MGR`（默认 `pnpm`）执行 `run <script>`，cwd=wbscf-web 根，stdio 继承到 Hao123 dev 终端；进程同时监听 `exit` 与 `error`（spawn 失败也复位 state，避免永久卡「启动中」）；Hao123 dev server 退出（含 SIGINT/SIGTERM）时连带收掉拉起的子进程树（Windows `taskkill /T /F`，非 Windows 杀进程组），避免孤儿 dev server。
 
 **仅 dev 生效**；是否把 wbscf 工具暴露给模型由 `chat/tools.ts` 的 `wbscfEnabled`（dev 且配了 `VITE_WBSCF_WEB_ROOT`）门控（对齐 `kbEnabled` 约定）——生产或未配置时不暴露工具、system prompt 也不宣称该能力。**环境变量：** `.env` 配 `VITE_WBSCF_WEB_ROOT`（wbscf-web 根目录，Windows 用正斜杠）+ 可选 `VITE_WBSCF_PKG_MGR`；改动后需重启 dev。未配置时入口隐藏，dev/test/pre 不受影响。`StatusNav.vue` 的 `navItems` 前 5 项带 `local`（app key）即自动渲染该入口。
+
+### 聊天助理模块（`src/features/chat/`，自包含特性模块）
+
+小吴——嵌在工作台里的 AI 助理。命令面板形态（`Alt+K` / `⌘K` 召唤），agent 循环 + 工具调用，外部统一从 `@/features/chat` 引入（barrel `index.ts`）：
+
+| 路径 | 职责 |
+|---|---|
+| `config.ts` | 助手身份（`ASSISTANT_NAME`）+ LLM 接入参数（OpenAI 兼容，当前接 DeepSeek，env 驱动；API Key 由 vite 代理注入，客户端不碰密钥，用非敏感开关 `VITE_DEEPSEEK_CONFIGURED` 表达「已配置」） |
+| `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
+| `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
+| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，最多 5 轮）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；abort / retry / 重新生成；👍/👎 反馈统计 |
+| `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
+| `welcome-guide.ts` | 首页开场引导：LLM 站在前端视角生成 headline + 快捷问题（失败回退静态兜底，模块级单例只生成一次） |
+| `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |
+| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口）/ `MorningBriefing.vue`（首页晨报卡） |
+
+**System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
+
+**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需配支持图片的模型**——默认 `deepseek-chat` 不支持视觉，发图会收到模型错误（走错误条提示，不崩）；要用图片功能把 `VITE_DEEPSEEK_MODEL` 换成 VL 模型（如 `qwen-vl-max`、`gpt-4o`）。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
 
 ### 首页统一收件箱（`src/components/UnifiedInbox.vue`）
 

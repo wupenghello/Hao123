@@ -40,6 +40,9 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   /** 文本内容；assistant 发起纯工具调用时可能为空串 */
   content: string
+  /** 仅 user 消息：附带的图片 data URL（多模态输入）。不持久化（localStorage 装不下 base64），
+   *  仅当前会话内存持有，供 agent loop 多轮与回显；刷新页面后丢失。 */
+  images?: string[]
   /** assistant 发起的工具调用（可选，回灌给模型用） */
   tool_calls?: ToolCall[]
   /** role=tool 时，对应的 tool_call id */

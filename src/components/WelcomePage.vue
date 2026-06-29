@@ -12,7 +12,7 @@
  * 且快捷问题已在命令面板（ChatCommandPalette）空态中存在，无需在首页重复。
  */
 import { computed, ref, onMounted } from 'vue'
-import { useChatStore, useWelcomeGuide, ASSISTANT_NAME } from '@/features/chat'
+import { useChatStore, useWelcomeGuide, ASSISTANT_NAME, MorningBriefing } from '@/features/chat'
 import { useWeatherStore } from '@/features/weather'
 import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
@@ -134,6 +134,9 @@ function finishOnboarding() {
             <span class="dashboard-advisory-hint">问{{ ASSISTANT_NAME }} →</span>
           </button>
         </Transition>
+
+        <!-- 每日晨报：小吴基于真实工作台快照生成的今日简报（今日要事 / 天气 / 节奏建议），常驻卡片 -->
+        <MorningBriefing class="mt-3" />
 
         <!-- 统一收件箱 = 主角（指派给我的禅道任务/Bug + 本地待办，整合为一条清单） -->
         <div class="mt-3">

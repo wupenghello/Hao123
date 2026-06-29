@@ -191,11 +191,97 @@ function formatMessageTime(ts: number | undefined): string {
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-/** 发送文本（若有挂起的引用，自动拼上引用前缀并清除引用） */
+// ============ 图片输入（多模态）============
+/** 单张图片上限 5MB（base64 进 HTTP 请求，过大慢且贵）；一次最多 4 张 */
+const MAX_CHAT_IMAGE_SIZE = 5 * 1024 * 1024
+const MAX_CHAT_IMAGES = 4
+/** 待发送的图片（data URL，发送时随消息一起发给视觉模型） */
+interface PendingImage { id: string; url: string; name: string }
+const pendingImages = ref<PendingImage[]>([])
+/** 大图预览（点用户消息缩略图 / 待发送缩略图展开） */
+const previewImage = ref<string | null>(null)
+const isDraggingImage = ref(false)
+const imageError = ref('')
+let imageErrorTimer: ReturnType<typeof setTimeout> | null = null
+function flashImageError(msg: string) {
+  imageError.value = msg
+  if (imageErrorTimer) clearTimeout(imageErrorTimer)
+  imageErrorTimer = setTimeout(() => (imageError.value = ''), 3000)
+}
+
+function isImage(type: string): boolean {
+  return typeof type === 'string' && type.startsWith('image/')
+}
+
+/** File → data URL（发给视觉模型必须是 base64 data URL，blob: object URL 模型访问不到） */
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result as string)
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
+
+/** 把图片文件加入待发送列表（校验类型 / 体积 / 数量） */
+async function addImages(files: File[]) {
+  for (const file of files) {
+    if (!isImage(file.type)) continue
+    if (pendingImages.value.length >= MAX_CHAT_IMAGES) {
+      flashImageError(`最多 ${MAX_CHAT_IMAGES} 张`)
+      break
+    }
+    if (file.size > MAX_CHAT_IMAGE_SIZE) {
+      flashImageError(`单张不超过 ${Math.round(MAX_CHAT_IMAGE_SIZE / 1024 / 1024)}MB`)
+      continue
+    }
+    try {
+      const url = await fileToDataUrl(file)
+      pendingImages.value.push({
+        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        url,
+        name: file.name || '图片',
+      })
+    } catch {
+      /* 读取失败：跳过该张 */
+    }
+  }
+}
+
+function removePendingImage(id: string) {
+  pendingImages.value = pendingImages.value.filter((p) => p.id !== id)
+}
+
+/** 粘贴：剪贴板含图片才接管（纯文本粘贴照常插入输入框，不拦截） */
+async function onImagePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  const files: File[] = []
+  for (const it of Array.from(items)) {
+    if (it.kind === 'file' && isImage(it.type)) {
+      const f = it.getAsFile()
+      if (f) files.push(f)
+    }
+  }
+  if (files.length) {
+    e.preventDefault() // 阻止图片被当文本插入输入框
+    await addImages(files)
+  }
+}
+
+async function onImageDrop(e: DragEvent) {
+  isDraggingImage.value = false
+  const files = Array.from(e.dataTransfer?.files ?? [])
+  if (files.some((f) => isImage(f.type))) await addImages(files)
+}
+
+/** 发送文本（若有挂起的引用，自动拼上引用前缀并清除引用；一并带上待发图片） */
 function commitSend(text: string) {
   const finalText = quoteMessageIdx.value !== null ? buildQuoteText() + text : text
+  const imgs = pendingImages.value.map((p) => p.url)
   quoteMessageIdx.value = null
-  store.send(finalText)
+  pendingImages.value = []
+  store.send(finalText, imgs)
 }
 
 // ============ 拖拽缩放相关 ============
@@ -448,7 +534,7 @@ function autoGrow() {
 
 function onSend() {
   const text = input.value
-  if (!text.trim() || store.streaming) return
+  if ((!text.trim() && !pendingImages.value.length) || store.streaming) return
   input.value = ''
   nextTick(autoGrow)
   commitSend(text)
@@ -580,7 +666,19 @@ onUnmounted(() => {
                   <template v-for="(m, i) in store.messages" :key="i">
                 <!-- 用户 -->
                 <div v-if="m.role === 'user'" class="flex flex-col items-end gap-1">
-                  <div class="cmd-bubble-user max-w-[80%]">{{ m.content }}</div>
+                  <div class="cmd-bubble-user max-w-[80%]">
+                    <div v-if="m.images?.length" class="cmd-user-images">
+                      <img
+                        v-for="(img, ii) in m.images"
+                        :key="ii"
+                        :src="img"
+                        class="cmd-user-img"
+                        alt="发送的图片"
+                        @click="previewImage = img"
+                      >
+                    </div>
+                    <span v-if="m.content" class="whitespace-pre-wrap">{{ m.content }}</span>
+                  </div>
                   <span class="text-[10px] text-white/25 pr-1">{{ formatMessageTime(m.ts) }}</span>
                 </div>
 
@@ -813,8 +911,32 @@ onUnmounted(() => {
               </div>
             </Transition>
 
+            <!-- 待发送图片预览（多模态输入；粘贴 / 拖入的图片在发送前列在这里） -->
+            <Transition name="quote-fade">
+              <div
+                v-if="pendingImages.length || imageError"
+                class="cmd-pending-bar relative z-10 flex items-center gap-2 px-4 py-2 border-t border-white/8"
+              >
+                <div v-if="pendingImages.length" class="flex items-center gap-2 flex-wrap">
+                  <div v-for="p in pendingImages" :key="p.id" class="cmd-pending-thumb group">
+                    <img :src="p.url" :alt="p.name" @click="previewImage = p.url">
+                    <button class="cmd-pending-x" title="移除" @click.stop="removePendingImage(p.id)">
+                      <IconCloseCircle class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <span v-if="imageError" class="text-[11px] text-rose-300/90 ml-auto">{{ imageError }}</span>
+              </div>
+            </Transition>
+
             <!-- 底部输入栏 -->
-            <div class="cmd-input-wrapper relative z-10 flex items-center gap-3 px-4 py-3.5 border-t border-white/10 shrink-0">
+            <div
+              class="cmd-input-wrapper relative z-10 flex items-center gap-3 px-4 py-3.5 border-t border-white/10 shrink-0"
+              :class="{ 'is-drag-img': isDraggingImage }"
+              @dragover.prevent="isDraggingImage = true"
+              @dragleave.prevent="isDraggingImage = false"
+              @drop.prevent="onImageDrop"
+            >
               <div class="cmd-avatar shrink-0" :class="{ 'has-content': input.trim() }">
                 <IconRobot class="w-5 h-5" />
               </div>
@@ -831,6 +953,7 @@ onUnmounted(() => {
                   @input="autoGrow(); filterSuggestions(input)"
                   @blur="onInputBlur"
                   @focus="onInputFocus"
+                  @paste="onImagePaste"
                 />
                 <!-- 输入联想提示（幽灵文字） -->
                 <Transition name="autocomplete-fade">
@@ -857,7 +980,7 @@ onUnmounted(() => {
               <button
                 v-else
                 class="cmd-send"
-                :disabled="!input.trim() || !store.configured"
+                :disabled="(!input.trim() && !pendingImages.length) || !store.configured"
                 title="发送（Enter）"
                 @click="onSend"
               >
@@ -909,6 +1032,29 @@ onUnmounted(() => {
               </svg>
             </div>
           </section>
+        </Transition>
+
+        <!-- 图片大图预览（点用户消息缩略图 / 待发送缩略图展开，点任意处关闭） -->
+        <Transition
+          enter-active-class="transition-opacity duration-150 ease-out"
+          leave-active-class="transition-opacity duration-100 ease-in"
+          enter-from-class="opacity-0"
+          leave-to-class="opacity-0"
+        >
+          <div
+            v-if="previewImage"
+            class="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-slate-950/85 backdrop-blur-sm cursor-zoom-out"
+            @click="previewImage = null"
+          >
+            <img :src="previewImage" class="max-w-[92vw] max-h-[90vh] rounded-lg shadow-2xl" alt="图片预览" @click.stop>
+            <button
+              class="absolute top-5 right-5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg p-2 transition-colors"
+              title="关闭"
+              @click="previewImage = null"
+            >
+              <IconClose class="w-6 h-6" />
+            </button>
+          </div>
         </Transition>
       </div>
     </Transition>
@@ -1584,5 +1730,61 @@ onUnmounted(() => {
 }
 .cmd-md :deep(tr:hover) {
   background: rgba(94, 234, 212, 0.08);
+}
+
+/* ============ 用户消息里的图片 ============ */
+.cmd-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.cmd-user-img {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: contain;
+  cursor: zoom-in;
+  background: rgba(0, 0, 0, 0.2);
+}
+/* 气泡里只有图、没有文字时，去掉底部多余间距 */
+.cmd-bubble-user .cmd-user-images:last-child {
+  margin-bottom: 0;
+}
+
+/* ============ 待发送图片预览条 ============ */
+.cmd-pending-bar {
+  background: rgba(45, 212, 191, 0.04);
+}
+.cmd-input-wrapper.is-drag-img {
+  background: rgba(45, 212, 191, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.5);
+}
+.cmd-pending-thumb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+}
+.cmd-pending-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: zoom-in;
+}
+.cmd-pending-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  color: rgba(255, 255, 255, 0.9);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.cmd-pending-thumb:hover .cmd-pending-x {
+  opacity: 1;
 }
 </style>

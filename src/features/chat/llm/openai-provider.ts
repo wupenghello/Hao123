@@ -24,7 +24,17 @@ export interface OpenAiCompatConfig {
 
 /** 把发给模型的消息裁成 API 接受的字段（剔除 UI-only 的 activities/ts） */
 function toApiMessage(m: ChatMessage) {
-  const base: Record<string, unknown> = { role: m.role, content: m.content }
+  const base: Record<string, unknown> = { role: m.role }
+  // user 消息带图片 → 多模态 content（text + image_url，OpenAI/DeepSeek 视觉协议）；
+  // 其余角色保持纯字符串 content。
+  if (m.role === 'user' && m.images?.length) {
+    base.content = [
+      { type: 'text', text: m.content || '' },
+      ...m.images.map((url) => ({ type: 'image_url', image_url: { url } })),
+    ]
+  } else {
+    base.content = m.content
+  }
   if (m.tool_calls) base.tool_calls = m.tool_calls
   if (m.tool_call_id) base.tool_call_id = m.tool_call_id
   return base

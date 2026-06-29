@@ -10,14 +10,14 @@
  *
  * 模型未配置 / 失败 / 解析不出 → 回退静态兜底，首屏始终有内容。
  * 一次 LLM 调用同时拿 headline + suggestions；结果模块级缓存，多个组件只生成一次。
+ *
+ * 上下文采集（天气 + 禅道 + 本地待办）已抽到 dashboard-context.ts，与每日晨报共享，
+ * 并发时只发一次禅道请求。
  */
 import { ref, computed, type ComputedRef } from 'vue'
-import { useWeatherStore } from '@/features/weather'
-import { useZentaoSession, callZentaoTool } from '@/features/zentao'
-import { useLocalTaskStore } from '@/features/local-tasks'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
-import { daypart } from './utils'
+import { buildDashboardContext } from './dashboard-context'
 
 export interface Suggestion {
   icon: 'weather' | 'task' | 'bug' | 'local'
@@ -42,90 +42,6 @@ const MAX_ATTEMPTS = 3
 let generating = false
 /** 成功后锁定：避免组件重复挂载时反复调用 LLM / 禅道（与文档承诺「只生成一次」一致） */
 let done = false
-
-// ============ 编码 → 中文（模型只认人话）============
-const TASK_STATUS: Record<string, string> = {
-  wait: '未开始', doing: '进行中', done: '已完成', pause: '已暂停', cancel: '已取消', closed: '已关闭',
-}
-const BUG_STATUS: Record<string, string> = { active: '待解决', resolved: '已解决', closed: '已关闭' }
-const SEVERITY: Record<string, string> = { '1': '严重', '2': '主要', '3': '次要', '4': '轻微' }
-const PRI: Record<string, string> = { '1': '紧急', '2': '高', '3': '中', '4': '低' }
-const label = (map: Record<string, string>, v: unknown) => map[String(v)] || ''
-
-interface TaskItem { name?: string; status?: string; pri?: string | number; deadline?: string }
-interface BugItem { title?: string; status?: string; severity?: string | number; pri?: string | number }
-
-/** 取「指派给我」的工作项（带状态/优先级，已翻成中文行）；失败返回空数组 */
-async function assignedLines(tool: string, kind: 'task' | 'bug'): Promise<string[]> {
-  try {
-    const r = (await callZentaoTool(tool, { type: 'assignedTo' })) as { tasks?: TaskItem[]; bugs?: BugItem[] }
-    if (kind === 'task') {
-      return (r.tasks ?? [])
-        .filter((t) => t.name)
-        .slice(0, 8)
-        .map((t) => {
-          const meta = [label(TASK_STATUS, t.status), label(PRI, t.pri) && `优先级${label(PRI, t.pri)}`, t.deadline && `截止${t.deadline}`]
-            .filter(Boolean)
-            .join('，')
-          return `「${t.name}」${meta ? `（${meta}）` : ''}`
-        })
-    }
-    return (r.bugs ?? [])
-      .filter((b) => b.title)
-      .slice(0, 8)
-      .map((b) => {
-        const meta = [label(BUG_STATUS, b.status), label(SEVERITY, b.severity) && `${label(SEVERITY, b.severity)}级`]
-          .filter(Boolean)
-          .join('，')
-        return `「${b.title}」${meta ? `（${meta}）` : ''}`
-      })
-  } catch {
-    return []
-  }
-}
-
-/** 收集当前上下文，拼成喂给模型的描述 */
-async function buildContext(): Promise<string> {
-  const weather = useWeatherStore()
-  const session = useZentaoSession()
-  const now = new Date()
-  // 本地时间（非 UTC）：完整日期 + 星期 + 时段，让生成的建议贴合「今天周几、此刻」
-  const dateStr = now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
-  const lines: string[] = [`现在是${dateStr} ${daypart(now.getHours())}。`]
-
-  // autoLocate 失败兜底已改为 nearestCity().name（不再写 '当前位置' 占位），故直接取城市名即可。
-  const city = weather.cityName || null
-  if (city) {
-    const wn = weather.now
-    const today = weather.daily[0]
-    let w = `所在城市：${city}。`
-    if (wn) w += `当前${wn.text} ${wn.temp}°C。`
-    if (today) w += `今日 ${today.tempMin}~${today.tempMax}°C，白天${today.textDay}。`
-    lines.push(w)
-  }
-
-  if (session.configured) {
-    const [tasks, bugs] = await Promise.all([
-      assignedLines('zentao.my_tasks', 'task'),
-      assignedLines('zentao.my_bugs', 'bug'),
-    ])
-    lines.push(tasks.length ? `我的开发任务（${tasks.length} 个）：\n${tasks.join('\n')}` : '当前没有指派给我的开发任务。')
-    lines.push(bugs.length ? `测试提给我的 Bug（${bugs.length} 个）：\n${bugs.join('\n')}` : '当前没有测试提给我的 Bug。')
-  }
-
-  // 本地待办（手动创建、与禅道无关，始终可用）
-  const localStore = useLocalTaskStore()
-  const localTasks = localStore.open
-    .slice(0, 8)
-    .map((t) => `「${t.title}」（${label(PRI, t.pri) ? `优先级${label(PRI, t.pri)}` : ''}${t.deadline ? `，截止${t.deadline}` : ''}）`)
-  lines.push(
-    localTasks.length
-      ? `我的本地待办（${localStore.openCount} 个）：\n${localTasks.join('\n')}`
-      : '当前没有本地待办。',
-  )
-
-  return lines.join('\n')
-}
 
 interface Guide { headlines?: string[]; headline?: string; suggestions?: Suggestion[] }
 
@@ -168,7 +84,7 @@ async function generate() {
   }
 
   try {
-    const context = await buildContext()
+    const context = await buildDashboardContext()
     const sys = {
       role: 'system' as const,
       content: [

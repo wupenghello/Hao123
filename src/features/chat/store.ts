@@ -17,7 +17,7 @@
  * - 轻量意图分类：时间/UI 操作类问题直接本地回答，省去不必要的 LLM 调用。
  * - 反馈系统：用户可对 assistant 消息 👍/👎，用于质量追踪与 prompt 迭代。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import { useWeatherStore } from '@/features/weather'
@@ -117,8 +117,16 @@ const STATIC_SYSTEM_PROMPT = [
   '- 涉及项目内部信息（环境域名、部署流程、内部约定、笔记、FAQ）时，先调用 kb.search 检索知识库再回答，绝不凭记忆编造地址或流程。',
   '- 用户说「记一下」「提醒我」「加个待办：…」等要落一条待办时，用 local.create 创建本地待办；查看/完成/修改同理调用对应工具。删除任务（local.delete）前先向用户确认。',
   '- 用户没指明地点/日期时，用下方「当前上下文」里的默认城市与当前日期补全，直接执行，不要反问。',
-  '- 一个问题可能需要多次/多个工具配合（如先搜城市再查天气、先列任务再看详情），自行规划。',
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',
+  '- 用户可能发送图片（截图 / 照片）。你能看图：分析报错截图、识别白板或照片里的文字（必要时据此用 local.create 落成待办）。回答时先简述你从图里看到的关键信息，再给判断或行动。',
+  '',
+  '# 组合规划（你的核心价值）',
+  '你有天气 / 禅道任务 / 禅道 Bug / 知识库 / 本地待办等多类工具。面对开放性、规划类问题，不要只调一个工具就草草作答——要把相关工具放在一起掂量，先收集全貌再综合给建议。多个互相独立的查询，尽量在同一轮并行发起（一次多个 tool_calls），减少往返、加快回答。',
+  '典型串联：',
+  '- 「今天怎么安排 / 我先做什么好」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list（必要时加 weather.current），再按紧急·逾期·今天截止排出优先级与节奏。',
+  '- 「这周还有啥没做完 / 我手头多少事」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list，归类汇总，点名最该跟进的。',
+  '- 「这个 bug 怎么定位」→ 先 zentao.bug_detail 拿详情，再 kb.search 查相关流程/说明，综合给思路。',
+  '- 「带伞吗 / 穿什么」→ weather.current（不够再 weather.forecast_daily / life_indices），结合当前上下文给一句贴心建议。',
   '',
   '# 回答风格',
   '- 简体中文，口吻自然亲切、简洁不啰嗦，像一位靠谱的同事。',
@@ -172,10 +180,31 @@ function buildApiMessages(history: ChatMessage[]): ChatMessage[] {
   ]
 }
 
+/** 读取持久化的对话历史（不含图片——图片 data URL 不进 localStorage，见 messages 注释） */
+function loadHistory(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem('hao123-chat-history')
+    return raw ? (JSON.parse(raw) as ChatMessage[]) : []
+  } catch {
+    console.warn('[chat] 历史记录解析失败，已重置')
+    return []
+  }
+}
+
 export const useChatStore = defineStore('chat', () => {
   const open = ref(false)
-  // 持久化的对话历史（user/assistant/tool；不含 system）
-  const messages = useStorage<ChatMessage[]>('hao123-chat-history', [])
+  // 对话历史（user/assistant/tool；不含 system）。不再用 useStorage 默认持久化——
+  // user 消息可能带图片 data URL（多模态输入），base64 体积过大会撑爆 localStorage。
+  // 这里自定义持久化：内存中完整持有（供 agent loop 多轮 + 当前会话回显），写入前剥离 images。
+  const messages = ref<ChatMessage[]>(loadHistory())
+  watch(
+    messages,
+    (val) => {
+      const slim = val.map((m) => (m.images?.length ? { ...m, images: undefined } : m))
+      localStorage.setItem('hao123-chat-history', JSON.stringify(slim))
+    },
+    { deep: true },
+  )
   const streaming = ref(false)
   const error = ref<string | null>(null)
   /** 未读提示：面板关闭时收到新回复，圆钮上显示小红点 */
@@ -384,20 +413,29 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 发送一条用户消息并跑完 agent 循环。 */
-  async function send(text: string) {
+  /**
+   * 发送一条用户消息并跑完 agent 循环。
+   * @param images 可选的图片 data URL（多模态输入）；纯文字时可空。带图时跳过本地意图分类。
+   */
+  async function send(text: string, images: string[] = []) {
     const content = text.trim()
-    if (!content || streaming.value) return
+    if (streaming.value) return
+    if (!content && !images.length) return
 
-    // 轻量意图分类：本地可直接回答的问题
-    const localIntent = detectLocalIntent(content)
+    // 轻量意图分类：仅纯文字、且命中明确句式时本地直答，省一次 LLM 调用（带图不走）
+    const localIntent = images.length ? null : detectLocalIntent(content)
     if (localIntent) {
       messages.value.push({ role: 'user', content, ts: Date.now() })
       messages.value.push({ role: 'assistant', content: localIntent.answer, ts: Date.now() })
       return
     }
 
-    messages.value.push({ role: 'user', content, ts: Date.now() })
+    messages.value.push({
+      role: 'user',
+      content,
+      images: images.length ? images : undefined,
+      ts: Date.now(),
+    })
     await runAgentLoop()
   }
 

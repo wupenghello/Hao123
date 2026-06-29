@@ -82,6 +82,9 @@ export function estimateMessageTokens(msg: ChatMessage): number {
       tokens += estimateTokens(tc.function.name + tc.function.arguments) + 10
     }
   }
+  // 图片：视觉模型按分辨率计费，每张粗略 ~1500 token（保守中位值），
+  // 让 truncateHistory 能正确预算含图消息，避免历史超 context window。
+  if (msg.images?.length) tokens += msg.images.length * 1500
   return tokens
 }
 
