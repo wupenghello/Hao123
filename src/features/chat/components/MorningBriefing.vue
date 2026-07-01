@@ -88,10 +88,15 @@ const relTime = computed(() => {
 
 <style scoped>
 .mb-card {
-  border-radius: 14px;
-  background: linear-gradient(150deg, rgba(99, 102, 241, 0.1), rgba(56, 189, 248, 0.05));
-  border: 1px solid rgba(129, 140, 248, 0.22);
-  backdrop-filter: blur(8px);
+  border-radius: 0 18px 18px 0;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.7), rgba(15, 23, 42, 0.38)),
+    radial-gradient(circle at 0 0, rgba(165, 180, 252, 0.18), transparent 42%),
+    repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.03) 0 1px, transparent 1px 32px);
+  border: 1px solid var(--hud-line);
+  border-left: 2px solid rgba(165, 180, 252, 0.68);
+  backdrop-filter: blur(18px) saturate(130%);
+  box-shadow: var(--hud-glow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 

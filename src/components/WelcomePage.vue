@@ -97,33 +97,32 @@ function finishOnboarding() {
 </script>
 
 <template>
-  <!-- 外层滚动容器（body 永久 overflow:hidden，滚动必须放在这里，否则内容超出视口会被裁掉） -->
-  <div class="w-full h-full overflow-y-auto">
-    <div class="min-h-full flex flex-col px-6 py-6">
-      <div class="mx-auto w-full max-w-3xl flex flex-col">
-        <!-- 顶部状态条：问候 + 日期 + 一句话概览（低视觉权重，让收件箱成为唯一锚点） -->
-        <header class="flex items-center gap-3 flex-wrap px-1">
-          <span class="text-sm text-white/80 shrink-0">{{ greeting }} · {{ dateStr }}</span>
+  <!-- 外层固定高度容器（body 永久 overflow:hidden，内部列各自滚动，避免内容被视口裁掉） -->
+  <div class="welcome-shell">
+    <div class="welcome-grid">
+      <aside class="welcome-left" aria-label="今日状态与简报">
+        <!-- 顶部状态条：问候 + 日期 + 一句话概览，收进左侧仪表柱，右侧专注工作项 -->
+        <header class="welcome-status-card">
+          <div>
+            <p class="welcome-status-kicker">today signal</p>
+            <h1 class="welcome-status-title">{{ greeting }} · {{ dateStr }}</h1>
+          </div>
           <Transition name="guide-fade">
-            <span
-              v-if="dailySummary"
-              class="ml-auto inline-flex items-center gap-2 text-[12.5px] text-white/50"
-            >
+            <p v-if="dailySummary" class="welcome-status-summary">
               {{ dailySummary }}
               <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
-            </span>
+            </p>
           </Transition>
         </header>
 
-        <!-- 每日晨报：小吴基于真实工作台快照生成的今日简报（开头即「今天先抓什么」的行动建议 + 关键事项 + 节奏提示），
-             卡片底部可拉起小吴深聊——行动建议已并入晨报，不再单列一条 -->
-        <MorningBriefing class="mt-3" />
+        <!-- 每日晨报：左侧固定情报柱，作为进入清单前的「今天先抓什么」 -->
+        <MorningBriefing class="welcome-briefing" />
+      </aside>
 
-        <!-- 统一收件箱 = 主角（指派给我的禅道任务/Bug + 本地待办，整合为一条清单） -->
-        <div class="mt-3">
-          <UnifiedInbox />
-        </div>
-      </div>
+      <!-- 统一收件箱 = 主角（右侧占据剩余空间，内部自行切换清单 / 星图形态） -->
+      <section class="welcome-right" aria-label="统一收件箱">
+        <UnifiedInbox />
+      </section>
     </div>
 
     <!-- 首次访问引导（覆盖层） -->
@@ -143,6 +142,105 @@ function finishOnboarding() {
 </template>
 
 <style scoped>
+/* 左右舱布局：左侧是固定情报柱，右侧是自适应工作星图 / 清单 */
+.welcome-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 18px;
+}
+.welcome-shell::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  pointer-events: none;
+  border: 1px solid rgba(125, 211, 252, 0.08);
+  opacity: 0.7;
+}
+.welcome-grid {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(292px, 23vw) minmax(0, 1fr);
+  gap: 16px;
+}
+.welcome-left,
+.welcome-right {
+  min-height: 0;
+}
+.welcome-left {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.welcome-right {
+  display: flex;
+  min-width: 0;
+}
+.welcome-right :deep(> *) {
+  min-height: 0;
+  flex: 1;
+}
+.welcome-status-card {
+  position: relative;
+  overflow: hidden;
+  padding: 16px;
+  border-radius: 0 18px 18px 0;
+  border: 1px solid var(--hud-line);
+  border-left: 2px solid rgba(94, 234, 212, 0.74);
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.74), rgba(15, 23, 42, 0.42)),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.1), transparent 48%),
+    repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.035) 0 1px, transparent 1px 32px);
+  box-shadow: var(--hud-glow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+.welcome-status-card::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -55% 28%;
+  height: 110px;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.14), rgba(45, 212, 191, 0.16), transparent);
+  filter: blur(22px);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.welcome-status-kicker {
+  margin: 0 0 8px;
+  font-family: var(--hud-font-data);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(94, 234, 212, 0.78);
+}
+.welcome-status-title {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  color: rgba(240, 249, 255, 0.96);
+  text-shadow: 0 0 20px rgba(125, 211, 252, 0.18);
+}
+.welcome-status-summary {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.64);
+}
+.welcome-briefing {
+  flex-shrink: 0;
+}
+
 /* 紧急点：状态条里有紧急项时脉冲提示 */
 .welcome-urgent-dot {
   width: 6px;
@@ -153,8 +251,9 @@ function finishOnboarding() {
   animation: urgent-pulse 2s ease-in-out infinite;
 }
 @keyframes urgent-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(251, 113, 133, 0); }
+  100% { opacity: 1; box-shadow: 0 0 0 0 rgba(251, 113, 133, 0); }
 }
 
 /* 首次设置按钮 */
@@ -186,6 +285,25 @@ function finishOnboarding() {
 }
 .guide-fade-leave-to {
   opacity: 0;
+}
+
+@media (max-width: 980px) {
+  .welcome-shell {
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .welcome-grid {
+    height: auto;
+    min-height: 100%;
+    grid-template-columns: 1fr;
+  }
+  .welcome-left {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .welcome-right {
+    min-height: 640px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

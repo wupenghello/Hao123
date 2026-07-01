@@ -17,7 +17,7 @@
 
 <template>
   <header
-    class="relative z-30 h-9 shrink-0 w-full flex items-stretch select-none"
+    class="status-bar relative z-30 h-9 shrink-0 w-full flex items-stretch select-none"
   >
     <!-- 左栏 -->
     <div class="flex flex-1 items-center gap-3 min-w-0 px-3 sm:px-4">
@@ -35,3 +35,24 @@
     </div>
   </header>
 </template>
+
+<style scoped>
+.status-bar {
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.82), rgba(2, 6, 23, 0.46)),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.12), transparent 28%, transparent 72%, rgba(94, 234, 212, 0.1));
+  border-bottom: 1px solid var(--hud-line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 40px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+.status-bar::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.58), rgba(94, 234, 212, 0.38), transparent);
+  opacity: 0.62;
+}
+</style>

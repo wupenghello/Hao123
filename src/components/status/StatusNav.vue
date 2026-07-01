@@ -183,9 +183,9 @@ function openUrl(url: string): void {
 .status-nav-divider {
   align-self: center;
   width: 1px;
-  height: 14px;
+  height: 16px;
   margin: 0 10px;
-  background: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, transparent, rgba(125, 211, 252, 0.42), transparent);
   flex-shrink: 0;
 }
 
@@ -209,21 +209,23 @@ function openUrl(url: string): void {
 .status-nav-label {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 400;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.01em;
-  color: #fff;
+  letter-spacing: 0.02em;
+  color: rgba(224, 242, 254, 0.86);
   white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
 .status-nav-item:hover > .status-nav-label {
-  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  background: rgba(125, 211, 252, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16);
 }
 
 /* 本地 dev 服务运行中：标签文字转绿（状态栏运行状态指示，替代原先的绿点） */
@@ -256,9 +258,9 @@ function openUrl(url: string): void {
   min-width: 168px;
   padding: 6px;
   border-radius: 14px;
-  background: rgba(20, 24, 36, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.36), 0 0 28px rgba(14, 165, 233, 0.14);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
 }

@@ -27,6 +27,9 @@ import type { ZentaoTask, ZentaoBug } from '@/features/zentao'
 import { useLocalTaskStore, priBadge, deadlineLabel, isUrgentLocalTask } from '@/features/local-tasks'
 import type { LocalTask, LocalTaskFormPayload } from '@/features/local-tasks'
 import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormModal.vue'
+import { defineAsyncComponent } from 'vue'
+// 星图走异步加载，避免 Three.js 进入首屏 bundle（用户切到「星图」时才下载）
+const InboxConstellation = defineAsyncComponent(() => import('@/components/inbox/InboxConstellation.vue'))
 import { useInboxInsights } from '@/features/insights'
 import type { Prediction } from '@/features/insights'
 import type { Insight } from '@/features/insights'
@@ -54,6 +57,13 @@ const { predictions, summary } = useInboxInsights()
 /** 小吴的「洞察」——检测到的模式 + LLM 解读（驱动「小吴的洞察」卡） */
 const { insights, content: insightContent, generating: insightGenerating, refresh: refreshInsight } = useInboxInsight()
 const chat = useChatStore()
+
+type InboxView = 'list' | 'orbit'
+const activeView = ref<InboxView>('list')
+const viewTabs: { key: InboxView; label: string; hint: string }[] = [
+  { key: 'list', label: '清单', hint: '按紧急度 / 优先级 / 截止日期合并排序的统一清单' },
+  { key: 'orbit', label: '星图', hint: '把工作项投射为 3D 风险关系图，节点越亮越急' },
+]
 
 // ============ 统一清单（禅道任务 + 禅道 Bug + 本地待办，合并排序）============
 type InboxKind = 'task' | 'bug' | 'local'
@@ -251,6 +261,55 @@ function threadColor(label: string): string {
   return THREAD_COLORS[h % THREAD_COLORS.length]
 }
 
+// ============ 星图视图：Three.js 任务星域（真实工作项 → 3D 节点）============
+function itemTitle(it: InboxItem): string {
+  if (it.kind === 'task') return (it.ref as ZentaoTask).name
+  if (it.kind === 'bug') return (it.ref as ZentaoBug).title
+  return (it.ref as LocalTask).title
+}
+function itemKindLabel(kind: InboxKind): string {
+  return kind === 'task' ? '任务' : kind === 'bug' ? 'Bug' : '本地'
+}
+function itemMeta(it: InboxItem): string {
+  if (it.kind === 'task') {
+    const t = it.ref as ZentaoTask
+    return [ztPri(t.pri)?.label, taskStatusBadge(t.status).label, ztHasDeadline(t.deadline) ? t.deadline : '无截止'].filter(Boolean).join(' · ')
+  }
+  if (it.kind === 'bug') {
+    const b = it.ref as ZentaoBug
+    return [severityBadge(b.severity)?.label, bugStatusBadge(b.status).label].filter(Boolean).join(' · ')
+  }
+  const t = it.ref as LocalTask
+  return [priBadge(t.pri).label, deadlineLabel(t.deadline) || '无截止'].filter(Boolean).join(' · ')
+}
+const orbitItems = computed(() =>
+  items.value.slice(0, 18).map((it) => {
+    const riskLevel = (it.risk?.level ?? (isUrgent(it) ? 'overdue' : 'calm')) as
+      | 'overdue'
+      | 'due-soon'
+      | 'stalled'
+      | 'calm'
+    return {
+      key: it.key,
+      title: itemTitle(it),
+      kind: it.kind,
+      kindLabel: itemKindLabel(it.kind),
+      riskLevel,
+      riskLabel: it.risk?.label ?? (isUrgent(it) ? '紧急' : '稳定'),
+      riskWhy: it.risk?.why ?? '',
+      meta: itemMeta(it),
+      urgent: isUrgent(it),
+    }
+  }),
+)
+const orbitRemainder = computed(() => Math.max(0, items.value.length - orbitItems.value.length))
+function openOrbitItem(key: string) {
+  const it = items.value.find((item) => item.key === key)
+  if (!it) return
+  if (it.kind === 'local') openEdit(it.ref as LocalTask)
+  else onRowClick(it)
+}
+
 // ============ 本地待办：新建 / 编辑（含附件）============
 const formOpen = ref(false)
 const editing = ref<LocalTask | null>(null)
@@ -311,21 +370,36 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="w-full rounded-xl bg-white/[0.04] ring-1 ring-white/10 backdrop-blur-sm overflow-hidden">
+  <section class="zt-panel" :class="{ 'is-orbit-view': activeView === 'orbit' }">
     <!-- 头部 -->
-    <header class="flex items-center gap-2 px-4 h-11 border-b border-white/10">
-      <span class="zt-pulse" :class="{ 'is-active': total > 0, 'is-urgent': urgentCount > 0 }" />
-      <h2 class="text-white/90 text-sm font-medium">待办</h2>
-      <span
-        v-if="total"
-        class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-teal-200 bg-teal-400/15 ring-1 ring-teal-400/25"
-      >{{ total }}</span>
-      <span
-        v-if="urgentCount > 0"
-        class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-rose-200 bg-rose-400/15 ring-1 ring-rose-400/25"
-      >{{ urgentCount }} 紧急</span>
+    <header class="zt-head">
+      <div class="zt-head-main">
+        <span class="zt-pulse" :class="{ 'is-active': total > 0, 'is-urgent': urgentCount > 0 }" />
+        <h2 class="text-white/90 text-sm font-medium">统一收件箱</h2>
+        <span
+          v-if="total"
+          class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-teal-200 bg-teal-400/15 ring-1 ring-teal-400/25"
+        >{{ total }}</span>
+        <span
+          v-if="urgentCount > 0"
+          class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-rose-200 bg-rose-400/15 ring-1 ring-rose-400/25"
+        >{{ urgentCount }} 紧急</span>
+      </div>
 
-      <div class="ml-auto flex items-center gap-3">
+      <nav class="zt-tabs" aria-label="收件箱显示形态">
+        <button
+          v-for="tab in viewTabs"
+          :key="tab.key"
+          class="zt-tab"
+          :class="{ 'is-active': activeView === tab.key }"
+          :title="tab.hint"
+          @click="activeView = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+
+      <div class="zt-head-actions">
         <button
           v-if="localStore.doneCount"
           class="text-[11px] text-white/40 hover:text-rose-300/90 transition-colors"
@@ -431,7 +505,17 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- 空态 -->
+    <!-- 星图视图：Three.js 科幻任务星域（即使当前没有任务，也保留星域背景与核心状态） -->
+    <InboxConstellation
+      v-else-if="activeView === 'orbit'"
+      :items="orbitItems"
+      :summary="summary"
+      :urgent-count="urgentCount"
+      :remainder="orbitRemainder"
+      @open-item="openOrbitItem"
+    />
+
+    <!-- 空态：仅清单视图使用；星图视图即使 0 节点也展示星域 -->
     <div v-else-if="isEmpty" class="zt-empty">
       <span class="zt-empty-icon">
         <IconClipboardCheck class="w-6 h-6" />
@@ -442,7 +526,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 统一清单 -->
-    <ul v-else class="max-h-[46vh] overflow-y-auto">
+    <ul v-else class="zt-list-scroll">
       <template v-for="g in groups" :key="g.key">
         <!-- 需求线分组头（仅 ≥2 项的簇显示；可折叠） -->
         <li
@@ -628,13 +712,116 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.zt-panel {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 26px;
+  border: 1px solid var(--hud-line);
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.68), rgba(15, 23, 42, 0.42)),
+    radial-gradient(circle at 80% 0, rgba(56, 189, 248, 0.14), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.03) 0 1px, transparent 1px 32px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 90px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+.zt-panel.is-orbit-view {
+  border-color: rgba(125, 211, 252, 0.12);
+  background: rgba(2, 6, 23, 0.16);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.28);
+}
+.zt-head {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto minmax(160px, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hud-line-soft);
+  background: linear-gradient(90deg, rgba(2, 6, 23, 0.64), rgba(2, 6, 23, 0.2));
+  backdrop-filter: blur(14px);
+}
+.zt-panel.is-orbit-view .zt-head {
+  position: absolute;
+  z-index: 9;
+  top: 16px;
+  left: 50%;
+  right: auto;
+  width: auto;
+  min-width: 0;
+  min-height: 42px;
+  grid-template-columns: auto auto auto;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.24);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(10px) saturate(120%);
+  transform: translateX(-50%);
+}
+.zt-panel.is-orbit-view .zt-head-main h2,
+.zt-panel.is-orbit-view .zt-head-main > span:not(.zt-pulse),
+.zt-panel.is-orbit-view .zt-head-actions button:first-child {
+  display: none;
+}
+.zt-panel.is-orbit-view .zt-head-actions {
+  min-width: auto;
+}
+.zt-panel.is-orbit-view .zt-insight,
+.zt-panel.is-orbit-view .zt-ic {
+  display: none;
+}
+.zt-head-main,
+.zt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.zt-head-actions {
+  justify-content: flex-end;
+}
+.zt-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.58);
+  border: 1px solid rgba(125, 211, 252, 0.16);
+}
+.zt-tab {
+  position: relative;
+  height: 29px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.5);
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.zt-tab:hover { color: rgba(255,255,255,0.82); }
+.zt-tab.is-active {
+  color: #ecfeff;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(94, 234, 212, 0.12));
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.18), inset 0 0 0 1px rgba(125, 211, 252, 0.26);
+}
+.zt-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 .zt-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: background-color 0.15s;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.08);
+  transition: background-color 0.15s, box-shadow 0.15s;
 }
 .zt-row:last-child {
   border-bottom: 0;
@@ -643,7 +830,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .zt-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(125, 211, 252, 0.07);
+  box-shadow: inset 2px 0 0 rgba(125, 211, 252, 0.46);
 }
 .zt-row.is-urgent {
   background: rgba(244, 63, 94, 0.04);
@@ -1051,6 +1239,16 @@ onUnmounted(() => {
   0% { box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.5); }
   70% { box-shadow: 0 0 0 7px rgba(251, 113, 133, 0); }
   100% { box-shadow: 0 0 0 0 rgba(251, 113, 133, 0); }
+}
+@media (max-width: 760px) {
+  .zt-head {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .zt-tabs,
+  .zt-head-actions {
+    justify-content: flex-start;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .zt-pulse.is-active,

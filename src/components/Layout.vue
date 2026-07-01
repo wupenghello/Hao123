@@ -12,7 +12,7 @@ useChatHotkeys()
 </script>
 
 <template>
-  <div class="h-screen overflow-hidden flex flex-col">
+  <div class="layout-shell h-screen overflow-hidden flex flex-col">
     <!-- 顶部状态栏：左栏品牌 + 右栏天气/时间（中栏留空） -->
     <StatusBar>
       <template #left>
@@ -42,11 +42,39 @@ useChatHotkeys()
 </template>
 
 <style scoped>
+.layout-shell {
+  position: relative;
+  background:
+    radial-gradient(circle at 72% 10%, rgba(125, 211, 252, 0.12), transparent 28%),
+    radial-gradient(circle at 10% 92%, rgba(45, 212, 191, 0.1), transparent 26%);
+}
+.layout-shell::before {
+  content: '';
+  position: absolute;
+  inset: 36px 0 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.24));
+}
 .status-brand {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  letter-spacing: -0.01em;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--hud-font-data);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(224, 242, 254, 0.96);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 16px rgba(125, 211, 252, 0.38);
+}
+.status-brand::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--hud-teal);
+  box-shadow: 0 0 12px rgba(94, 234, 212, 0.9);
 }
 </style>
 
