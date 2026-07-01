@@ -12,6 +12,7 @@ import { kbToolDefs, callKbTool } from '@/features/kb'
 import { kbConfig } from '@/features/kb/config'
 import { localTaskToolDefs, callLocalTaskTool } from '@/features/local-tasks'
 import { wbscfToolDefs, callWbscfTool } from '@/features/wbscf'
+import { gitToolDefs, callGitTool } from '@/features/git'
 import { claudeToolDefs, callClaudeTool, claudeEnabled } from '@/features/claude'
 import type { LlmToolDef } from './llm/types'
 
@@ -41,13 +42,17 @@ export const kbEnabled = kbConfig.hasSource
 export const wbscfEnabled =
   import.meta.env.DEV && !!import.meta.env.VITE_WBSCF_WEB_ROOT?.trim()
 
-/** 喂给 DeepSeek 的全部工具（天气 + 禅道只读查看 + 知识库检索 + 本地待办增删改查 + wbscf 本地服务 + Claude Code启动） */
+/** git 仓库信息：与 wbscf 同条件（需要 VITE_WBSCF_WEB_ROOT 指向有效的 git 仓库） */
+export const gitEnabled = wbscfEnabled
+
+/** 喂给 DeepSeek 的全部工具（天气 + 禅道只读查看 + 知识库检索 + 本地待办增删改查 + wbscf 本地服务 + git 仓库 + Claude Code启动） */
 export const openAiTools: OpenAiTool[] = [
   ...toOpenAi(weatherToolDefs),
   ...toOpenAi(zentaoToolDefs),
   ...(kbEnabled ? toOpenAi(kbToolDefs) : []),
   ...toOpenAi(localTaskToolDefs),
   ...(wbscfEnabled ? toOpenAi(wbscfToolDefs) : []),
+  ...(gitEnabled ? toOpenAi(gitToolDefs) : []),
   ...(claudeEnabled ? toOpenAi(claudeToolDefs) : []),
 ]
 
@@ -68,6 +73,7 @@ export async function callTool(
   if (realName.startsWith('kb.')) return callKbTool(realName, args)
   if (realName.startsWith('local.')) return callLocalTaskTool(realName, args)
   if (realName.startsWith('wbscf.')) return callWbscfTool(realName, args, signal)
+  if (realName.startsWith('git.')) return callGitTool(realName, args, signal)
   if (realName.startsWith('claude.')) return callClaudeTool(realName, args, signal)
   throw new Error(`未知工具：${realName}`)
 }
@@ -92,6 +98,20 @@ const TOOL_LABELS: Record<string, string> = {
   'local__delete': '删除本地待办',
   'wbscf__services': '查询本地服务状态',
   'wbscf__launch': '启动本地服务',
+  'git__status': '查询 Git 仓库状态',
+  'git__log': '查看 Git 提交日志',
+  'git__blame': '追溯文件修改历史',
+  'git__search': '搜索 Git 提交信息',
+  'git__contributors': '查看贡献者统计',
+  'git__reflog': '查看 Git 操作历史',
+  'git__config': '查看 Git 配置',
+  'git__checkout': '切换 Git 分支',
+  'git__fetch': 'Fetch 远端',
+  'git__pull': 'Pull 远端',
+  'git__push': 'Push 到远端',
+  'git__add': '暂存文件',
+  'git__commit': '创建 Git 提交',
+  'git__branch': '管理 Git 分支',
   'claude__status': '查询 Claude 可用状态',
   'claude__launch': '启动 Claude Code',
 }

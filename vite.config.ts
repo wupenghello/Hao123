@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import Icons from 'unplugin-icons/vite'
 import { kbPlugin } from './vite-plugin-kb'
 import { wbscfPlugin } from './vite-plugin-wbscf'
+import { gitPlugin } from './vite-plugin-git'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -45,6 +46,8 @@ export default defineConfig(({ mode }) => {
       kbPlugin(kbSource),
       // wbscf-web 本地 dev 服务：拉起 dev:* 脚本并探测端口（仅 dev，提供 /wbscf/* 中间件）
       wbscfPlugin({ root: wbscfRoot, pkgMgr: wbscfPkgMgr }),
+      // wbscf-web git 仓库信息：执行 git 命令返回 JSON（仅 dev，提供 /git/* 中间件）
+      gitPlugin({ root: wbscfRoot }),
     ],
     resolve: {
       alias: {

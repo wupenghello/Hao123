@@ -173,6 +173,34 @@ App.vue (router-view)
 
 禅道项只读（点击行 → 详情弹窗），本地项可交互（圆点勾选完成、点标题编辑、悬停出删除二次确认、附件指示）。新建按钮创建本地待办（禅道任务无法在此新建，禅道是只读来源）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `ZentaoInbox.vue` / `LocalTaskPanel.vue` 已并入此组件并移除。
 
+### Git 仓库信息模块（`src/features/git/`，自包含特性模块）
+
+把 wbscf-web 代码库的 git 信息（本地 + 远端）接入工作台：状态栏显示当前分支 + 变更数，点击打开完整仪表盘，支持全面的 git 管理操作。外部统一从 `@/features/git` 引入（barrel `index.ts`）：
+
+| 路径 | 职责 |
+|---|---|
+| `types.ts` | `GitBranch` / `GitCommit` / `GitFileStatus` / `GitTag` / `GitStash` / `GitRemote` / `GitOverviewResponse` / `GitActionResponse` 等契约 |
+| `api.ts` | 浏览器侧 fetch 封装：`fetchGitOverview` / `fetchGitCommits` / `fetchGitDiff` / `fetchGitCommitDetail` / `fetchGitBlame` / `fetchGitReflog` / `fetchGitContributors` / `fetchGitConfig` / `fetchGitSearchCommits` / `triggerGitAction` |
+| `composable.ts` | `useGitDashboard`（**模块级单例**）：Widget 与 Dashboard 共享状态避免重复轮询（widget 低频 30s / dashboard 高频 8s / 切后台暂停）+ 操作（fetch/pull/push/checkout/commit/stage/unstage/stash/tag/branch-create/branch-delete）+ 按需查询（diff/commit-detail） |
+| `llm-tools.ts` | LLM 工具层 `gitToolDefs`（声明）+ `callGitTool`（执行，14 工具：`status`/`log`/`blame`/`search`/`contributors`/`reflog`/`config` 查询 + `checkout`/`fetch`/`pull`/`push`/`add`/`commit`/`branch` 操作；merge/cherry-pick/revert/reset/stash/tag 仅走 Dashboard，不暴露给 LLM 控制风险面） |
+| `components/status/GitWidget.vue` | 状态栏小组件：分支名 + 变更数，点击进入 Dashboard（通过共享 composable 读取状态） |
+| `components/GitDashboard.vue` | 全屏仪表盘：5 个标签页 + More 下拉菜单，HUD 玻璃面板风格 |
+
+**仪表盘功能：** 概览（统计 + 最近提交 + 分支快照）/ 分支（搜索 + 创建 + 删除 + 切换 + 检出远端分支）/ 提交（日志 + diff）/ 变更（复选框暂存/取消暂存 + 批量操作 + commit 栏）/ 标签（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃）。所有危险操作（删除分支/标签/丢弃 stash）通过统一确认栏二次确认。
+
+**浏览器无法执行 git 命令**，真正的命令执行由根目录 **`vite-plugin-git.ts`**（dev server Node 侧，同 `vite-plugin-wbscf.ts` 模式）承担，`configureServer` 挂中间件——全部走**异步 spawn**（不阻塞 dev server 事件循环），`/git/overview` 带 ~1.5s 短缓存 + in-flight 去重（合并并发轮询）；`doAction` 做 ref/hash 合法性校验（拒绝 `-` 开头等会被 git 当 flag 的输入）+ 冲突检测（merge/pull/cherry-pick/revert 失败时回 `conflict:true`），写操作成功后让 overview 缓存失效：
+
+- `GET /git/overview`：一次返回仓库全貌（分支 / 状态 / commits / remotes / tags / stashes / sync ahead-behind）；
+- `GET /git/commits?branch=&count=`：指定分支的 commit 日志；
+- `GET /git/diff?path=&cached=&ref1=&ref2=`：文件 diff；
+- `GET /git/commit-detail?hash=`：单个 commit 的 show 输出；
+- `GET /git/blame` / `/git/reflog` / `/git/contributors` / `/git/config` / `/git/search`：逐行追溯 / 操作历史 / 贡献者统计 / 本地 config / `--grep` 搜索 commit；
+- `POST /git/action`：执行操作（`fetch` / `pull` / `push` / `checkout` / `branch-create` / `branch-delete` / `merge` / `add` / `commit` / `reset` / `stash` / `stash-pop` / `stash-apply` / `stash-drop` / `cherry-pick` / `revert` / `tag-create` / `tag-delete`）。
+
+**仅 dev 生效**；git 工具与 wbscf 同条件门控（`gitEnabled = wbscfEnabled`：dev 且配了 `VITE_WBSCF_WEB_ROOT`）。生产或未配置时不暴露工具、状态栏不渲染 GitWidget。
+
+**URL 脱敏：** remote URL 在返回给前端前会去除 `user:pass@` 部分（`sanitizeUrl`），避免密码泄露。
+
 ### Icons
 
 Use `import IconXxx from '~icons/<collection>/<name>'` (e.g., `~icons/mdi/pencil`). The `unplugin-icons` plugin auto-installs from `@iconify/json`. Type declarations are in `src/env.d.ts`.

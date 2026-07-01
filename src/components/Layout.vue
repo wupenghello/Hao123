@@ -3,6 +3,7 @@ import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import ClaudeButton from '@/components/status/ClaudeButton.vue'
+import GitWidget from '@/components/status/GitWidget.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
 import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
@@ -23,6 +24,7 @@ useChatHotkeys()
         <StatusNav />
       </template>
       <template #right>
+        <GitWidget />
         <WeatherWidget />
         <StatusTime />
       </template>
