@@ -146,6 +146,7 @@ export type GitAction =
   | 'add'
   | 'commit'
   | 'reset'
+  | 'discard'
   // 储藏
   | 'stash'
   | 'stash-pop'

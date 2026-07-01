@@ -608,6 +608,18 @@ async function doAction(
         r = await git(cwd, args)
         break
       }
+      case 'discard': {
+        // 丢弃工作区修改：已跟踪 → git restore -- <files>；未跟踪 → git clean -f -- <files>
+        const files = params.files
+        if (!files) return { success: false, message: '', error: '未指定文件' }
+        const fileList = files.split(',').map((f) => f.trim()).filter(Boolean)
+        if (params.untracked === 'true') {
+          r = await git(cwd, ['clean', '-f', '--', ...fileList])
+        } else {
+          r = await git(cwd, ['restore', '--', ...fileList])
+        }
+        break
+      }
 
       // ─── 储藏 ─────────────────────────────────
       case 'stash':
@@ -687,7 +699,7 @@ async function doAction(
   const conflict = !success && /CONFLICT/i.test(combined)
 
   // 写操作成功后让 overview 缓存失效，下一次请求拿到新状态
-  if (success && action !== 'fetch') {
+  if (success) {
     invalidateOverview()
   }
 

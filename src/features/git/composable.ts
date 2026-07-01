@@ -12,7 +12,7 @@
  * 执行操作（fetch / pull / push / checkout / commit / stash / tag …）后自动刷新；
  * 后端成功操作已让 overview 缓存失效，前端延迟刷新只为等 git index 落盘稳定。
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type {
   GitOverviewResponse,
   GitBranch,
@@ -23,11 +23,17 @@ import type {
   GitStatusSummary,
   GitSyncStatus,
   GitActionResponse,
+  GitBlameLine,
+  GitReflogEntry,
 } from './types'
 import {
   fetchGitOverview,
   fetchGitDiff,
   fetchGitCommitDetail,
+  fetchGitCommits,
+  fetchGitBlame,
+  fetchGitReflog,
+  fetchGitSearchCommits,
   triggerGitAction,
 } from './api'
 
@@ -40,6 +46,8 @@ const overview = ref<GitOverviewResponse | null>(null)
 const loading = ref(false)
 const actionLoading = ref('')
 const actionMessage = ref('')
+const actionStatus = ref<'idle' | 'running' | 'success' | 'error' | 'conflict'>('idle')
+const lastActionResult = ref<GitActionResponse | null>(null)
 const error = ref<string | null>(null)
 
 const branch = ref('')
@@ -60,6 +68,16 @@ const stashes = ref<GitStash[]>([])
 
 const open = ref(false)
 
+const gitReady = computed(() => !!overview.value?.enabled && !error.value)
+const gitUnavailable = computed(() => !!error.value || overview.value?.enabled === false)
+
+/** 仓库短名（取 root 路径最后一段，兜底 wbscf-web），用于头部标题 */
+const repoName = computed(() => {
+  const root = overview.value?.root || ''
+  const segs = root.split(/[\\/]/).filter(Boolean)
+  return segs.length ? segs[segs.length - 1] : 'wbscf-web'
+})
+
 let dashTimer: ReturnType<typeof setTimeout> | null = null
 let widgetTimer: ReturnType<typeof setTimeout> | null = null
 let refreshing = false
@@ -67,6 +85,18 @@ let refreshing = false
 // 供 visibilitychange 切回前台时判断要不要恢复 widget 轮询
 let widgetMounted = false
 let visibilityBound = false
+
+function clearLiveData(): void {
+  branch.value = ''
+  remotes.value = []
+  status.value = { staged: [], modified: [], untracked: [], totalChanges: 0, clean: true }
+  sync.value = { ahead: 0, behind: 0, hasUpstream: false }
+  commits.value = []
+  branches.value = []
+  remoteBranches.value = []
+  tags.value = []
+  stashes.value = []
+}
 
 function applyOverview(data: GitOverviewResponse): void {
   overview.value = data
@@ -91,10 +121,14 @@ async function refresh(): Promise<void> {
     if (data.enabled) {
       applyOverview(data)
     } else {
-      error.value = 'wbscf-web 仓库未配置或不是有效的 git 仓库'
+      overview.value = data
+      clearLiveData()
+      error.value = 'Git 未连接：请检查 VITE_WBSCF_WEB_ROOT 是否指向有效的 wbscf-web git 仓库，并重启 dev server。'
     }
   } catch (e) {
-    error.value = (e as Error)?.message || '拉取 git 状态失败'
+    overview.value = null
+    clearLiveData()
+    error.value = `Git 连接失败：${(e as Error)?.message || '拉取 git 状态失败'}`
   } finally {
     refreshing = false
     loading.value = false
@@ -193,22 +227,31 @@ async function doAction(
 ): Promise<GitActionResponse> {
   actionLoading.value = action
   actionMessage.value = ''
+  actionStatus.value = 'running'
+  lastActionResult.value = null
   try {
     const result = await triggerGitAction(action, params)
+    lastActionResult.value = result
     if (result.conflict) {
-      actionMessage.value = result.error || `${action} 有冲突，请手动解决`
+      actionStatus.value = 'conflict'
+      actionMessage.value = result.error || result.message || `${action} 产生冲突，请手动解决`
+    } else if (result.success) {
+      actionStatus.value = 'success'
+      actionMessage.value = result.message || `${action} 完成`
     } else {
-      actionMessage.value = result.success
-        ? result.message || `${action} 完成`
-        : result.error || `${action} 失败`
+      actionStatus.value = 'error'
+      actionMessage.value = result.error || result.message || `${action} 失败`
     }
     // 操作后延迟刷新（让 git 状态稳定）
     setTimeout(() => void refresh(), ACTION_REFRESH_MS)
     return result
   } catch (e) {
     const msg = (e as Error)?.message || `${action} 失败`
+    const result: GitActionResponse = { success: false, message: '', error: msg }
+    actionStatus.value = 'error'
     actionMessage.value = msg
-    return { success: false, message: '', error: msg }
+    lastActionResult.value = result
+    return result
   } finally {
     actionLoading.value = ''
   }
@@ -308,6 +351,42 @@ async function doDeleteTag(name: string): Promise<GitActionResponse> {
   return doAction('tag-delete', { name })
 }
 
+// ─── 回滚 / 合并 / 撤销 / 丢弃 ────────────────────
+
+async function doReset(
+  mode: 'soft' | 'mixed' | 'hard' | 'keep',
+  target?: string,
+): Promise<GitActionResponse> {
+  return doAction('reset', { mode, target: target || '' })
+}
+
+async function doMerge(
+  source: string,
+  options?: { noCommit?: boolean; squash?: boolean },
+): Promise<GitActionResponse> {
+  return doAction('merge', {
+    source,
+    noCommit: options?.noCommit ? 'true' : '',
+    squash: options?.squash ? 'true' : '',
+  })
+}
+
+async function doRevert(hash: string, options?: { noCommit?: boolean }): Promise<GitActionResponse> {
+  return doAction('revert', { hash, noCommit: options?.noCommit ? 'true' : '' })
+}
+
+async function doCherryPick(
+  hash: string,
+  options?: { noCommit?: boolean },
+): Promise<GitActionResponse> {
+  return doAction('cherry-pick', { hash, noCommit: options?.noCommit ? 'true' : '' })
+}
+
+/** 丢弃工作区修改：已跟踪走 git restore，未跟踪走 git clean -f */
+async function doDiscard(files: string, untracked = false): Promise<GitActionResponse> {
+  return doAction('discard', { files, untracked: untracked ? 'true' : '' })
+}
+
 // ─── 独立查询（按需加载，不走 overview 轮询） ──────
 
 async function getDiff(
@@ -323,6 +402,27 @@ async function getCommitDetail(hash: string): Promise<string> {
   return data.diff
 }
 
+async function getBlame(filePath: string, ref?: string): Promise<GitBlameLine[]> {
+  const data = await fetchGitBlame(filePath, ref)
+  return data.blame
+}
+
+async function getReflog(count = 30): Promise<GitReflogEntry[]> {
+  const data = await fetchGitReflog(count)
+  return data.reflog
+}
+
+async function searchCommits(query: string, count = 20): Promise<GitCommit[]> {
+  const data = await fetchGitSearchCommits(query, count)
+  return data.commits
+}
+
+/** 指定 ref（分支 / tag / hash / origin/xxx）的 commit 日志，用于 Pull 前预览 behind 提交等 */
+async function getBranchLog(ref: string, count = 20): Promise<GitCommit[]> {
+  const data = await fetchGitCommits(ref, count)
+  return data.commits
+}
+
 // ─── 导出 ───────────────────────────────────────────
 
 export function useGitDashboard() {
@@ -332,9 +432,14 @@ export function useGitDashboard() {
     loading,
     actionLoading,
     actionMessage,
+    actionStatus,
+    lastActionResult,
     error,
     open,
     // 派生
+    gitReady,
+    gitUnavailable,
+    repoName,
     branch,
     remotes,
     status,
@@ -362,6 +467,11 @@ export function useGitDashboard() {
     doDeleteBranch,
     doCreateTag,
     doDeleteTag,
+    doReset,
+    doMerge,
+    doRevert,
+    doCherryPick,
+    doDiscard,
     doStashPush,
     doStashPop,
     doStashApply,
@@ -369,5 +479,9 @@ export function useGitDashboard() {
     // 查询
     getDiff,
     getCommitDetail,
+    getBlame,
+    getReflog,
+    searchCommits,
+    getBranchLog,
   }
 }

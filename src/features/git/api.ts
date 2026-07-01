@@ -27,10 +27,19 @@ import type {
 
 const BASE = '/git'
 
+async function responseError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.clone().json()) as { error?: string; message?: string }
+    return data.error || data.message || fallback
+  } catch {
+    return fallback
+  }
+}
+
 /** 拉取仓库全貌概览（分支 / 状态 / commits / remotes / tags / stashes） */
 export async function fetchGitOverview(): Promise<GitOverviewResponse> {
   const res = await fetch(`${BASE}/overview`, { headers: { accept: 'application/json' } })
-  if (!res.ok) throw new Error(`/git/overview -> ${res.status}`)
+  if (!res.ok) throw new Error(await responseError(res, `/git/overview -> ${res.status}`))
   return (await res.json()) as GitOverviewResponse
 }
 
@@ -136,6 +145,6 @@ export async function triggerGitAction(
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({ action, params }),
   })
-  if (!res.ok) throw new Error(`/git/action -> ${res.status}`)
+  if (!res.ok) throw new Error(await responseError(res, `/git/action -> ${res.status}`))
   return (await res.json()) as GitActionResponse
 }

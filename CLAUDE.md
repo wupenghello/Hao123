@@ -181,12 +181,17 @@ App.vue (router-view)
 |---|---|
 | `types.ts` | `GitBranch` / `GitCommit` / `GitFileStatus` / `GitTag` / `GitStash` / `GitRemote` / `GitOverviewResponse` / `GitActionResponse` 等契约 |
 | `api.ts` | 浏览器侧 fetch 封装：`fetchGitOverview` / `fetchGitCommits` / `fetchGitDiff` / `fetchGitCommitDetail` / `fetchGitBlame` / `fetchGitReflog` / `fetchGitContributors` / `fetchGitConfig` / `fetchGitSearchCommits` / `triggerGitAction` |
-| `composable.ts` | `useGitDashboard`（**模块级单例**）：Widget 与 Dashboard 共享状态避免重复轮询（widget 低频 30s / dashboard 高频 8s / 切后台暂停）+ 操作（fetch/pull/push/checkout/commit/stage/unstage/stash/tag/branch-create/branch-delete）+ 按需查询（diff/commit-detail） |
+| `composable.ts` | `useGitDashboard`（**模块级单例**）：Widget 与 Dashboard 共享状态避免重复轮询（widget 低频 30s / dashboard 高频 8s / 切后台暂停）+ 操作（fetch/pull/push/checkout/commit/stage/unstage/**discard**/stash/tag/branch-create/branch-delete/**reset/merge/revert/cherry-pick**）+ 按需查询（diff/commit-detail/**blame/reflog/search/branch-log**）；派生 `repoName`（仓库短名，取 root basename） |
 | `llm-tools.ts` | LLM 工具层 `gitToolDefs`（声明）+ `callGitTool`（执行，14 工具：`status`/`log`/`blame`/`search`/`contributors`/`reflog`/`config` 查询 + `checkout`/`fetch`/`pull`/`push`/`add`/`commit`/`branch` 操作；merge/cherry-pick/revert/reset/stash/tag 仅走 Dashboard，不暴露给 LLM 控制风险面） |
 | `components/status/GitWidget.vue` | 状态栏小组件：分支名 + 变更数，点击进入 Dashboard（通过共享 composable 读取状态） |
-| `components/GitDashboard.vue` | 全屏仪表盘：5 个标签页 + More 下拉菜单，HUD 玻璃面板风格 |
+| `components/GitDashboard.vue` | 全屏仪表盘：5 个标签页 + More 下拉菜单（**去重** Fetch/Pull/Push——这三项已在 header，More 只放次要与高级操作），HUD 玻璃面板风格 |
+| `components/GitDiffBox.vue` | diff 渲染盒：把 `git diff` / `git show` 原文解析成带 old/new 双行号、`+/-` 配色（增绿删红、hunk 青）、横向滚动（不做 `word-break`）、超长截断的视图；LLM 已配置时底部出「让小吴解释这段 diff」 |
 
-**仪表盘功能：** 概览（统计 + 最近提交 + 分支快照）/ 分支（搜索 + 创建 + 删除 + 切换 + 检出远端分支）/ 提交（日志 + diff）/ 变更（复选框暂存/取消暂存 + 批量操作 + commit 栏）/ 标签（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃）。所有危险操作（删除分支/标签/丢弃 stash）通过统一确认栏二次确认。
+**仪表盘功能：** 概览（**仓库健康判断可点交给小吴** + 统计 + 色彩 legend + 最近提交 + 分支快照 + 远端 + 回滚 Reset）/ 分支（搜索 + 创建 + 删除 + 切换 + 合并 + 检出远端）/ 提交（日志 + diff + **revert/cherry-pick** + `--grep` 搜索 + **reflog 操作历史**）/ 变更（复选框暂存/取消暂存/**放弃修改**/**blame** + 批量操作 + **conventional 前缀 + 多行 + 复用上条** 的 commit 栏）/ 标签 / Stash（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃；远端已移至概览）。所有危险操作（删除分支/标签/丢弃 stash/**放弃修改/hard reset**）通过统一确认栏二次确认；**Pull/Push 确认前预览**即将进/出的 commit 列表；**切换分支警告工作区脏、删除分支警告未合并**。
+
+**AI 接入（ambient，对齐 UnifiedInbox 范式）：** LLM 已配置（`useChatStore().configured`）时——仓库健康判断整块可点 + 「让小吴排一下」、冲突态顶部条出「让小吴帮我理冲突」、每个 diff 盒底部出「让小吴解释这段 diff」，均带上下文 `chat.show()` + `chat.send()`；未配置时不渲染入口（不破坏纯展示体验）。
+
+**无障碍：** 弹窗有焦点 trap（打开聚焦首元素、Tab 闭环、关闭还焦）、Escape 分级关闭（More → 确认 → 弹窗）、遮罩点击智能关闭（浮层开着只关浮层）；`prefers-reduced-motion` 覆盖流光 / sheen / spin / 全部 transition。
 
 **浏览器无法执行 git 命令**，真正的命令执行由根目录 **`vite-plugin-git.ts`**（dev server Node 侧，同 `vite-plugin-wbscf.ts` 模式）承担，`configureServer` 挂中间件——全部走**异步 spawn**（不阻塞 dev server 事件循环），`/git/overview` 带 ~1.5s 短缓存 + in-flight 去重（合并并发轮询）；`doAction` 做 ref/hash 合法性校验（拒绝 `-` 开头等会被 git 当 flag 的输入）+ 冲突检测（merge/pull/cherry-pick/revert 失败时回 `conflict:true`），写操作成功后让 overview 缓存失效：
 
@@ -195,7 +200,7 @@ App.vue (router-view)
 - `GET /git/diff?path=&cached=&ref1=&ref2=`：文件 diff；
 - `GET /git/commit-detail?hash=`：单个 commit 的 show 输出；
 - `GET /git/blame` / `/git/reflog` / `/git/contributors` / `/git/config` / `/git/search`：逐行追溯 / 操作历史 / 贡献者统计 / 本地 config / `--grep` 搜索 commit；
-- `POST /git/action`：执行操作（`fetch` / `pull` / `push` / `checkout` / `branch-create` / `branch-delete` / `merge` / `add` / `commit` / `reset` / `stash` / `stash-pop` / `stash-apply` / `stash-drop` / `cherry-pick` / `revert` / `tag-create` / `tag-delete`）。
+- `POST /git/action`：执行操作（`fetch` / `pull` / `push` / `checkout` / `branch-create` / `branch-delete` / `merge` / `add` / `commit` / `reset` / `discard` / `stash` / `stash-pop` / `stash-apply` / `stash-drop` / `cherry-pick` / `revert` / `tag-create` / `tag-delete`）；`discard` 丢弃工作区修改（已跟踪 `git restore` / 未跟踪 `git clean -f`）。
 
 **仅 dev 生效**；git 工具与 wbscf 同条件门控（`gitEnabled = wbscfEnabled`：dev 且配了 `VITE_WBSCF_WEB_ROOT`）。生产或未配置时不暴露工具、状态栏不渲染 GitWidget。
 

@@ -10,7 +10,7 @@ import IconLoading from '~icons/mdi/loading'
  *
  * 紧跟在品牌（Hao123）右侧的一排内部系统入口：
  *   - 账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP：hover 展开本地 dev 服务 + dev/test/pre；
- *   - 水星 / git / 发布平台 / 我的地盘-禅道 / apifox：普通直链（新标签打开）。
+ *   - 水星 / GitLab Tags / 发布平台 / 我的地盘-禅道 / apifox：普通直链（新标签打开）。
  *
  * 链接全部来自知识库（Obsidian「06-环境入口」「05-常用链接汇总」）；改地址只改下面
  * navItems 即可，无需动模板。
@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
       test: 'https://erp-test.wbscf.tech/console/#/auth/login',
       pre: 'https://erp-pre.wbscf.tech/console/#/auth/login' } },
   { label: '水星', url: 'http://admin-dev.wbscf.tech/login' },
-  { label: 'git', url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags' },
+  { label: 'GitLab Tags', url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags' },
   { label: '发布平台', url: 'http://cd.esteel.tech/#/page/history' },
   { label: '我的地盘-禅道', url: 'http://pm.esteel.tech/zentao/my/' },
   { label: 'apifox', url: 'https://app.apifox.com/project/7718065' },

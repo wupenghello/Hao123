@@ -3,17 +3,20 @@
  * Git 仓库信息仪表盘
  *
  * 展示 wbscf-web 代码库的完整 git 信息（本地 + 远端），包括：
- *   - 概览：当前分支、同步状态、快捷统计、最近提交
- *   - 分支：本地 / 远端分支列表（可搜索、可切换、可创建/删除）
- *   - 提交：commit 日志（可展开查看详情）
- *   - 变更：工作区文件变更（勾选暂存/取消暂存、提交）
- *   - 标签：tag 管理（创建/删除/推送）+ stash 管理（暂存/恢复/丢弃）
+ *   - 概览：仓库健康判断（可点交给小吴）、统计、最近提交、分支快照、远端、回滚（Reset）
+ *   - 分支：本地 / 远端（搜索 / 切换 / 创建 / 删除 / 合并 / 检出远端）
+ *   - 提交：commit 日志（revert / cherry-pick / 展开详情）+ 搜索 + reflog 操作历史
+ *   - 变更：暂存 / 取消暂存 / 放弃修改 / blame / 提交（conventional 前缀 + 复用）
+ *   - 标签 / Stash：tag 与 stash 管理
  *
- * 由状态栏 GitWidget 点击打开。
- * 使用 HUD 玻璃面板风格。
+ * 由状态栏 GitWidget 点击打开。HUD 玻璃面板风格。
+ * 小吴（AI）在工作台是 ambient 的：健康判断 / 冲突 / diff 都可带上下文交给小吴（LLM 已配置时）。
  */
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useGitDashboard } from '@/features/git'
+import { useChatStore } from '@/features/chat'
+import type { GitBlameLine, GitReflogEntry, GitCommit } from '@/features/git'
+import GitDiffBox from '@/components/GitDiffBox.vue'
 import IconClose from '~icons/mdi/close'
 import IconBranch from '~icons/mdi/source-branch'
 import IconLoading from '~icons/mdi/loading'
@@ -38,11 +41,33 @@ import IconPlus from '~icons/mdi/plus'
 import IconTrash from '~icons/mdi/delete-outline'
 import IconPlay from '~icons/mdi/play'
 import IconPop from '~icons/mdi/arrow-up-bold-box-outline'
+import IconRobot from '~icons/mdi/robot-outline'
+import IconDiscard from '~icons/mdi/undo'
+import IconReset from '~icons/mdi/backup-restore'
+import IconMerge from '~icons/mdi/source-merge'
+import IconCherryPick from '~icons/mdi/source-pull'
+import IconRevert from '~icons/mdi/history'
+import IconReflog from '~icons/mdi/clock-outline'
+import IconBlame from '~icons/mdi/account-eye-outline'
+import IconInfo from '~icons/mdi/information-outline'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const dash = useGitDashboard()
+const chat = useChatStore()
+
+const gitReady = computed(() => dash.gitReady.value)
+const gitUnavailable = computed(() => dash.gitUnavailable.value)
+const repoName = computed(() => dash.repoName.value)
+const aiReady = computed(() => !!chat.configured)
+
+const actionBannerClass = computed(() => {
+  if (dash.actionStatus.value === 'error') return 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+  if (dash.actionStatus.value === 'conflict') return 'bg-amber-500/10 text-amber-300 border border-amber-500/25'
+  if (dash.actionStatus.value === 'running') return 'bg-sky-500/10 text-sky-300 border border-sky-500/20'
+  return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+})
 
 // ─── 标签页 ────────────────────────────────────────
 
@@ -53,27 +78,23 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'branches', label: '分支' },
   { key: 'commits', label: '提交' },
   { key: 'changes', label: '变更' },
-  { key: 'tags', label: '标签' },
+  { key: 'tags', label: '标签 / Stash' },
 ]
 
-// ─── More 下拉菜单 ─────────────────────────────────
+function goToTab(key: TabKey) {
+  activeTab.value = key
+}
+
+// ─── More 下拉菜单（去重：Fetch/Pull/Push 已在 header，这里只放次要与高级操作） ───
 
 const showMoreMenu = ref(false)
 
 function toggleMoreMenu() {
+  if (!gitReady.value) return
   showMoreMenu.value = !showMoreMenu.value
 }
 function closeMoreMenu() {
   showMoreMenu.value = false
-}
-
-// 点击外部关闭
-function onBackdropClick(e: MouseEvent) {
-  // 只关闭下拉菜单，不关闭弹窗
-  if (showMoreMenu.value) {
-    closeMoreMenu()
-    e.stopPropagation()
-  }
 }
 
 // ─── 分支搜索 ──────────────────────────────────────
@@ -93,7 +114,6 @@ const filteredRemoteBranches = computed(() => {
   return dash.remoteBranches.value.filter((b) => b.name.toLowerCase().includes(q))
 })
 
-/** 远端分支是否已有同名本地分支 */
 function hasLocalCounterpart(remoteBranch: { name: string }): boolean {
   const shortName = remoteBranch.name.replace(/^[^/]+\//, '')
   return dash.branches.value.some((b) => b.name === shortName)
@@ -103,7 +123,7 @@ function shortRemoteName(name: string): string {
   return name.replace(/^[^/]+\//, '')
 }
 
-// ─── 创建分支表单 ──────────────────────────────────
+// ─── 创建分支 ──────────────────────────────────────
 
 const showCreateBranch = ref(false)
 const newBranchName = ref('')
@@ -119,14 +139,47 @@ function toggleCreateBranch() {
 
 async function submitCreateBranch() {
   const name = newBranchName.value.trim()
-  if (!name) return
+  if (!gitReady.value || !name) return
   await dash.doCreateBranch(name, newBranchBase.value.trim() || undefined)
   showCreateBranch.value = false
   newBranchName.value = ''
   newBranchBase.value = ''
 }
 
-// ─── 创建标签表单 ──────────────────────────────────
+// ─── 合并分支 ──────────────────────────────────────
+
+const showMergeForm = ref(false)
+const mergeSource = ref('')
+const mergeNoCommit = ref(false)
+
+function toggleMergeForm() {
+  showMergeForm.value = !showMergeForm.value
+  if (!showMergeForm.value) {
+    mergeSource.value = ''
+    mergeNoCommit.value = false
+  }
+}
+
+function openMergeFromMore() {
+  closeMoreMenu()
+  goToTab('branches')
+  showMergeForm.value = true
+}
+
+function submitMerge() {
+  const source = mergeSource.value.trim()
+  if (!gitReady.value || !source) return
+  requestConfirm({
+    message: `合并 <span class="gd-mono text-teal-300">${esc(source)}</span> 到当前分支 <span class="gd-mono text-teal-300">${esc(dash.branch.value || '—')}</span>？${gitPrecheckHtml()}`,
+    confirmLabel: '确认合并',
+    onConfirm: async () => {
+      await dash.doMerge(source, { noCommit: mergeNoCommit.value })
+      diffCache.clear()
+    },
+  })
+}
+
+// ─── 创建标签 ──────────────────────────────────────
 
 const showCreateTag = ref(false)
 const newTagName = ref('')
@@ -144,7 +197,7 @@ function toggleCreateTag() {
 
 async function submitCreateTag() {
   const name = newTagName.value.trim()
-  if (!name) return
+  if (!gitReady.value || !name) return
   await dash.doCreateTag(name, {
     message: newTagMessage.value.trim() || undefined,
     ref: newTagRef.value.trim() || undefined,
@@ -166,9 +219,50 @@ function toggleStashForm() {
 }
 
 async function submitStashPush() {
+  if (!gitReady.value) return
   await dash.doStashPush(stashMessage.value.trim() || undefined)
   showStashForm.value = false
   stashMessage.value = ''
+}
+
+// ─── Reset / 回滚 ──────────────────────────────────
+
+type ResetMode = 'soft' | 'mixed' | 'hard' | 'keep'
+const RESET_MODES: ResetMode[] = ['soft', 'mixed', 'hard', 'keep']
+
+const showResetForm = ref(false)
+const resetMode = ref<string>('mixed')
+const resetTarget = ref('')
+
+function toggleResetForm() {
+  showResetForm.value = !showResetForm.value
+  if (!showResetForm.value) {
+    resetTarget.value = ''
+    resetMode.value = 'mixed'
+  }
+}
+
+function openResetFromMore() {
+  closeMoreMenu()
+  goToTab('overview')
+  showResetForm.value = true
+}
+
+function submitReset() {
+  const mode = (RESET_MODES.includes(resetMode.value as ResetMode) ? resetMode.value : 'mixed') as ResetMode
+  const target = resetTarget.value.trim() || undefined
+  const hard = mode === 'hard'
+  requestConfirm({
+    message: hard
+      ? `<span class="text-rose-300 font-medium">⚠ 硬回滚（hard reset）会丢弃所有未提交改动</span>，将当前分支移到 <span class="gd-mono text-teal-300">${esc(target || 'HEAD')}</span>？此操作可通过 reflog 找回提交，但工作区改动不可恢复。`
+      : `以 <span class="gd-mono text-teal-300">${esc(mode)}</span> 模式 reset 到 <span class="gd-mono text-teal-300">${esc(target || 'HEAD')}</span>？${gitPrecheckHtml()}`,
+    confirmLabel: '确认 Reset',
+    danger: hard,
+    onConfirm: async () => {
+      await dash.doReset(mode, target)
+      diffCache.clear()
+    },
+  })
 }
 
 // ─── Diff 查看 ─────────────────────────────────────
@@ -179,11 +273,15 @@ const diffTarget = ref('')
 const diffCache = new Map<string, string>()
 
 async function viewDiff(key: string, fetcher: () => Promise<string>) {
+  if (!gitReady.value) return
   if (diffTarget.value === key) {
     diffTarget.value = ''
     diffContent.value = ''
     return
   }
+  // 打开 diff 时关掉 blame，避免同文件两块内容堆叠
+  blameTarget.value = ''
+  blameLines.value = []
   const cached = diffCache.get(key)
   if (cached !== undefined) {
     diffTarget.value = key
@@ -203,22 +301,46 @@ async function viewDiff(key: string, fetcher: () => Promise<string>) {
   }
 }
 
+// ─── Blame（逐行追溯）──────────────────────────────
+
+const blameLoading = ref(false)
+const blameTarget = ref('')
+const blameLines = ref<GitBlameLine[]>([])
+
+async function viewBlame(path: string) {
+  if (!gitReady.value) return
+  if (blameTarget.value === path) {
+    blameTarget.value = ''
+    blameLines.value = []
+    return
+  }
+  // 打开 blame 时关掉 diff
+  diffTarget.value = ''
+  diffContent.value = ''
+  blameLoading.value = true
+  blameTarget.value = path
+  try {
+    blameLines.value = await dash.getBlame(path)
+  } catch {
+    blameLines.value = []
+  } finally {
+    blameLoading.value = false
+  }
+}
+
 // ─── 文件暂存选择（Changes tab） ────────────────────
 
 const selectedFiles = ref<Set<string>>(new Set())
 
-/** 初始化：已暂存的文件默认勾选 */
 watch(
   () => dash.status.value.staged,
   (staged) => {
     const next = new Set(selectedFiles.value)
-    // 移除不再暂存的
     for (const f of next) {
       if (f.startsWith('staged:') && !staged.some((s) => s.path === f.slice(7))) {
         next.delete(f)
       }
     }
-    // 新增刚暂存的
     for (const s of staged) {
       next.add('staged:' + s.path)
     }
@@ -291,36 +413,213 @@ async function unstageSelected() {
   }
 }
 
-// ─── Commit ────────────────────────────────────────
+// ─── Commit（conventional 前缀 + 复用 + 多行）──────
 
+const COMMIT_PREFIXES = ['feat', 'fix', 'refactor', 'docs', 'chore', 'test', 'perf', 'style', 'build', 'ci', 'revert']
+const commitPrefix = ref('')
 const commitMessage = ref('')
 
+/** 拼接最终提交信息：把前缀加到首行前（首行已有 conventional 前缀则不重复） */
+function buildCommitMessage(): string {
+  const body = commitMessage.value.trim()
+  if (!body) return ''
+  if (!commitPrefix.value) return body
+  const lines = body.split('\n')
+  if (/^(feat|fix|refactor|docs|chore|test|perf|style|build|ci|revert)\b/.test(lines[0])) return body
+  lines[0] = `${commitPrefix.value}: ${lines[0]}`
+  return lines.join('\n')
+}
+
+const commitPreview = computed(() => buildCommitMessage())
+
+function reuseLastMessage() {
+  const last = dash.commits.value[0]
+  if (last) commitMessage.value = last.message
+}
+
 async function doCommit() {
-  const msg = commitMessage.value.trim()
+  const msg = buildCommitMessage()
   if (!msg || dash.status.value.staged.length === 0) return
   const r = await dash.doCommit(msg)
   if (r.success) {
     commitMessage.value = ''
+    commitPrefix.value = ''
     diffCache.clear()
   }
 }
 
 async function doCommitAll() {
-  const msg = commitMessage.value.trim()
-  if (!msg || dash.status.value.totalChanges === 0) return
-  const r = await dash.doCommit(msg, { all: true })
-  if (r.success) {
-    commitMessage.value = ''
-    diffCache.clear()
+  const msg = buildCommitMessage()
+  if (!msg || trackedChangeCount.value === 0) return
+  requestConfirm({
+    message: `提交已跟踪变更？<br><span class="text-white/45 text-[12px]">将执行 <span class="gd-mono text-teal-300">git commit -a</span>，只纳入已暂存文件和已跟踪文件的修改，不会自动包含未跟踪新文件。</span>${dash.status.value.untracked.length ? `<br><span class="text-amber-300/80 text-[12px]">当前还有 ${dash.status.value.untracked.length} 个未跟踪文件，若要提交请先勾选并暂存。</span>` : ''}`,
+    confirmLabel: '提交已跟踪变更',
+    onConfirm: async () => {
+      const r = await dash.doCommit(msg, { all: true })
+      if (r.success) {
+        commitMessage.value = ''
+        commitPrefix.value = ''
+        diffCache.clear()
+      }
+    },
+  })
+}
+
+const trackedChangeCount = computed(() =>
+  dash.status.value.staged.length + dash.status.value.modified.length,
+)
+const canCommit = computed(() => commitPreview.value.length > 0 && dash.status.value.staged.length > 0)
+const canCommitAll = computed(() => commitPreview.value.length > 0 && trackedChangeCount.value > 0)
+
+// ─── 健康判断（可点交给小吴）────────────────────────
+
+type HealthTone = 'ok' | 'warn' | 'danger'
+
+const healthCue = computed<{ tone: HealthTone; title: string; detail: string; action: string }>(() => {
+  const status = dash.status.value
+  const sync = dash.sync.value
+  const changes = status.totalChanges
+  const hasUntracked = status.untracked.length > 0
+  const dirtyText = status.clean
+    ? '工作区干净'
+    : `${changes} 个未提交变更${hasUntracked ? `，其中 ${status.untracked.length} 个未跟踪` : ''}`
+
+  if (!dash.branch.value) {
+    return { tone: 'warn', title: '正在读取 Git 状态', detail: dirtyText, action: '稍等刷新完成后再执行同步或提交操作。' }
+  }
+  if (!sync.hasUpstream) {
+    return { tone: 'warn', title: '当前分支还没有 upstream', detail: dirtyText, action: '确认基线后发布分支；普通 Push 可能因为缺少上游分支失败。' }
+  }
+  if (sync.ahead > 0 && sync.behind > 0) {
+    return {
+      tone: 'danger',
+      title: '本地与远端已经分叉',
+      detail: `领先 ${sync.ahead} 个提交，落后 ${sync.behind} 个提交；${dirtyText}`,
+      action: status.clean ? '先检查差异再同步，避免覆盖协作中的改动。' : '建议先提交或 Stash 本地变更，再处理同步。',
+    }
+  }
+  if (sync.behind > 0) {
+    return {
+      tone: 'warn',
+      title: `远端有 ${sync.behind} 个新提交`,
+      detail: dirtyText,
+      action: status.clean ? '可以 Pull 同步远端更新。' : '建议先提交或 Stash 本地变更，再 Pull。',
+    }
+  }
+  if (sync.ahead > 0) {
+    return { tone: 'warn', title: `本地有 ${sync.ahead} 个提交待推送`, detail: dirtyText, action: '确认提交内容后再 Push 到远端。' }
+  }
+  if (!status.clean) {
+    return {
+      tone: 'warn',
+      title: `工作区有 ${changes} 个未提交变更`,
+      detail: hasUntracked ? `包含 ${status.untracked.length} 个未跟踪文件，提交前确认是否纳入。` : '远端已同步，下一步重点是 review 与提交。',
+      action: '先检查 diff，再按需暂存并提交。',
+    }
+  }
+  return { tone: 'ok', title: '仓库状态安全', detail: '工作区干净，当前分支已与远端同步。', action: '可以安全切换分支或继续开发。' }
+})
+
+// ─── 小吴（AI）hand-off：健康概况 / 冲突 / diff ─────
+
+function askXiaowuHealth() {
+  if (!aiReady.value) return
+  const h = healthCue.value
+  const ctx = `Git 仓库（${repoName.value} / 分支 ${dash.branch.value || '—'}）健康概况：${h.title}。${h.detail} 我的建议是：${h.action} 帮我判断这事要不要紧，如果有风险帮我排出处理顺序。`
+  chat.show()
+  void chat.send(ctx)
+}
+
+function askXiaowuConflict() {
+  if (!aiReady.value) return
+  const r = dash.lastActionResult.value
+  const out = (r?.error || r?.message || '').slice(0, 1500)
+  chat.show()
+  void chat.send(`刚才执行 git 操作时产生了冲突。这是 git 的原始输出：\n\n${out}\n\n帮我分析冲突的根因，并给出解决思路（不要直接改代码，先告诉我怎么判断）。`)
+}
+
+function askXiaowuDiff() {
+  if (!aiReady.value || !diffContent.value) return
+  const target = diffTarget.value
+  const snippet = diffContent.value.slice(0, 2000)
+  chat.show()
+  void chat.send(`解释下面这段 git diff（${target}）的目的、改了什么、有没有潜在风险：\n\n${snippet}`)
+}
+
+// ─── Reflog（操作历史，救命用）──────────────────────
+
+const showReflog = ref(false)
+const reflogLoading = ref(false)
+const reflog = ref<GitReflogEntry[]>([])
+
+async function loadReflog() {
+  if (reflog.value.length) return
+  reflogLoading.value = true
+  try {
+    reflog.value = await dash.getReflog(40)
+  } finally {
+    reflogLoading.value = false
   }
 }
 
-const canCommit = computed(() =>
-  commitMessage.value.trim().length > 0 && dash.status.value.staged.length > 0,
-)
-const canCommitAll = computed(() =>
-  commitMessage.value.trim().length > 0 && dash.status.value.totalChanges > 0,
-)
+function toggleReflog() {
+  showReflog.value = !showReflog.value
+  if (showReflog.value) void loadReflog()
+}
+
+// ─── Commit 搜索（--grep）───────────────────────────
+
+const commitSearch = ref('')
+const searchResults = ref<GitCommit[] | null>(null)
+const searchLoading = ref(false)
+
+async function runCommitSearch() {
+  const q = commitSearch.value.trim()
+  if (!q) {
+    searchResults.value = null
+    return
+  }
+  searchLoading.value = true
+  try {
+    searchResults.value = await dash.searchCommits(q, 30)
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function clearCommitSearch() {
+  commitSearch.value = ''
+  searchResults.value = null
+}
+
+// ─── Pull/Push 预览：ahead / behind 实际 commit ─────
+
+const aheadCommits = computed(() => dash.commits.value.slice(0, Math.max(0, dash.sync.value.ahead)))
+
+const behindCommits = ref<GitCommit[]>([])
+const behindLoading = ref(false)
+
+async function loadBehindCommits() {
+  const sync = dash.sync.value
+  if (!sync.hasUpstream || sync.behind === 0) {
+    behindCommits.value = []
+    return
+  }
+  const cur = dash.branches.value.find((b) => b.current)
+  const up = cur?.upstream
+  if (!up) {
+    behindCommits.value = []
+    return
+  }
+  behindLoading.value = true
+  try {
+    behindCommits.value = await dash.getBranchLog(up, sync.behind)
+  } catch {
+    behindCommits.value = []
+  } finally {
+    behindLoading.value = false
+  }
+}
 
 // ─── 格式化 ────────────────────────────────────────
 
@@ -356,15 +655,62 @@ function fileDir(p: string): string {
   return parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : ''
 }
 
+/** 把 remote URL 压缩成 host/path 形式（SSH 与 HTTPS 都兼容） */
+function shortUrl(u: string): string {
+  if (!u) return ''
+  const ssh = u.match(/^[\w.-]+@([^:]+):(.+)$/)
+  if (ssh) return `${ssh[1]}/${ssh[2].replace(/\.git$/, '')}`
+  try {
+    const url = new URL(u)
+    return (url.host + url.pathname).replace(/\.git$/, '')
+  } catch {
+    return u
+  }
+}
+
 // ─── 统一确认栏 ────────────────────────────────────
 
-/** 转义动态文本后才能安全拼进 v-html 的 confirm message */
 function esc(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function gitPrecheckHtml(): string {
+  const current = dash.branches.value.find((b) => b.current)
+  const sync = dash.sync.value
+  const upstream = sync.hasUpstream ? current?.upstream || '已设置 upstream' : '无 upstream'
+  const syncText = sync.hasUpstream ? `${upstream} · ↑${sync.ahead} ↓${sync.behind}` : upstream
+  const status = dash.status.value
+  const changeText = status.clean
+    ? '工作区干净'
+    : `${status.totalChanges} 个未提交变更（已暂存 ${status.staged.length} · 已修改 ${status.modified.length} · 未跟踪 ${status.untracked.length}）`
+  return `<br><span class="text-white/45 text-[12px]">当前分支 <span class="gd-mono text-teal-300">${esc(dash.branch.value || '—')}</span> · ${esc(syncText)} · ${esc(changeText)}</span>`
+}
+
+function aheadCommitsHtml(): string {
+  const list = aheadCommits.value
+  if (!list.length) return ''
+  const items = list
+    .slice(0, 8)
+    .map((c) => `<li><span class="gd-mono text-amber-300">${esc(c.hash)}</span> <span class="text-white/70">${esc(shortMsg(c.message, 48))}</span></li>`)
+    .join('')
+  const more = list.length > 8 ? `<li class="text-white/30">…共 ${list.length} 条</li>` : ''
+  return `<br><span class="text-white/45 text-[12px]">将推送的提交（${list.length}）：</span><ul class="gd-preview-list">${items}${more}</ul>`
+}
+
+function behindCommitsHtml(): string {
+  if (behindLoading.value) return `<br><span class="text-white/45 text-[12px]">正在读取远端待拉取提交…</span>`
+  const list = behindCommits.value
+  if (!list.length) return ''
+  const items = list
+    .slice(0, 8)
+    .map((c) => `<li><span class="gd-mono text-sky-300">${esc(c.hash)}</span> <span class="text-white/70">${esc(shortMsg(c.message, 48))}</span></li>`)
+    .join('')
+  const more = list.length > 8 ? `<li class="text-white/30">…共 ${list.length} 条</li>` : ''
+  return `<br><span class="text-white/45 text-[12px]">将拉取的提交（${list.length}）：</span><ul class="gd-preview-list">${items}${more}</ul>`
 }
 
 interface ConfirmDialog {
@@ -391,11 +737,16 @@ function cancelConfirm() {
   confirmDialog.value = null
 }
 
-// 便捷确认方法
+// ─── 便捷确认：分支 ────────────────────────────────
+
 function confirmSwitchBranch(name: string) {
   if (name === dash.branch.value) return
+  const dirty = !dash.status.value.clean
+  const warning = dirty
+    ? `<br><span class="text-amber-300/90 text-[12px]">⚠ 工作区有 ${dash.status.value.totalChanges} 个未提交变更，切换可能被 git 拒绝、或被带入目标分支。建议先提交或 Stash。</span>`
+    : ''
   requestConfirm({
-    message: `切换到 <span class="gd-mono text-teal-300">${esc(name)}</span>？`,
+    message: `切换到 <span class="gd-mono text-teal-300">${esc(name)}</span>？${warning}`,
     confirmLabel: '确认切换',
     onConfirm: async () => {
       await dash.doCheckout(name)
@@ -417,29 +768,145 @@ function confirmCheckoutRemote(remoteName: string) {
 }
 
 function confirmDeleteBranch(name: string) {
+  const b = dash.branches.value.find((x) => x.name === name)
+  const unmerged = !!(b && b.ahead > 0)
+  const warning = unmerged
+    ? `<br><span class="text-amber-300/90 text-[12px]">⚠ 该分支领先 upstream ${b!.ahead} 个提交，可能含未合并工作；git 默认会拒绝删除未合并分支，必要时可用强制删除。</span>`
+    : ''
   requestConfirm({
-    message: `确定删除分支 <span class="gd-mono text-rose-300">${esc(name)}</span>？此操作不可撤销`,
+    message: `删除分支 <span class="gd-mono text-rose-300">${esc(name)}</span>？此操作不可撤销${warning}`,
     confirmLabel: '删除',
     danger: true,
-    onConfirm: async () => { await dash.doDeleteBranch(name) },
+    onConfirm: async () => {
+      await dash.doDeleteBranch(name)
+    },
   })
 }
 
+// ─── 便捷确认：标签 / Stash ────────────────────────
+
 function confirmDeleteTag(name: string) {
   requestConfirm({
-    message: `确定删除标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？`,
+    message: `删除标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？`,
     confirmLabel: '删除',
     danger: true,
-    onConfirm: async () => { await dash.doDeleteTag(name) },
+    onConfirm: async () => {
+      await dash.doDeleteTag(name)
+    },
   })
 }
 
 function confirmDropStash(index: string) {
   requestConfirm({
-    message: `确定丢弃 <span class="gd-mono text-rose-300">${esc(index)}</span>？此操作不可撤销`,
+    message: `丢弃 <span class="gd-mono text-rose-300">${esc(index)}</span>？此操作不可撤销`,
     confirmLabel: '丢弃',
     danger: true,
-    onConfirm: async () => { await dash.doStashDrop(index) },
+    onConfirm: async () => {
+      await dash.doStashDrop(index)
+    },
+  })
+}
+
+function confirmStashApply(index: string) {
+  requestConfirm({
+    message: `应用 <span class="gd-mono text-teal-300">${esc(index)}</span> 到当前工作区？stash 会保留。${gitPrecheckHtml()}`,
+    confirmLabel: '应用 stash',
+    onConfirm: async () => {
+      await dash.doStashApply(index)
+      diffCache.clear()
+    },
+  })
+}
+
+function confirmStashPop(index = 'stash@{0}') {
+  closeMoreMenu()
+  requestConfirm({
+    message: `弹出 <span class="gd-mono text-amber-300">${esc(index)}</span>？将应用变更并从 stash 列表删除。${gitPrecheckHtml()}`,
+    confirmLabel: '弹出 stash',
+    onConfirm: async () => {
+      await dash.doStashPop()
+      diffCache.clear()
+    },
+  })
+}
+
+// ─── 便捷确认：同步（带 commit 预览）──────────────
+
+async function confirmPull() {
+  closeMoreMenu()
+  await loadBehindCommits()
+  requestConfirm({
+    message: `拉取并合并远端更新？${gitPrecheckHtml()}${behindCommitsHtml()}`,
+    confirmLabel: '确认 Pull',
+    onConfirm: async () => {
+      await dash.doPull()
+      diffCache.clear()
+    },
+  })
+}
+
+function confirmPush() {
+  closeMoreMenu()
+  requestConfirm({
+    message: `推送本地提交到远端？${gitPrecheckHtml()}${aheadCommitsHtml()}`,
+    confirmLabel: '确认 Push',
+    onConfirm: async () => {
+      await dash.doPush()
+      diffCache.clear()
+    },
+  })
+}
+
+function confirmPushTags() {
+  closeMoreMenu()
+  requestConfirm({
+    message: `推送所有本地标签到远端？${gitPrecheckHtml()}`,
+    confirmLabel: '推送标签',
+    onConfirm: async () => {
+      await dash.doPushTags()
+    },
+  })
+}
+
+// ─── 便捷确认：变更（放弃修改）─────────────────────
+
+function confirmDiscard(path: string, untracked: boolean) {
+  requestConfirm({
+    message: untracked
+      ? `删除未跟踪文件 <span class="gd-mono text-rose-300">${esc(path)}</span>？此操作不可撤销`
+      : `放弃 <span class="gd-mono text-rose-300">${esc(path)}</span> 的修改？将恢复到上次提交的状态，未提交改动不可恢复。`,
+    confirmLabel: untracked ? '删除文件' : '放弃修改',
+    danger: true,
+    onConfirm: async () => {
+      await dash.doDiscard(path, untracked)
+      diffCache.clear()
+      blameTarget.value = ''
+      blameLines.value = []
+    },
+  })
+}
+
+// ─── 便捷确认：历史操作（revert / cherry-pick）─────
+
+function confirmRevert(c: GitCommit) {
+  requestConfirm({
+    message: `撤销提交 <span class="gd-mono text-teal-300">${esc(c.hash)}</span>？将生成一个反向提交。<br><span class="text-white/45 text-[12px]">${esc(shortMsg(c.message, 50))}</span>`,
+    confirmLabel: 'Revert',
+    onConfirm: async () => {
+      await dash.doRevert(c.fullHash)
+      diffCache.clear()
+    },
+  })
+}
+
+function confirmCherryPick(c: GitCommit) {
+  requestConfirm({
+    message: `摘取提交 <span class="gd-mono text-teal-300">${esc(c.hash)}</span> 到当前分支 <span class="gd-mono text-teal-300">${esc(dash.branch.value || '—')}</span>？<br><span class="text-white/45 text-[12px]">${esc(shortMsg(c.message, 50))}</span>`,
+    confirmLabel: 'Cherry-pick',
+    onConfirm: async () => {
+      await dash.doCherryPick(c.fullHash)
+      diffCache.clear()
+    },
   })
 }
 
@@ -450,50 +917,87 @@ async function handleFetch() {
   await dash.doFetch()
   diffCache.clear()
 }
-async function handlePull() {
-  closeMoreMenu()
-  await dash.doPull()
-  diffCache.clear()
-}
-async function handlePush() {
-  closeMoreMenu()
-  await dash.doPush()
-  diffCache.clear()
-}
-async function handlePushTags() {
-  closeMoreMenu()
-  await dash.doPushTags()
-}
 async function handleStashPush() {
   closeMoreMenu()
   await dash.doStashPush()
-}
-async function handleStashPop() {
-  closeMoreMenu()
-  await dash.doStashPop()
 }
 async function handleRefresh() {
   await dash.refresh()
   diffCache.clear()
 }
 
-// ─── 打开/关闭联动 ─────────────────────────────────
-// body 全局已是 overflow:hidden（见全局布局），弹窗自身 fixed inset-0，无需再锁 body
+// ─── 打开/关闭 + 焦点管理 ──────────────────────────
+
+const dialogRef = ref<HTMLElement | null>(null)
+let lastActiveElement: HTMLElement | null = null
+
+function getFocusable(): HTMLElement[] {
+  const root = dialogRef.value
+  if (!root) return []
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => el.offsetParent !== null)
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (showMoreMenu.value) {
+      showMoreMenu.value = false
+      e.stopPropagation()
+      return
+    }
+    if (confirmDialog.value) {
+      cancelConfirm()
+      e.stopPropagation()
+      return
+    }
+    close()
+    return
+  }
+  if (e.key === 'Tab' && dialogRef.value) {
+    const f = getFocusable()
+    if (!f.length) return
+    const first = f[0]
+    const last = f[f.length - 1]
+    const active = document.activeElement as HTMLElement | null
+    if (e.shiftKey && active === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+}
 
 watch(
   () => props.open,
   (isOpen) => {
     if (isOpen) {
       dash.open.value = true
+      lastActiveElement = document.activeElement as HTMLElement | null
+      void nextTick(() => {
+        const f = getFocusable()
+        f[0]?.focus()
+      })
     } else {
       dash.open.value = false
       diffTarget.value = ''
       diffContent.value = ''
+      blameTarget.value = ''
+      blameLines.value = []
       confirmDialog.value = null
       showMoreMenu.value = false
       showCreateBranch.value = false
+      showMergeForm.value = false
       showCreateTag.value = false
       showStashForm.value = false
+      showResetForm.value = false
+      showReflog.value = false
+      lastActiveElement?.focus?.()
+      lastActiveElement = null
     }
   },
 )
@@ -506,8 +1010,13 @@ function close() {
   emit('update:open', false)
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') close()
+/** 遮罩点击：More/Reset 等浮层开着时只关浮层，否则关弹窗（卡片自身 @click.stop） */
+function onBackdropClick() {
+  if (showMoreMenu.value) {
+    showMoreMenu.value = false
+    return
+  }
+  close()
 }
 </script>
 
@@ -521,11 +1030,16 @@ function onKeydown(e: KeyboardEvent) {
     >
       <div
         v-if="open"
+        ref="dialogRef"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="git-dashboard-title"
+        tabindex="-1"
         @keydown="onKeydown"
         @click="onBackdropClick"
       >
-        <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" @click="close" />
+        <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
 
         <Transition
           appear
@@ -535,12 +1049,11 @@ function onKeydown(e: KeyboardEvent) {
           leave-to-class="opacity-0 translate-y-2 scale-[0.98]"
         >
           <div
-            class="gd-card relative z-10 w-[94vw] max-w-[960px] max-h-[90vh] flex flex-col overflow-hidden"
+            class="gd-card relative z-10 w-[94vw] max-w-[960px] min-h-[70vh] max-h-[90vh] flex flex-col overflow-hidden"
             @click.stop
           >
             <!-- HUD 四角装饰 -->
             <div class="gd-corners" aria-hidden="true" />
-
             <!-- 顶部渐变高光条 -->
             <div class="gd-accent" />
 
@@ -554,28 +1067,28 @@ function onKeydown(e: KeyboardEvent) {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <h2 class="text-[15px] font-semibold text-white/90">wbscf-web</h2>
+                    <h2 id="git-dashboard-title" class="text-[15px] font-semibold text-white/90">{{ repoName }}</h2>
                     <span class="gd-badge">Git</span>
                   </div>
-                  <div class="flex items-center gap-3 mt-1 text-[12px] text-white/45">
-                    <span class="flex items-center gap-1">
+                  <div class="flex items-center gap-3 mt-1 text-[12px] text-white/45 min-w-0">
+                    <span class="flex items-center gap-1 flex-shrink-0">
                       <IconBranch class="w-3 h-3" />
                       <span class="gd-mono text-teal-300">{{ dash.branch.value || '—' }}</span>
                     </span>
                     <template v-if="dash.sync.value.hasUpstream">
-                      <span v-if="dash.sync.value.ahead" class="text-amber-300">
-                        ↑{{ dash.sync.value.ahead }}
-                      </span>
-                      <span v-if="dash.sync.value.behind" class="text-sky-300">
-                        ↓{{ dash.sync.value.behind }}
-                      </span>
+                      <span v-if="dash.sync.value.ahead" class="text-amber-300">↑{{ dash.sync.value.ahead }}</span>
+                      <span v-if="dash.sync.value.behind" class="text-sky-300">↓{{ dash.sync.value.behind }}</span>
                       <span v-if="!dash.sync.value.ahead && !dash.sync.value.behind" class="text-emerald-400/70">
                         <IconCheck class="w-3 h-3" />
                       </span>
                     </template>
                     <span v-else class="text-white/30">无 upstream</span>
-                    <span v-if="dash.remotes.value.length">
-                      {{ dash.remotes.value[0].url }}
+                    <span
+                      v-if="dash.remotes.value.length"
+                      class="truncate text-white/35"
+                      :title="dash.remotes.value[0].url"
+                    >
+                      {{ shortUrl(dash.remotes.value[0].url) }}
                     </span>
                   </div>
                 </div>
@@ -586,7 +1099,8 @@ function onKeydown(e: KeyboardEvent) {
                     class="gd-action"
                     :class="{ 'is-loading': dash.actionLoading.value === 'fetch' }"
                     title="拉取远端引用（不合并）— git fetch --all --prune"
-                    :disabled="!!dash.actionLoading.value"
+                    aria-label="拉取远端引用，不合并"
+                    :disabled="!!dash.actionLoading.value || !gitReady"
                     @click="handleFetch"
                   >
                     <IconDownload class="w-3.5 h-3.5" />
@@ -596,8 +1110,9 @@ function onKeydown(e: KeyboardEvent) {
                     class="gd-action"
                     :class="{ 'is-loading': dash.actionLoading.value === 'pull' }"
                     title="拉取并合并远端更新 — git pull"
-                    :disabled="!!dash.actionLoading.value"
-                    @click="handlePull"
+                    aria-label="拉取并合并远端更新"
+                    :disabled="!!dash.actionLoading.value || !gitReady"
+                    @click="confirmPull"
                   >
                     <IconSwitch class="w-3.5 h-3.5" />
                     <span>Pull</span>
@@ -606,19 +1121,21 @@ function onKeydown(e: KeyboardEvent) {
                     class="gd-action"
                     :class="{ 'is-loading': dash.actionLoading.value === 'push' }"
                     title="推送本地提交到远端 — git push"
-                    :disabled="!!dash.actionLoading.value"
-                    @click="handlePush"
+                    aria-label="推送本地提交到远端"
+                    :disabled="!!dash.actionLoading.value || !gitReady"
+                    @click="confirmPush"
                   >
                     <IconUpload class="w-3.5 h-3.5" />
                     <span>Push</span>
                   </button>
 
-                  <!-- More 下拉 -->
+                  <!-- More 下拉（去重：不再重复 Fetch/Pull/Push） -->
                   <div class="relative">
                     <button
                       class="gd-action"
                       title="更多操作"
-                      :disabled="!!dash.actionLoading.value"
+                      aria-label="打开更多 Git 操作"
+                      :disabled="!!dash.actionLoading.value || !gitReady"
                       @click.stop="toggleMoreMenu"
                     >
                       <span>More</span>
@@ -631,36 +1148,31 @@ function onKeydown(e: KeyboardEvent) {
                       leave-to-class="opacity-0 -translate-y-1"
                     >
                       <div v-if="showMoreMenu" class="gd-dropdown">
-                        <button class="gd-dropdown-item" @click="handleFetch">
-                          <IconDownload class="w-3.5 h-3.5" />
-                          <span class="flex-1 text-left">拉取远端引用</span>
-                          <span class="gd-dropdown-hint">git fetch --all</span>
-                        </button>
-                        <button class="gd-dropdown-item" @click="handlePull">
-                          <IconSwitch class="w-3.5 h-3.5" />
-                          <span class="flex-1 text-left">拉取并合并</span>
-                          <span class="gd-dropdown-hint">git pull</span>
-                        </button>
-                        <button class="gd-dropdown-item" @click="handlePush">
-                          <IconUpload class="w-3.5 h-3.5" />
-                          <span class="flex-1 text-left">推送到远端</span>
-                          <span class="gd-dropdown-hint">git push</span>
-                        </button>
-                        <div class="gd-dropdown-divider" />
-                        <button class="gd-dropdown-item" @click="handlePushTags">
+                        <button class="gd-dropdown-item" @click="confirmPushTags">
                           <IconTag class="w-3.5 h-3.5" />
                           <span class="flex-1 text-left">推送所有标签</span>
                           <span class="gd-dropdown-hint">git push --tags</span>
                         </button>
                         <button class="gd-dropdown-item" @click="handleStashPush">
                           <IconStash class="w-3.5 h-3.5" />
-                          <span class="flex-1 text-left">暂存所有变更</span>
+                          <span class="flex-1 text-left">Stash 所有变更</span>
                           <span class="gd-dropdown-hint">git stash</span>
                         </button>
-                        <button class="gd-dropdown-item" @click="handleStashPop">
+                        <button class="gd-dropdown-item" @click="confirmStashPop()">
                           <IconPop class="w-3.5 h-3.5" />
-                          <span class="flex-1 text-left">恢复最近暂存</span>
+                          <span class="flex-1 text-left">Pop 最近 Stash</span>
                           <span class="gd-dropdown-hint">git stash pop</span>
+                        </button>
+                        <div class="gd-dropdown-divider" />
+                        <button class="gd-dropdown-item" @click="openMergeFromMore">
+                          <IconMerge class="w-3.5 h-3.5" />
+                          <span class="flex-1 text-left">合并分支…</span>
+                          <span class="gd-dropdown-hint">git merge</span>
+                        </button>
+                        <button class="gd-dropdown-item danger" @click="openResetFromMore">
+                          <IconReset class="w-3.5 h-3.5" />
+                          <span class="flex-1 text-left">回滚（Reset）…</span>
+                          <span class="gd-dropdown-hint">git reset</span>
                         </button>
                       </div>
                     </Transition>
@@ -668,15 +1180,17 @@ function onKeydown(e: KeyboardEvent) {
 
                   <div class="w-px h-4 bg-white/10 mx-1" />
                   <button
-                    class="gd-action"
+                    class="gd-icon-btn"
                     title="刷新"
+                    aria-label="刷新 Git 仓库状态"
                     :disabled="dash.loading.value"
                     @click="handleRefresh"
                   >
-                    <IconRefresh class="w-3.5 h-3.5" :class="{ 'animate-spin': dash.loading.value }" />
+                    <IconRefresh class="w-3.5 h-3.5" :class="{ 'gd-spin': dash.loading.value }" />
                   </button>
                   <button
-                    class="text-white/40 hover:text-white/80 hover:bg-white/10 rounded-lg p-1.5 transition-colors"
+                    class="gd-icon-btn"
+                    aria-label="关闭 Git 仪表盘"
                     @click="close"
                   >
                     <IconClose class="w-5 h-5" />
@@ -694,14 +1208,18 @@ function onKeydown(e: KeyboardEvent) {
                 <div
                   v-if="dash.actionMessage.value"
                   class="mt-2 px-3 py-1.5 rounded-lg text-[12px] flex items-center gap-2"
-                  :class="
-                    dash.actionMessage.value.includes('失败') || dash.actionMessage.value.includes('error')
-                      ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
-                      : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
-                  "
+                  :class="actionBannerClass"
                 >
-                  <IconLoading v-if="dash.actionLoading.value" class="w-3 h-3 animate-spin" />
-                  {{ dash.actionMessage.value }}
+                  <IconLoading v-if="dash.actionLoading.value" class="w-3 h-3 gd-spin" />
+                  <span class="flex-1 min-w-0">{{ dash.actionMessage.value }}</span>
+                  <button
+                    v-if="dash.actionStatus.value === 'conflict' && aiReady"
+                    class="gd-handoff-btn"
+                    @click="askXiaowuConflict"
+                  >
+                    <IconRobot class="w-3 h-3" />
+                    <span>让小吴帮我理冲突</span>
+                  </button>
                 </div>
               </Transition>
 
@@ -726,18 +1244,80 @@ function onKeydown(e: KeyboardEvent) {
             <div class="flex-1 min-h-0 overflow-y-auto gd-body">
               <!-- 加载中 -->
               <div v-if="dash.loading.value && !dash.overview.value" class="flex flex-col items-center gap-3 py-20 text-white/50">
-                <IconLoading class="w-7 h-7 animate-spin text-teal-300/70" />
+                <IconLoading class="w-7 h-7 gd-spin text-teal-300/70" />
                 <span class="text-sm">加载仓库信息…</span>
               </div>
 
-              <!-- 错误 -->
-              <div v-else-if="dash.error.value && !dash.overview.value" class="flex flex-col items-center gap-3 py-20 text-center text-white/55">
-                <IconAlert class="w-8 h-8 text-rose-300/70" />
-                <p class="text-sm px-6">{{ dash.error.value }}</p>
+              <!-- Git 未连接 / 不可用 -->
+              <div v-else-if="gitUnavailable" class="flex flex-col items-center gap-4 py-16 text-center text-white/60">
+                <IconAlert class="w-10 h-10 text-rose-300/80" />
+                <div class="space-y-1 px-6">
+                  <p class="text-sm font-medium text-rose-200">{{ dash.error.value || 'Git 仓库暂不可用' }}</p>
+                  <p class="text-[12px] text-white/42">请确认连接配置后重试：</p>
+                </div>
+                <ul class="gd-connect-checklist">
+                  <li>.env 中配置了 <span class="gd-mono">VITE_WBSCF_WEB_ROOT</span></li>
+                  <li>该路径指向 wbscf-web 根目录，且目录内存在 <span class="gd-mono">.git</span></li>
+                  <li>修改 .env 后已重启 <span class="gd-mono">npm run dev</span></li>
+                </ul>
+                <button class="gd-confirm-btn ok" :disabled="dash.loading.value" @click="handleRefresh">
+                  {{ dash.loading.value ? '正在重试…' : '重新连接' }}
+                </button>
               </div>
 
               <!-- ─── 概览 ─── -->
               <div v-else-if="activeTab === 'overview'" class="space-y-5 p-5">
+                <!-- 仓库健康判断（可点交给小吴） -->
+                <div class="gd-health-wrap">
+                  <div class="gd-health" :class="`tone-${healthCue.tone}`" :title="aiReady ? '点击让小吴排出处理顺序' : ''">
+                    <div class="gd-health-icon">
+                      <IconCheck v-if="healthCue.tone === 'ok'" class="w-4 h-4" />
+                      <IconAlert v-else class="w-4 h-4" />
+                    </div>
+                    <div class="min-w-0 flex-1 cursor-pointer" :class="{ 'gd-clickable': aiReady }" @click="aiReady && askXiaowuHealth()">
+                      <div class="gd-health-title">{{ healthCue.title }}</div>
+                      <div class="gd-health-detail">{{ healthCue.detail }}</div>
+                      <div class="gd-health-action">{{ healthCue.action }}</div>
+                    </div>
+                    <button
+                      v-if="aiReady"
+                      class="gd-handoff-btn flex-shrink-0"
+                      title="把当前仓库状况交给小吴"
+                      @click.stop="askXiaowuHealth"
+                    >
+                      <IconRobot class="w-3 h-3" />
+                      <span>让小吴排一下</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Reset 表单（从 More 触发） -->
+                <Transition
+                  enter-active-class="transition-all duration-200"
+                  leave-active-class="transition-all duration-150"
+                  enter-from-class="opacity-0 -translate-y-2"
+                  leave-to-class="opacity-0 -translate-y-2"
+                >
+                  <div v-if="showResetForm" class="gd-inline-form gd-danger-zone">
+                    <div class="gd-section-title text-rose-300/80">
+                      <IconReset class="w-3.5 h-3.5" />
+                      回滚（Reset）
+                    </div>
+                    <div class="gd-form-row">
+                      <select v-model="resetMode" class="gd-input w-auto">
+                        <option value="soft">soft · 保留工作区与暂存区</option>
+                        <option value="mixed">mixed · 保留工作区，清暂存区</option>
+                        <option value="hard">hard · ⚠ 清除工作区与暂存区</option>
+                        <option value="keep">keep · 保留工作区与暂存区</option>
+                      </select>
+                      <input v-model="resetTarget" type="text" placeholder="目标 ref（可选，默认 HEAD）" class="gd-input flex-1" @keydown.enter="submitReset" />
+                      <button class="gd-confirm-btn danger" @click="submitReset">执行 Reset</button>
+                      <button class="gd-confirm-btn cancel" @click="toggleResetForm">取消</button>
+                    </div>
+                    <p class="text-[11px] text-rose-300/70 mt-1.5">⚠ Reset 会改写当前分支位置；hard 模式会丢失未提交改动。可通过「提交」tab 的 reflog 找回。</p>
+                  </div>
+                </Transition>
+
                 <!-- 统计卡片 -->
                 <div class="grid grid-cols-4 gap-3">
                   <div class="gd-stat">
@@ -765,6 +1345,16 @@ function onKeydown(e: KeyboardEvent) {
                   </div>
                 </div>
 
+                <!-- 色彩语义 legend -->
+                <div class="gd-legend">
+                  <IconInfo class="w-3 h-3 text-white/30 flex-shrink-0" />
+                  <span><i class="gd-dot bg-emerald-400" /> 已暂存 / 已同步</span>
+                  <span><i class="gd-dot bg-amber-400" /> 已修改 / 领先 ↑</span>
+                  <span><i class="gd-dot bg-sky-400" /> 未跟踪 / 落后 ↓</span>
+                  <span><i class="gd-dot bg-rose-400" /> 危险 / 冲突</span>
+                  <span><i class="gd-dot bg-violet-400" /> 标签</span>
+                </div>
+
                 <!-- 最近提交 -->
                 <div>
                   <div class="gd-section-title">
@@ -775,25 +1365,44 @@ function onKeydown(e: KeyboardEvent) {
                     <div
                       v-for="c in dash.commits.value.slice(0, 8)"
                       :key="c.fullHash"
-                      class="gd-list-row cursor-pointer"
+                      class="gd-list-row group cursor-pointer"
                       @click="viewDiff(`commit-${c.fullHash}`, () => dash.getCommitDetail(c.fullHash))"
                     >
                       <span class="gd-hash">{{ c.hash }}</span>
                       <span class="flex-1 truncate text-white/75">{{ shortMsg(c.message, 55) }}</span>
                       <span class="text-white/35 text-[11px] flex-shrink-0">{{ c.author }}</span>
                       <span class="text-white/30 text-[11px] flex-shrink-0 w-16 text-right">{{ fmtDate(c.date) }}</span>
+                      <div class="gd-row-actions">
+                        <button
+                          v-if="aiReady"
+                          class="gd-mini-btn"
+                          title="摘取此提交到当前分支"
+                          :aria-label="`Cherry-pick ${c.hash}`"
+                          @click.stop="confirmCherryPick(c)"
+                        >
+                          <IconCherryPick class="w-3 h-3" />
+                        </button>
+                        <button
+                          class="gd-mini-btn"
+                          title="生成反向提交撤销此变更"
+                          :aria-label="`Revert ${c.hash}`"
+                          @click.stop="confirmRevert(c)"
+                        >
+                          <IconRevert class="w-3 h-3" />
+                        </button>
+                      </div>
                       <IconChevronRight
                         class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
                         :class="{ 'rotate-90 text-teal-400/60': diffTarget === `commit-${c.fullHash}` }"
                       />
                     </div>
-                    <!-- 展开的 commit diff -->
-                    <div v-if="diffTarget.startsWith('commit-')" class="gd-diff-box">
-                      <div v-if="diffLoading" class="py-3 text-center text-white/40 text-[12px]">
-                        <IconLoading class="w-4 h-4 animate-spin inline" /> 加载中…
-                      </div>
-                      <pre v-else class="gd-diff">{{ diffContent || '(无 diff 输出)' }}</pre>
-                    </div>
+                    <GitDiffBox
+                      v-if="diffTarget.startsWith('commit-')"
+                      :content="diffContent"
+                      :loading="diffLoading"
+                      :ai-ready="aiReady"
+                      @explain="askXiaowuDiff"
+                    />
                   </div>
                 </div>
 
@@ -819,26 +1428,69 @@ function onKeydown(e: KeyboardEvent) {
                     </div>
                   </div>
                 </div>
+
+                <!-- 远端信息（从 tags tab 归位到概览） -->
+                <div>
+                  <div class="gd-section-title">
+                    <IconSync class="w-3.5 h-3.5" />
+                    远端 ({{ dash.remotes.value.length }})
+                  </div>
+                  <div class="gd-list">
+                    <div v-for="r in dash.remotes.value" :key="r.name" class="gd-list-row">
+                      <span class="gd-mono text-teal-300/70 flex-shrink-0">{{ r.name }}</span>
+                      <span class="flex-1 truncate text-white/45 text-[12px] gd-mono" :title="r.url">{{ shortUrl(r.url) }}</span>
+                    </div>
+                    <div v-if="!dash.remotes.value.length" class="py-4 text-center text-white/30 text-[12px]">未配置远端</div>
+                  </div>
+                </div>
               </div>
 
               <!-- ─── 分支 ─── -->
               <div v-else-if="activeTab === 'branches'" class="space-y-4 p-5">
-                <!-- 搜索 + 新建 -->
+                <!-- 搜索 + 新建 + 合并 -->
                 <div class="flex gap-2">
                   <div class="relative flex-1">
                     <IconSearch class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-                    <input
-                      v-model="branchSearch"
-                      type="text"
-                      placeholder="搜索分支…"
-                      class="gd-input pl-9"
-                    />
+                    <input v-model="branchSearch" type="text" placeholder="搜索分支…" class="gd-input pl-9" />
                   </div>
+                  <button class="gd-action" title="合并其他分支到当前分支" @click="toggleMergeForm">
+                    <IconMerge class="w-3.5 h-3.5" />
+                    <span>合并</span>
+                  </button>
                   <button class="gd-action" @click="toggleCreateBranch">
                     <IconPlus class="w-3.5 h-3.5" />
                     <span>新建分支</span>
                   </button>
                 </div>
+
+                <!-- 合并表单 -->
+                <Transition
+                  enter-active-class="transition-all duration-200"
+                  leave-active-class="transition-all duration-150"
+                  enter-from-class="opacity-0 -translate-y-2"
+                  leave-to-class="opacity-0 -translate-y-2"
+                >
+                  <div v-if="showMergeForm" class="gd-inline-form">
+                    <div class="gd-section-title">
+                      <IconMerge class="w-3.5 h-3.5" />
+                      合并分支到 <span class="gd-mono text-teal-300">{{ dash.branch.value || '—' }}</span>
+                    </div>
+                    <div class="gd-form-row">
+                      <select v-model="mergeSource" class="gd-input flex-1">
+                        <option value="" disabled>选择要合并的分支</option>
+                        <option v-for="b in dash.branches.value.filter((x) => !x.current)" :key="b.name" :value="b.name">
+                          {{ b.name }}
+                        </option>
+                      </select>
+                      <label class="gd-check-inline">
+                        <input v-model="mergeNoCommit" type="checkbox" />
+                        <span>--no-commit（只合并到工作区，不自动提交）</span>
+                      </label>
+                      <button class="gd-confirm-btn ok" :disabled="!mergeSource" @click="submitMerge">合并</button>
+                      <button class="gd-confirm-btn cancel" @click="toggleMergeForm">取消</button>
+                    </div>
+                  </div>
+                </Transition>
 
                 <!-- 创建分支表单 -->
                 <Transition
@@ -849,27 +1501,9 @@ function onKeydown(e: KeyboardEvent) {
                 >
                   <div v-if="showCreateBranch" class="gd-inline-form">
                     <div class="gd-form-row">
-                      <input
-                        v-model="newBranchName"
-                        type="text"
-                        placeholder="分支名称 *"
-                        class="gd-input flex-1"
-                        @keydown.enter="submitCreateBranch"
-                      />
-                      <input
-                        v-model="newBranchBase"
-                        type="text"
-                        placeholder="基于分支（可选，默认 HEAD）"
-                        class="gd-input flex-1"
-                        @keydown.enter="submitCreateBranch"
-                      />
-                      <button
-                        class="gd-confirm-btn ok"
-                        :disabled="!newBranchName.trim()"
-                        @click="submitCreateBranch"
-                      >
-                        创建
-                      </button>
+                      <input v-model="newBranchName" type="text" placeholder="分支名称 *" class="gd-input flex-1" @keydown.enter="submitCreateBranch" />
+                      <input v-model="newBranchBase" type="text" placeholder="基于分支（可选，默认 HEAD）" class="gd-input flex-1" @keydown.enter="submitCreateBranch" />
+                      <button class="gd-confirm-btn ok" :disabled="!newBranchName.trim()" @click="submitCreateBranch">创建</button>
                       <button class="gd-confirm-btn cancel" @click="toggleCreateBranch">取消</button>
                     </div>
                   </div>
@@ -889,9 +1523,7 @@ function onKeydown(e: KeyboardEvent) {
                       :class="{ 'is-current': b.current }"
                     >
                       <IconBranch class="w-3.5 h-3.5 flex-shrink-0" :class="b.current ? 'text-teal-400' : 'text-white/30'" />
-                      <span class="gd-mono flex-1 truncate" :class="b.current ? 'text-teal-300' : 'text-white/70'">
-                        {{ b.name }}
-                      </span>
+                      <span class="gd-mono flex-1 truncate" :class="b.current ? 'text-teal-300' : 'text-white/70'">{{ b.name }}</span>
                       <span class="gd-hash flex-shrink-0">{{ b.hash }}</span>
                       <span v-if="b.ahead" class="text-amber-400/80 text-[11px]">↑{{ b.ahead }}</span>
                       <span v-if="b.behind" class="text-sky-400/80 text-[11px]">↓{{ b.behind }}</span>
@@ -900,6 +1532,7 @@ function onKeydown(e: KeyboardEvent) {
                         v-if="!b.current"
                         class="gd-mini-btn"
                         title="切换到此分支"
+                        :aria-label="`切换到分支 ${b.name}`"
                         @click.stop="confirmSwitchBranch(b.name)"
                       >
                         <IconSwitch class="w-3 h-3" />
@@ -908,14 +1541,13 @@ function onKeydown(e: KeyboardEvent) {
                         v-if="!b.current"
                         class="gd-mini-btn danger"
                         title="删除此分支"
+                        :aria-label="`删除分支 ${b.name}`"
                         @click.stop="confirmDeleteBranch(b.name)"
                       >
                         <IconTrash class="w-3 h-3" />
                       </button>
                     </div>
-                    <div v-if="filteredBranches.length === 0" class="py-6 text-center text-white/30 text-[12px]">
-                      无匹配分支
-                    </div>
+                    <div v-if="filteredBranches.length === 0" class="py-6 text-center text-white/30 text-[12px]">无匹配分支</div>
                   </div>
                 </div>
 
@@ -925,10 +1557,7 @@ function onKeydown(e: KeyboardEvent) {
                     class="gd-section-title cursor-pointer hover:text-white/60 transition-colors"
                     @click="showRemoteBranches = !showRemoteBranches"
                   >
-                    <IconChevronRight
-                      class="w-3.5 h-3.5 transition-transform"
-                      :class="{ 'rotate-90': showRemoteBranches }"
-                    />
+                    <IconChevronRight class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-90': showRemoteBranches }" />
                     远端分支 ({{ filteredRemoteBranches.length }})
                   </button>
                   <div v-if="showRemoteBranches" class="gd-list mt-1">
@@ -945,47 +1574,132 @@ function onKeydown(e: KeyboardEvent) {
                         v-if="!hasLocalCounterpart(b)"
                         class="gd-mini-btn"
                         :title="`检出为本地跟踪分支 ${shortRemoteName(b.name)}`"
+                        :aria-label="`检出远端分支 ${b.name}`"
                         @click.stop="confirmCheckoutRemote(b.name)"
                       >
                         <IconDownload class="w-3 h-3" />
                       </button>
-                      <span
-                        v-else
-                        class="text-white/20 text-[10px] flex-shrink-0"
-                        title="已有同名本地分支"
-                      >已有</span>
+                      <span v-else class="text-white/20 text-[10px] flex-shrink-0" title="已有同名本地分支">已有</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- ─── 提交 ─── -->
-              <div v-else-if="activeTab === 'commits'" class="space-y-1 p-5">
-                <div class="gd-list">
-                  <template v-for="c in dash.commits.value" :key="c.fullHash">
-                    <div
-                      class="gd-list-row cursor-pointer"
-                      @click="viewDiff(`c-${c.fullHash}`, () => dash.getCommitDetail(c.fullHash))"
-                    >
+              <div v-else-if="activeTab === 'commits'" class="space-y-3 p-5">
+                <!-- 搜索 commit -->
+                <div class="flex gap-2">
+                  <div class="relative flex-1">
+                    <IconSearch class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                    <input
+                      v-model="commitSearch"
+                      type="text"
+                      placeholder="搜索提交信息（--grep）…"
+                      class="gd-input pl-9"
+                      @keydown.enter="runCommitSearch"
+                    />
+                  </div>
+                  <button v-if="searchResults !== null" class="gd-action" @click="clearCommitSearch">清除</button>
+                  <button class="gd-action" :disabled="!commitSearch.trim() || searchLoading" @click="runCommitSearch">
+                    <IconSearch class="w-3.5 h-3.5" :class="{ 'gd-spin': searchLoading }" />
+                    <span>搜索</span>
+                  </button>
+                </div>
+
+                <!-- 搜索结果 -->
+                <div v-if="searchResults !== null">
+                  <div class="gd-section-title">
+                    <IconSearch class="w-3.5 h-3.5" />
+                    搜索结果 ({{ searchResults.length }})
+                  </div>
+                  <div class="gd-list">
+                    <div v-for="c in searchResults" :key="c.fullHash" class="gd-list-row">
                       <IconCommit class="w-3.5 h-3.5 flex-shrink-0 text-white/25" />
                       <span class="gd-hash flex-shrink-0">{{ c.hash }}</span>
                       <span class="flex-1 truncate text-white/75">{{ c.message }}</span>
                       <span class="text-white/35 text-[11px] flex-shrink-0">{{ c.author }}</span>
-                      <span class="text-white/30 text-[11px] flex-shrink-0 w-16 text-right">{{ fmtDate(c.date) }}</span>
-                      <IconChevronRight
-                        class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
-                        :class="{ 'rotate-90 text-teal-400/60': diffTarget === `c-${c.fullHash}` }"
-                      />
                     </div>
-                    <div v-if="diffTarget === `c-${c.fullHash}`" class="gd-diff-box">
-                      <div v-if="diffLoading" class="py-3 text-center text-white/40 text-[12px]">
-                        <IconLoading class="w-4 h-4 animate-spin inline" /> 加载中…
+                    <div v-if="!searchResults.length" class="py-6 text-center text-white/30 text-[12px]">无匹配提交</div>
+                  </div>
+                </div>
+
+                <!-- 提交日志 -->
+                <div>
+                  <div class="gd-section-title">
+                    <IconCommit class="w-3.5 h-3.5" />
+                    提交日志
+                  </div>
+                  <div class="gd-list">
+                    <template v-for="c in dash.commits.value" :key="c.fullHash">
+                      <div
+                        class="gd-list-row group cursor-pointer"
+                        @click="viewDiff(`c-${c.fullHash}`, () => dash.getCommitDetail(c.fullHash))"
+                      >
+                        <IconCommit class="w-3.5 h-3.5 flex-shrink-0 text-white/25" />
+                        <span class="gd-hash flex-shrink-0">{{ c.hash }}</span>
+                        <span class="flex-1 truncate text-white/75">{{ c.message }}</span>
+                        <span class="text-white/35 text-[11px] flex-shrink-0">{{ c.author }}</span>
+                        <span class="text-white/30 text-[11px] flex-shrink-0 w-16 text-right">{{ fmtDate(c.date) }}</span>
+                        <div class="gd-row-actions">
+                          <button
+                            v-if="aiReady"
+                            class="gd-mini-btn"
+                            title="摘取此提交到当前分支"
+                            :aria-label="`Cherry-pick ${c.hash}`"
+                            @click.stop="confirmCherryPick(c)"
+                          >
+                            <IconCherryPick class="w-3 h-3" />
+                          </button>
+                          <button
+                            class="gd-mini-btn"
+                            title="生成反向提交撤销此变更"
+                            :aria-label="`Revert ${c.hash}`"
+                            @click.stop="confirmRevert(c)"
+                          >
+                            <IconRevert class="w-3 h-3" />
+                          </button>
+                        </div>
+                        <IconChevronRight
+                          class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
+                          :class="{ 'rotate-90 text-teal-400/60': diffTarget === `c-${c.fullHash}` }"
+                        />
                       </div>
-                      <pre v-else class="gd-diff">{{ diffContent || '(无 diff 输出)' }}</pre>
+                      <GitDiffBox
+                        v-if="diffTarget === `c-${c.fullHash}`"
+                        :content="diffContent"
+                        :loading="diffLoading"
+                        :ai-ready="aiReady"
+                        @explain="askXiaowuDiff"
+                      />
+                    </template>
+                    <div v-if="dash.commits.value.length === 0" class="py-10 text-center text-white/30 text-[12px]">暂无提交记录</div>
+                  </div>
+                </div>
+
+                <!-- Reflog 操作历史（救命用） -->
+                <div>
+                  <button
+                    class="gd-section-title cursor-pointer hover:text-white/60 transition-colors w-full"
+                    @click="toggleReflog"
+                  >
+                    <IconChevronRight class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-90': showReflog }" />
+                    <IconReflog class="w-3.5 h-3.5" />
+                    操作历史 reflog
+                    <span class="text-white/30 text-[10px] font-normal normal-case ml-1">误操作可在此找回</span>
+                  </button>
+                  <div v-if="showReflog" class="gd-list mt-1">
+                    <div v-if="reflogLoading" class="py-4 text-center text-white/40 text-[12px]">
+                      <IconLoading class="w-4 h-4 gd-spin inline" /> 加载中…
                     </div>
-                  </template>
-                  <div v-if="dash.commits.value.length === 0" class="py-10 text-center text-white/30 text-[12px]">
-                    暂无提交记录
+                    <template v-else>
+                      <div v-for="(r, i) in reflog" :key="i" class="gd-list-row">
+                        <IconReflog class="w-3.5 h-3.5 flex-shrink-0 text-white/25" />
+                        <span class="gd-hash flex-shrink-0">{{ r.hash }}</span>
+                        <span class="flex-1 truncate text-white/65 text-[12px]">{{ r.action }}</span>
+                        <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(r.date) }}</span>
+                      </div>
+                      <div v-if="!reflog.length" class="py-4 text-center text-white/30 text-[12px]">暂无操作历史</div>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -1006,21 +1720,11 @@ function onKeydown(e: KeyboardEvent) {
                       <button class="gd-mini-btn text" @click="clearSelection">清除选择</button>
                     </div>
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-white/35">
-                        已选 {{ selectedModifiedCount + selectedStagedCount }} 个文件
-                      </span>
-                      <button
-                        v-if="selectedModifiedCount > 0"
-                        class="gd-confirm-btn ok text-[11px]"
-                        @click="stageSelected"
-                      >
+                      <span class="text-[11px] text-white/35">已选 {{ selectedModifiedCount + selectedStagedCount }} 个文件</span>
+                      <button v-if="selectedModifiedCount > 0" class="gd-confirm-btn ok text-[11px]" @click="stageSelected">
                         暂存选中 ({{ selectedModifiedCount }})
                       </button>
-                      <button
-                        v-if="selectedStagedCount > 0"
-                        class="gd-confirm-btn cancel text-[11px]"
-                        @click="unstageSelected"
-                      >
+                      <button v-if="selectedStagedCount > 0" class="gd-confirm-btn cancel text-[11px]" @click="unstageSelected">
                         取消暂存 ({{ selectedStagedCount }})
                       </button>
                     </div>
@@ -1040,11 +1744,7 @@ function onKeydown(e: KeyboardEvent) {
                             @click="viewDiff('staged-' + f.path, () => dash.getDiff(f.path, { cached: true }))"
                           >
                             <label class="gd-checkbox" @click.stop>
-                              <input
-                                type="checkbox"
-                                :checked="selectedFiles.has('staged:' + f.path)"
-                                @change="toggleFileSelection('staged:' + f.path)"
-                              />
+                              <input type="checkbox" :checked="selectedFiles.has('staged:' + f.path)" @change="toggleFileSelection('staged:' + f.path)" />
                               <span class="gd-check-mark" />
                             </label>
                             <IconFile class="w-3.5 h-3.5 flex-shrink-0 text-emerald-400/60" />
@@ -1056,12 +1756,13 @@ function onKeydown(e: KeyboardEvent) {
                               :class="{ 'rotate-90 text-teal-400/60': diffTarget === 'staged-' + f.path }"
                             />
                           </div>
-                          <div v-if="diffTarget === 'staged-' + f.path" class="gd-diff-box">
-                            <div v-if="diffLoading" class="py-3 text-center text-white/40 text-[12px]">
-                              <IconLoading class="w-4 h-4 animate-spin inline" /> 加载中…
-                            </div>
-                            <pre v-else class="gd-diff">{{ diffContent || '(无 diff 输出)' }}</pre>
-                          </div>
+                          <GitDiffBox
+                            v-if="diffTarget === 'staged-' + f.path"
+                            :content="diffContent"
+                            :loading="diffLoading"
+                            :ai-ready="aiReady"
+                            @explain="askXiaowuDiff"
+                          />
                         </template>
                       </div>
                     </div>
@@ -1079,27 +1780,57 @@ function onKeydown(e: KeyboardEvent) {
                             @click="viewDiff('mod-' + f.path, () => dash.getDiff(f.path))"
                           >
                             <label class="gd-checkbox" @click.stop>
-                              <input
-                                type="checkbox"
-                                :checked="selectedFiles.has('mod:' + f.path)"
-                                @change="toggleFileSelection('mod:' + f.path)"
-                              />
+                              <input type="checkbox" :checked="selectedFiles.has('mod:' + f.path)" @change="toggleFileSelection('mod:' + f.path)" />
                               <span class="gd-check-mark" />
                             </label>
                             <IconFile class="w-3.5 h-3.5 flex-shrink-0 text-amber-400/60" />
                             <span class="text-white/40 text-[11px]">{{ fileDir(f.path) }}</span>
                             <span class="gd-mono text-amber-300/80 flex-1 truncate">{{ fileName(f.path) }}</span>
                             <span class="gd-status-badge bg-amber-500/15 text-amber-400">{{ f.worktree || f.index }}</span>
+                            <div class="gd-row-actions">
+                              <button
+                                class="gd-mini-btn"
+                                title="逐行追溯修改人与时间"
+                                :aria-label="`Blame ${f.path}`"
+                                @click.stop="viewBlame(f.path)"
+                              >
+                                <IconBlame class="w-3 h-3" />
+                              </button>
+                              <button
+                                class="gd-mini-btn danger"
+                                title="放弃此文件的修改"
+                                :aria-label="`放弃修改 ${f.path}`"
+                                @click.stop="confirmDiscard(f.path, false)"
+                              >
+                                <IconDiscard class="w-3 h-3" />
+                              </button>
+                            </div>
                             <IconChevronRight
                               class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
                               :class="{ 'rotate-90 text-teal-400/60': diffTarget === 'mod-' + f.path }"
                             />
                           </div>
-                          <div v-if="diffTarget === 'mod-' + f.path" class="gd-diff-box">
-                            <div v-if="diffLoading" class="py-3 text-center text-white/40 text-[12px]">
-                              <IconLoading class="w-4 h-4 animate-spin inline" /> 加载中…
+                          <GitDiffBox
+                            v-if="diffTarget === 'mod-' + f.path"
+                            :content="diffContent"
+                            :loading="diffLoading"
+                            :ai-ready="aiReady"
+                            @explain="askXiaowuDiff"
+                          />
+                          <!-- Blame 面板 -->
+                          <div v-if="blameTarget === f.path" class="gd-blame-box">
+                            <div v-if="blameLoading" class="py-3 text-center text-white/40 text-[12px]">
+                              <IconLoading class="w-4 h-4 gd-spin inline" /> 加载中…
                             </div>
-                            <pre v-else class="gd-diff">{{ diffContent || '(无 diff 输出)' }}</pre>
+                            <template v-else>
+                              <div v-for="(ln, i) in blameLines.slice(0, 500)" :key="i" class="gd-blame-row">
+                                <span class="gd-hash flex-shrink-0">{{ ln.hash }}</span>
+                                <span class="text-white/40 text-[11px] flex-shrink-0 w-20 truncate" :title="ln.author">{{ ln.author }}</span>
+                                <span class="text-white/30 text-[11px] flex-shrink-0 w-14 text-right">{{ ln.line }}</span>
+                                <span class="gd-mono text-white/65 flex-1 truncate text-[12px]" :title="ln.content">{{ ln.content }}</span>
+                              </div>
+                              <div v-if="!blameLines.length" class="py-3 text-center text-white/30 text-[12px]">无 blame 数据</div>
+                            </template>
                           </div>
                         </template>
                       </div>
@@ -1112,65 +1843,77 @@ function onKeydown(e: KeyboardEvent) {
                         未跟踪 ({{ dash.status.value.untracked.length }})
                       </div>
                       <div class="gd-list">
-                        <div
-                          v-for="f in dash.status.value.untracked"
-                          :key="'u-' + f.path"
-                          class="gd-list-row border-l-2 border-l-sky-500/30"
-                        >
+                        <div v-for="f in dash.status.value.untracked" :key="'u-' + f.path" class="gd-list-row border-l-2 border-l-sky-500/30">
                           <label class="gd-checkbox" @click.stop>
-                            <input
-                              type="checkbox"
-                              :checked="selectedFiles.has('untracked:' + f.path)"
-                              @change="toggleFileSelection('untracked:' + f.path)"
-                            />
+                            <input type="checkbox" :checked="selectedFiles.has('untracked:' + f.path)" @change="toggleFileSelection('untracked:' + f.path)" />
                             <span class="gd-check-mark" />
                           </label>
                           <IconFile class="w-3.5 h-3.5 flex-shrink-0 text-sky-400/50" />
                           <span class="text-white/40 text-[11px]">{{ fileDir(f.path) }}</span>
                           <span class="gd-mono text-sky-300/70 flex-1 truncate">{{ fileName(f.path) }}</span>
                           <span class="gd-status-badge bg-sky-500/15 text-sky-400">?</span>
+                          <button
+                            class="gd-mini-btn danger"
+                            title="删除此未跟踪文件"
+                            :aria-label="`删除文件 ${f.path}`"
+                            @click.stop="confirmDiscard(f.path, true)"
+                          >
+                            <IconTrash class="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Commit 栏 -->
+                  <!-- Commit 栏（conventional 前缀 + 多行 + 复用） -->
                   <div class="gd-commit-bar flex-shrink-0 px-5 py-3 border-t border-white/8">
-                    <div class="flex items-center gap-2">
-                      <input
+                    <div class="flex items-start gap-2">
+                      <select v-model="commitPrefix" class="gd-input gd-prefix-select" title="Conventional Commit 前缀">
+                        <option value="">无前缀</option>
+                        <option v-for="p in COMMIT_PREFIXES" :key="p" :value="p">{{ p }}:</option>
+                      </select>
+                      <textarea
                         v-model="commitMessage"
-                        type="text"
-                        placeholder="输入提交信息…"
-                        class="gd-input flex-1"
-                        @keydown.enter="doCommit"
+                        rows="2"
+                        placeholder="提交信息（支持多行）…"
+                        class="gd-input gd-textarea flex-1"
+                        @keydown.ctrl.enter="doCommit"
+                        @keydown.meta.enter="doCommit"
                       />
-                      <button
-                        class="gd-confirm-btn ok"
-                        :disabled="!!dash.actionLoading.value || !canCommit"
-                        title="提交已暂存的文件"
-                        @click="doCommit"
-                      >
-                        提交
-                      </button>
-                      <button
-                        class="gd-confirm-btn ok"
-                        :disabled="!!dash.actionLoading.value || !canCommitAll"
-                        title="暂存所有变更并提交（git commit -a）"
-                        @click="doCommitAll"
-                      >
-                        全部暂存并提交
-                      </button>
+                      <div class="flex flex-col gap-1.5">
+                        <button
+                          class="gd-confirm-btn ok"
+                          :disabled="!!dash.actionLoading.value || !canCommit"
+                          title="提交已暂存的文件（Ctrl+Enter）"
+                          @click="doCommit"
+                        >
+                          提交
+                        </button>
+                        <button
+                          class="gd-confirm-btn ok ghost"
+                          :disabled="!!dash.actionLoading.value || !canCommitAll"
+                          title="提交已暂存文件和已跟踪文件修改（git commit -a），不包含未跟踪新文件"
+                          @click="doCommitAll"
+                        >
+                          commit -a
+                        </button>
+                      </div>
                     </div>
-                    <div class="flex items-center gap-3 mt-1.5 text-[11px] text-white/35">
-                      <span>已暂存 {{ dash.status.value.staged.length }} 个文件</span>
-                      <span v-if="dash.status.value.modified.length">· {{ dash.status.value.modified.length }} 个未暂存</span>
-                      <span v-if="dash.status.value.untracked.length">· {{ dash.status.value.untracked.length }} 个未跟踪</span>
+                    <div class="flex items-center justify-between gap-3 mt-1.5 text-[11px] text-white/35">
+                      <span class="min-w-0 truncate">
+                        <span>已暂存 {{ dash.status.value.staged.length }} · 未暂存 {{ dash.status.value.modified.length }} · 未跟踪 {{ dash.status.value.untracked.length }}</span>
+                        <span v-if="commitPreview" class="text-white/45 ml-2">→ <span class="gd-mono text-teal-300/80">{{ shortMsg(commitPreview.split('\n')[0], 50) }}</span></span>
+                      </span>
+                      <button v-if="dash.commits.value[0]" class="gd-mini-btn text" title="复用上一条提交信息" @click="reuseLastMessage">
+                        <IconRefresh class="w-3 h-3" />
+                        <span class="ml-1">复用上条</span>
+                      </button>
                     </div>
                   </div>
                 </template>
               </div>
 
-              <!-- ─── 标签 ─── -->
+              <!-- ─── 标签 / Stash（远端已移至概览） ─── -->
               <div v-else-if="activeTab === 'tags'" class="space-y-5 p-5">
                 <!-- Tags -->
                 <div>
@@ -1180,7 +1923,7 @@ function onKeydown(e: KeyboardEvent) {
                       Tags ({{ dash.tags.value.length }})
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <button class="gd-action text-[11px]" @click="handlePushTags">
+                      <button class="gd-action text-[11px]" @click="confirmPushTags">
                         <IconUpload class="w-3 h-3" />
                         <span>Push Tags</span>
                       </button>
@@ -1191,7 +1934,6 @@ function onKeydown(e: KeyboardEvent) {
                     </div>
                   </div>
 
-                  <!-- 创建标签表单 -->
                   <Transition
                     enter-active-class="transition-all duration-200"
                     leave-active-class="transition-all duration-150"
@@ -1200,34 +1942,10 @@ function onKeydown(e: KeyboardEvent) {
                   >
                     <div v-if="showCreateTag" class="gd-inline-form mb-2">
                       <div class="gd-form-row">
-                        <input
-                          v-model="newTagName"
-                          type="text"
-                          placeholder="标签名称 *"
-                          class="gd-input flex-1"
-                          @keydown.enter="submitCreateTag"
-                        />
-                        <input
-                          v-model="newTagMessage"
-                          type="text"
-                          placeholder="备注消息（可选）"
-                          class="gd-input flex-1"
-                          @keydown.enter="submitCreateTag"
-                        />
-                        <input
-                          v-model="newTagRef"
-                          type="text"
-                          placeholder="Ref（可选，默认 HEAD）"
-                          class="gd-input w-32"
-                          @keydown.enter="submitCreateTag"
-                        />
-                        <button
-                          class="gd-confirm-btn ok"
-                          :disabled="!newTagName.trim()"
-                          @click="submitCreateTag"
-                        >
-                          创建
-                        </button>
+                        <input v-model="newTagName" type="text" placeholder="标签名称 *" class="gd-input flex-1" @keydown.enter="submitCreateTag" />
+                        <input v-model="newTagMessage" type="text" placeholder="备注消息（可选）" class="gd-input flex-1" @keydown.enter="submitCreateTag" />
+                        <input v-model="newTagRef" type="text" placeholder="Ref（可选，默认 HEAD）" class="gd-input w-32" @keydown.enter="submitCreateTag" />
+                        <button class="gd-confirm-btn ok" :disabled="!newTagName.trim()" @click="submitCreateTag">创建</button>
                         <button class="gd-confirm-btn cancel" @click="toggleCreateTag">取消</button>
                       </div>
                     </div>
@@ -1240,11 +1958,7 @@ function onKeydown(e: KeyboardEvent) {
                       <span class="gd-hash flex-shrink-0">{{ t.hash }}</span>
                       <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.message }}</span>
                       <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
-                      <button
-                        class="gd-mini-btn danger"
-                        title="删除此标签"
-                        @click.stop="confirmDeleteTag(t.name)"
-                      >
+                      <button class="gd-mini-btn danger" title="删除此标签" :aria-label="`删除标签 ${t.name}`" @click.stop="confirmDeleteTag(t.name)">
                         <IconTrash class="w-3 h-3" />
                       </button>
                     </div>
@@ -1261,11 +1975,10 @@ function onKeydown(e: KeyboardEvent) {
                     </div>
                     <button class="gd-action text-[11px]" @click="toggleStashForm">
                       <IconStash class="w-3 h-3" />
-                      <span>暂存变更</span>
+                      <span>Stash 变更</span>
                     </button>
                   </div>
 
-                  <!-- Stash push 表单 -->
                   <Transition
                     enter-active-class="transition-all duration-200"
                     leave-active-class="transition-all duration-150"
@@ -1274,13 +1987,7 @@ function onKeydown(e: KeyboardEvent) {
                   >
                     <div v-if="showStashForm" class="gd-inline-form mb-2">
                       <div class="gd-form-row">
-                        <input
-                          v-model="stashMessage"
-                          type="text"
-                          placeholder="暂存说明（可选）"
-                          class="gd-input flex-1"
-                          @keydown.enter="submitStashPush"
-                        />
+                        <input v-model="stashMessage" type="text" placeholder="暂存说明（可选）" class="gd-input flex-1" @keydown.enter="submitStashPush" />
                         <button class="gd-confirm-btn ok" @click="submitStashPush">暂存</button>
                         <button class="gd-confirm-btn cancel" @click="toggleStashForm">取消</button>
                       </div>
@@ -1294,45 +2001,18 @@ function onKeydown(e: KeyboardEvent) {
                       <span class="flex-1 truncate text-white/60 text-[12px]">{{ s.message }}</span>
                       <span v-if="s.branch" class="gd-badge-sm">{{ s.branch }}</span>
                       <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(s.date) }}</span>
-                      <button
-                        class="gd-mini-btn"
-                        title="应用此暂存（保留 stash）"
-                        @click.stop="dash.doStashApply(s.index)"
-                      >
+                      <button class="gd-mini-btn" title="应用此暂存（保留 stash）" :aria-label="`应用暂存 ${s.index}`" @click.stop="confirmStashApply(s.index)">
                         <IconPlay class="w-3 h-3" />
                       </button>
-                      <button
-                        v-if="s.index === 'stash@{0}'"
-                        class="gd-mini-btn"
-                        title="弹出此暂存（应用并删除）"
-                        @click.stop="dash.doStashPop()"
-                      >
+                      <button v-if="s.index === 'stash@{0}'" class="gd-mini-btn" title="弹出此暂存（应用并删除）" :aria-label="`弹出暂存 ${s.index}`" @click.stop="confirmStashPop(s.index)">
                         <IconPop class="w-3 h-3" />
                       </button>
-                      <button
-                        class="gd-mini-btn danger"
-                        title="丢弃此暂存"
-                        @click.stop="confirmDropStash(s.index)"
-                      >
+                      <button class="gd-mini-btn danger" title="丢弃此暂存" :aria-label="`丢弃暂存 ${s.index}`" @click.stop="confirmDropStash(s.index)">
                         <IconTrash class="w-3 h-3" />
                       </button>
                     </div>
                   </div>
                   <div v-else class="py-4 text-center text-white/25 text-[12px]">暂无 stash</div>
-                </div>
-
-                <!-- 远端信息 -->
-                <div>
-                  <div class="gd-section-title">
-                    <IconSync class="w-3.5 h-3.5" />
-                    远端
-                  </div>
-                  <div class="gd-list">
-                    <div v-for="r in dash.remotes.value" :key="r.name" class="gd-list-row">
-                      <span class="gd-mono text-teal-300/70 flex-shrink-0">{{ r.name }}</span>
-                      <span class="flex-1 truncate text-white/45 text-[12px] gd-mono">{{ r.url }}</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1348,7 +2028,7 @@ function onKeydown(e: KeyboardEvent) {
                 v-if="confirmDialog"
                 class="flex-shrink-0 px-6 py-3 border-t border-white/8 flex items-center justify-between gap-3"
               >
-                <span class="text-[13px] text-white/70" v-html="confirmDialog.message" />
+                <span class="text-[13px] text-white/70 min-w-0" v-html="confirmDialog.message" />
                 <div class="flex gap-2 flex-shrink-0">
                   <button class="gd-confirm-btn cancel" @click="cancelConfirm">取消</button>
                   <button
@@ -1401,7 +2081,7 @@ function onKeydown(e: KeyboardEvent) {
 .gd-corners::before { top: 9px; left: 9px; border-width: 2px 0 0 2px; border-top-left-radius: 6px; }
 .gd-corners::after { bottom: 9px; right: 9px; border-width: 0 2px 2px 0; border-bottom-right-radius: 6px; }
 
-/* 入场微光 */
+/* 入场微光（reduced-motion 下关闭，见末尾） */
 .gd-card::after {
   content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
   border-radius: 20px;
@@ -1453,8 +2133,19 @@ function onKeydown(e: KeyboardEvent) {
 }
 .gd-action:disabled { opacity: 0.4; cursor: not-allowed; }
 .gd-action.is-loading { color: rgba(45, 212, 191, 0.7); }
-.gd-action.is-loading :first-child { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.gd-action.is-loading :first-child { animation: gd-spin 1s linear infinite; }
+
+.gd-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  border-radius: 8px; padding: 4px; cursor: pointer;
+  transition: all 0.15s;
+}
+.gd-icon-btn:hover:not(:disabled) { color: rgba(255, 255, 255, 0.8); background: rgba(255, 255, 255, 0.1); }
+.gd-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.gd-spin { animation: gd-spin 1s linear infinite; }
+@keyframes gd-spin { to { transform: rotate(360deg); } }
 
 /* ═══ More 下拉菜单 ═══ */
 .gd-dropdown {
@@ -1472,17 +2163,13 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 12px; color: rgba(255, 255, 255, 0.7);
   cursor: pointer; transition: all 0.12s;
 }
-.gd-dropdown-item:hover {
-  background: rgba(45, 212, 191, 0.1); color: rgb(94, 234, 212);
-}
+.gd-dropdown-item:hover { background: rgba(45, 212, 191, 0.1); color: rgb(94, 234, 212); }
+.gd-dropdown-item.danger:hover { background: rgba(244, 63, 94, 0.12); color: rgb(251, 113, 133); }
 .gd-dropdown-hint {
   font-family: ui-monospace, monospace;
   font-size: 10px; color: rgba(255, 255, 255, 0.25);
 }
-.gd-dropdown-divider {
-  height: 1px; margin: 3px 8px;
-  background: rgba(255, 255, 255, 0.06);
-}
+.gd-dropdown-divider { height: 1px; margin: 3px 8px; background: rgba(255, 255, 255, 0.06); }
 
 /* ═══ 标签页 ═══ */
 .gd-tab {
@@ -1492,10 +2179,7 @@ function onKeydown(e: KeyboardEvent) {
   display: flex; align-items: center; gap: 4px;
 }
 .gd-tab:hover { color: rgba(255, 255, 255, 0.65); }
-.gd-tab.active {
-  color: rgb(94, 234, 212);
-  background: rgba(45, 212, 191, 0.06);
-}
+.gd-tab.active { color: rgb(94, 234, 212); background: rgba(45, 212, 191, 0.06); }
 .gd-tab.active::after {
   content: ''; position: absolute; bottom: 0; left: 20%; right: 20%;
   height: 2px; border-radius: 1px;
@@ -1516,6 +2200,56 @@ function onKeydown(e: KeyboardEvent) {
 .gd-body::-webkit-scrollbar-track { background: transparent; }
 .gd-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
 
+/* ═══ Git 连接提示 ═══ */
+.gd-connect-checklist {
+  display: flex; flex-direction: column; gap: 6px;
+  max-width: 520px; margin: 0; padding: 12px 16px;
+  text-align: left; list-style: disc inside;
+  border-radius: 12px;
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.16);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px; line-height: 1.55;
+}
+.gd-connect-checklist .gd-mono { color: rgba(254, 205, 211, 0.9); }
+
+/* ═══ 仓库健康判断 ═══ */
+.gd-health-wrap { position: relative; }
+.gd-health {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.gd-health.tone-ok { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.18); }
+.gd-health.tone-warn { background: rgba(251, 191, 36, 0.08); border-color: rgba(251, 191, 36, 0.2); }
+.gd-health.tone-danger { background: rgba(244, 63, 94, 0.08); border-color: rgba(244, 63, 94, 0.22); }
+.gd-health-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.65);
+}
+.tone-ok .gd-health-icon { color: rgb(52, 211, 153); }
+.tone-warn .gd-health-icon { color: rgb(251, 191, 36); }
+.tone-danger .gd-health-icon { color: rgb(251, 113, 133); }
+.gd-health-title { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.82); }
+.gd-health-detail { margin-top: 2px; font-size: 12px; color: rgba(255, 255, 255, 0.48); }
+.gd-health-action { margin-top: 4px; font-size: 12px; line-height: 1.45; color: rgba(255, 255, 255, 0.55); }
+.gd-clickable:hover .gd-health-title { color: rgb(94, 234, 212); }
+
+/* 小吴 hand-off 按钮 */
+.gd-handoff-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 7px; flex-shrink: 0;
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  color: rgb(94, 234, 212);
+  font-size: 11px; font-weight: 500; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.gd-handoff-btn:hover { background: rgba(45, 212, 191, 0.22); }
+
 /* ═══ 统计卡片 ═══ */
 .gd-stat {
   padding: 12px 14px; border-radius: 12px;
@@ -1524,6 +2258,17 @@ function onKeydown(e: KeyboardEvent) {
 }
 .gd-stat-label { font-size: 11px; color: rgba(255, 255, 255, 0.35); margin-bottom: 4px; }
 .gd-stat-value { font-size: 20px; font-weight: 600; }
+
+/* ═══ 色彩 legend ═══ */
+.gd-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 8px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 11px; color: rgba(255, 255, 255, 0.45);
+}
+.gd-legend > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gd-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 
 /* ═══ 列表 ═══ */
 .gd-section-title {
@@ -1553,6 +2298,17 @@ function onKeydown(e: KeyboardEvent) {
   font-family: ui-monospace, monospace; text-transform: uppercase;
 }
 
+/* 行内操作（hover 才显，降低噪音） */
+.gd-row-actions {
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+  opacity: 0; transition: opacity 0.12s;
+}
+.gd-list-row:hover .gd-row-actions,
+.gd-list-row:focus-within .gd-row-actions { opacity: 1; }
+@media (hover: none) {
+  .gd-row-actions { opacity: 1; } /* 触屏始终可见 */
+}
+
 .gd-mini-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 6px;
@@ -1560,30 +2316,26 @@ function onKeydown(e: KeyboardEvent) {
   border: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer; transition: all 0.15s; flex-shrink: 0;
 }
-.gd-mini-btn:hover {
-  background: rgba(45, 212, 191, 0.12); color: rgb(94, 234, 212);
-  border-color: rgba(45, 212, 191, 0.25);
-}
-.gd-mini-btn.danger:hover {
-  background: rgba(244, 63, 94, 0.12); color: rgb(251, 113, 133);
-  border-color: rgba(244, 63, 94, 0.25);
+.gd-mini-btn:hover { background: rgba(45, 212, 191, 0.12); color: rgb(94, 234, 212); border-color: rgba(45, 212, 191, 0.25); }
+.gd-mini-btn.danger:hover { background: rgba(244, 63, 94, 0.12); color: rgb(251, 113, 133); border-color: rgba(244, 63, 94, 0.25); }
+.gd-mini-btn.text {
+  width: auto; padding: 3px 9px; font-size: 11px;
+  gap: 2px;
 }
 
-/* ═══ Diff ═══ */
-.gd-diff-box {
-  background: rgba(0, 0, 0, 0.25);
+/* ═══ Blame ═══ */
+.gd-blame-box {
+  background: rgba(0, 0, 0, 0.22);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.gd-diff {
-  margin: 0; padding: 12px 16px;
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 12px; line-height: 1.65;
-  color: rgba(255, 255, 255, 0.6);
-  white-space: pre-wrap; word-break: break-all;
-  overflow-x: auto; max-height: 300px; overflow-y: auto;
+  max-height: 280px; overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
+.gd-blame-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 12px; font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.gd-blame-row:hover { background: rgba(255, 255, 255, 0.03); }
 
 /* ═══ 输入 ═══ */
 .gd-input {
@@ -1595,16 +2347,26 @@ function onKeydown(e: KeyboardEvent) {
 }
 .gd-input::placeholder { color: rgba(255, 255, 255, 0.25); }
 .gd-input:focus { border-color: rgba(45, 212, 191, 0.35); }
+select.gd-input { cursor: pointer; }
+.gd-prefix-select { width: auto; flex-shrink: 0; padding-right: 28px; }
+.gd-textarea { resize: vertical; min-height: 56px; font-family: inherit; line-height: 1.5; }
 
 /* ═══ 内联表单 ═══ */
 .gd-inline-form {
-  padding: 10px 12px; border-radius: 10px;
+  padding: 12px; border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
-.gd-form-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+.gd-inline-form.gd-danger-zone {
+  background: rgba(244, 63, 94, 0.05);
+  border-color: rgba(244, 63, 94, 0.2);
 }
+.gd-form-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gd-check-inline {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: rgba(255, 255, 255, 0.5); cursor: pointer;
+}
+.gd-check-inline input { accent-color: rgb(45, 212, 191); }
 
 /* ═══ 确认按钮 ═══ */
 .gd-confirm-btn {
@@ -1623,6 +2385,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 .gd-confirm-btn.ok:hover { background: rgba(45, 212, 191, 0.25); }
 .gd-confirm-btn.ok:disabled { opacity: 0.4; cursor: not-allowed; }
+.gd-confirm-btn.ok.ghost {
+  background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.gd-confirm-btn.ok.ghost:hover { background: rgba(45, 212, 191, 0.12); color: rgb(94, 234, 212); }
 .gd-confirm-btn.danger {
   background: rgba(244, 63, 94, 0.15); color: rgb(251, 113, 133);
   border: 1px solid rgba(244, 63, 94, 0.3);
@@ -1634,9 +2401,7 @@ function onKeydown(e: KeyboardEvent) {
   display: inline-flex; align-items: center; justify-content: center;
   position: relative; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer;
 }
-.gd-checkbox input {
-  position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer;
-}
+.gd-checkbox input { position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
 .gd-check-mark {
   width: 14px; height: 14px; border-radius: 3px;
   border: 1.5px solid rgba(255, 255, 255, 0.2);
@@ -1648,29 +2413,51 @@ function onKeydown(e: KeyboardEvent) {
   border-color: rgba(45, 212, 191, 0.5);
 }
 .gd-checkbox input:checked + .gd-check-mark::after {
-  content: '✓';
-  position: absolute; top: 50%; left: 50%;
+  content: '✓'; position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 10px; font-weight: 700;
-  color: rgb(94, 234, 212);
+  font-size: 10px; font-weight: 700; color: rgb(94, 234, 212);
 }
 
 /* ═══ 批量操作工具栏 ═══ */
 .gd-toolbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 6px 10px; border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
+  flex-wrap: wrap;
 }
 
 /* ═══ Commit 栏 ═══ */
-.gd-commit-bar {
-  background: rgba(0, 0, 0, 0.15);
+.gd-commit-bar { background: rgba(0, 0, 0, 0.15); }
+
+/* ═══ Pull/Push 预览列表（v-html 注入，需 :deep 穿透） ═══ */
+:deep(.gd-preview-list) {
+  margin: 4px 0 2px; padding-left: 18px;
+  font-size: 11px; line-height: 1.7;
+  list-style: disc;
 }
 
-/* ═══ 降低动效 ═══ */
+/* ═══ 焦点可见 ═══ */
+.gd-card :focus-visible {
+  outline: 2px solid rgba(94, 234, 212, 0.6);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* ═══ 降低动效（覆盖 accent / sheen / spin / transition） ═══ */
 @media (prefers-reduced-motion: reduce) {
-  .gd-accent { animation: none; }
-  .gd-card::after { animation: none; background: none; }
+  .gd-accent,
+  .gd-card::after,
+  .gd-spin,
+  .gd-action.is-loading :first-child { animation: none !important; }
+  .gd-card::after { background: none; }
+  .gd-action,
+  .gd-mini-btn,
+  .gd-confirm-btn,
+  .gd-tab,
+  .gd-list-row,
+  .gd-icon-btn,
+  .gd-handoff-btn,
+  .gd-dropdown-item { transition: none !important; }
 }
 </style>
