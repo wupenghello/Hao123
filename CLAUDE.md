@@ -187,7 +187,7 @@ App.vue (router-view)
 | `components/GitDashboard.vue` | 全屏仪表盘：5 个标签页 + More 下拉菜单（**去重** Fetch/Pull/Push——这三项已在 header，More 只放次要与高级操作），HUD 玻璃面板风格 |
 | `components/GitDiffBox.vue` | diff 渲染盒：把 `git diff` / `git show` 原文解析成带 old/new 双行号、`+/-` 配色（增绿删红、hunk 青）、横向滚动（不做 `word-break`）、超长截断的视图；LLM 已配置时底部出「让小吴解释这段 diff」 |
 
-**仪表盘功能：** 概览（**仓库健康判断可点交给小吴** + 统计 + 色彩 legend + 最近提交 + 分支快照 + 远端 + 回滚 Reset）/ 分支（搜索 + 创建 + 删除 + 切换 + 合并 + 检出远端）/ 提交（日志 + diff + **revert/cherry-pick** + `--grep` 搜索 + **reflog 操作历史**）/ 变更（复选框暂存/取消暂存/**放弃修改**/**blame** + 批量操作 + **conventional 前缀 + 多行 + 复用上条** 的 commit 栏）/ 标签 / Stash（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃；远端已移至概览）。所有危险操作（删除分支/标签/丢弃 stash/**放弃修改/hard reset**）通过统一确认栏二次确认；**Pull/Push 确认前预览**即将进/出的 commit 列表；**切换分支警告工作区脏、删除分支警告未合并**。
+**仪表盘功能：** 概览（**仓库健康判断可点交给小吴** + 统计 + 色彩 legend + 最近提交 + 分支快照 + 远端 + 回滚 Reset）/ 分支（搜索 + 创建 + 删除 + 切换 + 合并 + 检出远端）/ 提交（日志 + diff + **revert/cherry-pick** + `--grep` 搜索 + **reflog 操作历史**）/ 变更（复选框暂存/取消暂存/**放弃修改**/**blame** + 批量操作 + **conventional 前缀 + 多行 + 复用上条** 的 commit 栏）/ 标签（**重做的创建面板**：annotated/轻量显式选择 + 指向 commit 的下拉选择器 + 多行发版说明 + 实时查重/合法性校验；**搜索 + 日期/语义化排序**，版本排序时自动按主版本号折叠分组（v1.x / v2.x，组可折叠）；点行展开详情：metadata + **自上一 tag 以来的提交** + 操作栏（**复制检出命令** / **删远端 tag**）；**单 tag 推送 / 检出 / 删除**；每条带 `onRemote` 同步状态徽标 + latest 徽标；**「让小吴写发版说明」**带提交列表交给 LLM；**推送全部**预览未同步数量） / Stash（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃；远端已移至概览）。所有危险操作（删除分支/标签/丢弃 stash/**放弃修改/hard reset**）通过统一确认栏二次确认；**Pull/Push 确认前预览**即将进/出的 commit 列表；**切换分支警告工作区脏、删除分支警告未合并**。
 
 **AI 接入（ambient，对齐 UnifiedInbox 范式）：** LLM 已配置（`useChatStore().configured`）时——仓库健康判断整块可点 + 「让小吴排一下」、冲突态顶部条出「让小吴帮我理冲突」、每个 diff 盒底部出「让小吴解释这段 diff」，均带上下文 `chat.show()` + `chat.send()`；未配置时不渲染入口（不破坏纯展示体验）。
 

@@ -15,7 +15,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useGitDashboard } from '@/features/git'
 import { useChatStore } from '@/features/chat'
-import type { GitBlameLine, GitReflogEntry, GitCommit } from '@/features/git'
+import type { GitBlameLine, GitReflogEntry, GitCommit, GitTag } from '@/features/git'
 import GitDiffBox from '@/components/GitDiffBox.vue'
 import IconClose from '~icons/mdi/close'
 import IconBranch from '~icons/mdi/source-branch'
@@ -50,6 +50,7 @@ import IconRevert from '~icons/mdi/history'
 import IconReflog from '~icons/mdi/clock-outline'
 import IconBlame from '~icons/mdi/account-eye-outline'
 import IconInfo from '~icons/mdi/information-outline'
+import IconCopy from '~icons/mdi/content-copy'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
@@ -185,6 +186,26 @@ const showCreateTag = ref(false)
 const newTagName = ref('')
 const newTagMessage = ref('')
 const newTagRef = ref('')
+/** 附注（true，推荐发版用）/ 轻量（false，仅 bookmark） */
+const newTagAnnotated = ref(true)
+
+const tagNameError = computed(() => {
+  const name = newTagName.value.trim()
+  if (!name) return ''
+  if (name.startsWith('-')) return '标签名不能以 - 开头'
+  if (/[\s~^:?*\[\]\\]/.test(name)) return '标签名含非法字符（空格 / ~ ^ : ? * [ ] \\）'
+  if (name.includes('..')) return '标签名不能包含 ..'
+  if (dash.tags.value.some((t) => t.name === name)) return `标签 ${name} 已存在`
+  return ''
+})
+
+const canSubmitTag = computed(() => {
+  const name = newTagName.value.trim()
+  if (!name || tagNameError.value) return false
+  // 附注标签要求写说明；轻量标签无需说明
+  if (newTagAnnotated.value && !newTagMessage.value.trim()) return false
+  return true
+})
 
 function toggleCreateTag() {
   showCreateTag.value = !showCreateTag.value
@@ -192,23 +213,217 @@ function toggleCreateTag() {
     newTagName.value = ''
     newTagMessage.value = ''
     newTagRef.value = ''
+    newTagAnnotated.value = true
   }
 }
 
 async function submitCreateTag() {
+  if (!gitReady.value || !canSubmitTag.value) return
   const name = newTagName.value.trim()
-  if (!gitReady.value || !name) return
   await dash.doCreateTag(name, {
-    message: newTagMessage.value.trim() || undefined,
+    message: newTagAnnotated.value ? newTagMessage.value.trim() || undefined : undefined,
     ref: newTagRef.value.trim() || undefined,
   })
   showCreateTag.value = false
   newTagName.value = ''
   newTagMessage.value = ''
   newTagRef.value = ''
+  newTagAnnotated.value = true
 }
 
-// ─── Stash Push ────────────────────────────────────
+// ─── 标签详情（点行展开）────────────────────────────
+
+const expandedTag = ref('')
+const tagDetailLoading = ref(false)
+const tagCommits = ref<GitCommit[]>([])
+const tagPrevName = ref('')
+
+/** 未推送到远端的标签数（驱动状态条 + 推送预览） */
+const unpushedTagCount = computed(
+  () => dash.tags.value.filter((t) => !t.onRemote).length,
+)
+
+/** 版本号样式的标签名（用于 latest 徽标，避免给 debug-xxx 误打） */
+function isVersionTag(name: string): boolean {
+  return /^v?\d+\.\d+/i.test(name)
+}
+
+/** tags 按日期倒序，第 idx 个的「上一个更旧的 tag」就是 idx+1 */
+function previousTagOf(t: GitTag): GitTag | null {
+  const idx = dash.tags.value.findIndex((x) => x.name === t.name)
+  if (idx < 0 || idx >= dash.tags.value.length - 1) return null
+  return dash.tags.value[idx + 1]
+}
+
+async function toggleTagDetail(t: GitTag) {
+  if (!gitReady.value) return
+  if (expandedTag.value === t.name) {
+    expandedTag.value = ''
+    tagCommits.value = []
+    tagPrevName.value = ''
+    return
+  }
+  // 展开新 tag 时关掉可能正开着的 diff，避免两块内容堆叠
+  diffTarget.value = ''
+  diffContent.value = ''
+  expandedTag.value = t.name
+  tagPrevName.value = previousTagOf(t)?.name || ''
+  tagDetailLoading.value = true
+  tagCommits.value = []
+  try {
+    const commits = await dash.getTagCommits(t.name, tagPrevName.value || undefined)
+    // 防竞态：用户可能已切到别的 tag，仅当仍在展开此 tag 时回填
+    if (expandedTag.value === t.name) tagCommits.value = commits
+  } catch {
+    if (expandedTag.value === t.name) tagCommits.value = []
+  } finally {
+    if (expandedTag.value === t.name) tagDetailLoading.value = false
+  }
+}
+
+// ─── 标签搜索 / 排序 / 批量选择 ─────────────────────
+
+type TagSort = 'date' | 'semver'
+const tagSearch = ref('')
+const tagSort = ref<TagSort>('date')
+
+/** 把 `v1.2.3` / `1.2.3` 解析为 [major, minor, patch]，非版本号返回 null */
+function parseSemver(name: string): [number, number, number] | null {
+  const m = name.match(/^v?(\d+)\.(\d+)\.(\d+)/i)
+  if (!m) return null
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)]
+}
+
+/** 语义化版本降序：版本号大的在前；版本号 tag 排在非版本号 tag 之前；同类内部稳定 */
+function semverCompare(a: GitTag, b: GitTag): number {
+  const sa = parseSemver(a.name)
+  const sb = parseSemver(b.name)
+  if (sa && sb) {
+    for (let i = 0; i < 3; i++) {
+      if (sa[i] !== sb[i]) return sb[i] - sa[i]
+    }
+    return 0
+  }
+  if (sa) return -1
+  if (sb) return 1
+  return 0
+}
+
+/** 实际渲染的标签列表：套用搜索过滤 + 排序 */
+const displayedTags = computed(() => {
+  const q = tagSearch.value.toLowerCase().trim()
+  let list = dash.tags.value
+  if (q) {
+    list = list.filter(
+      (t) => t.name.toLowerCase().includes(q) || t.message.toLowerCase().includes(q),
+    )
+  }
+  if (tagSort.value === 'semver') {
+    list = [...list].sort(semverCompare)
+  }
+  return list
+})
+
+// ─── 版本分组（仅 tagSort = semver 时启用）──────────
+
+/** 按主版本号分组：v1.2.3 → v1.x；非版本号标签归「其他」 */
+function tagGroupOf(name: string): string {
+  const m = name.match(/^v?(\d+)\./i)
+  return m ? `v${m[1]}.x` : '其他'
+}
+
+const collapsedGroups = ref<Set<string>>(new Set())
+
+function toggleGroup(key: string) {
+  const next = new Set(collapsedGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsedGroups.value = next
+}
+
+/** 当前列表中某分组有多少条 */
+function groupCount(key: string): number {
+  let n = 0
+  for (const t of displayedTags.value) {
+    if (tagGroupOf(t.name) === key) n++
+  }
+  return n
+}
+
+/** displayedTags[idx] 是否是其所在分组的第一条（用于插入分组头） */
+function isGroupStart(idx: number): boolean {
+  if (idx === 0) return true
+  return tagGroupOf(displayedTags.value[idx].name) !== tagGroupOf(displayedTags.value[idx - 1].name)
+}
+
+const TAG_GROUP_COLORS = [
+  { bg: 'rgba(45,212,191,0.10)', border: 'rgba(45,212,191,0.22)', text: 'rgb(94,234,212)' },
+  { bg: 'rgba(168,85,247,0.10)', border: 'rgba(168,85,247,0.22)', text: 'rgb(216,180,254)' },
+  { bg: 'rgba(251,191,36,0.10)', border: 'rgba(251,191,36,0.22)', text: 'rgb(252,211,77)' },
+  { bg: 'rgba(56,189,248,0.10)', border: 'rgba(56,189,248,0.22)', text: 'rgb(125,211,252)' },
+  { bg: 'rgba(244,63,94,0.10)', border: 'rgba(244,63,94,0.22)', text: 'rgb(251,113,133)' },
+]
+
+/** 按分组名 hash 取稳定配色（对齐 UnifiedInbox threadColor 范式） */
+function groupColor(key: string) {
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
+  return TAG_GROUP_COLORS[h % TAG_GROUP_COLORS.length]
+}
+
+/** 分组头的内联 style（仅背景 + 文字色；左侧 3px 描边走 currentColor 自动取色） */
+function groupStyleOf(name: string) {
+  const c = groupColor(tagGroupOf(name))
+  return { background: c.bg, color: c.text }
+}
+
+/** 该 tag 行是否因分组折叠而隐藏（仅版本排序时才可能折叠） */
+function isTagRowHidden(name: string): boolean {
+  return tagSort.value === 'semver' && collapsedGroups.value.has(tagGroupOf(name))
+}
+
+// ─── 复制检出命令 ───────────────────────────────────
+
+const copiedTag = ref('')
+
+async function copyCheckoutCmd(name: string) {
+  const cmd = `git checkout ${name}`
+  try {
+    await navigator.clipboard.writeText(cmd)
+  } catch {
+    // 非安全上下文降级：临时 textarea + execCommand
+    const ta = document.createElement('textarea')
+    ta.value = cmd
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } catch {
+      /* noop */
+    }
+    document.body.removeChild(ta)
+  }
+  copiedTag.value = name
+  setTimeout(() => {
+    if (copiedTag.value === name) copiedTag.value = ''
+  }, 1500)
+}
+
+// ─── 删远端 tag（危险）──────────────────────────────
+
+function confirmDeleteRemoteTag(name: string) {
+  const remote = dash.remotes.value[0]?.name || 'origin'
+  requestConfirm({
+    message: `删除远端标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？<br><span class="text-rose-300/90 text-[12px] leading-relaxed">⚠ 这会从远端 <span class="gd-mono">${esc(remote)}</span> 删除此标签，影响所有协作者与 CI/CD，且不可撤销。如果流水线 / 发布依赖此标签，删除可能触发或破坏发布流程。建议先确认无依赖再删除。</span>`,
+    confirmLabel: '删除远端标签',
+    danger: true,
+    onConfirm: async () => {
+      await dash.doDeleteRemoteTag(name)
+    },
+  })
+}
 
 const showStashForm = ref(false)
 const stashMessage = ref('')
@@ -546,6 +761,27 @@ function askXiaowuDiff() {
   void chat.send(`解释下面这段 git diff（${target}）的目的、改了什么、有没有潜在风险：\n\n${snippet}`)
 }
 
+/** 让小吴基于「自上一 tag 以来的提交」生成发版说明 */
+function askXiaowuReleaseNotes(tagName: string, commits: GitCommit[]) {
+  if (!aiReady.value) return
+  const trimmed = commits.slice(0, 40)
+  const list = trimmed.map((c) => `- ${c.hash} ${c.message}（@${c.author}）`).join('\n')
+  const range = tagPrevName.value ? `自 ${tagPrevName.value} 以来` : '此版本累积'
+  const note = `仓库 ${repoName.value}（分支 ${dash.branch.value || '—'}）准备发版标签 ${tagName}。请基于下面${range}的提交列表，生成一份发版说明（release notes）：
+
+要求：
+1. 开头一句话整体总结这版的主线（是什么版本、为什么发）
+2. 按类型分组：✨ 新功能 / 🐛 修复 / ♻️ 重构 / ⚡ 性能 / 🔧 构建·杂项，无内容的组省略
+3. 每条用一句话概括，去掉 commit hash，合并重复项，保留负责人
+4. 末尾如发现破坏性变更、需要手动迁移、或风险点，单独用 ⚠️ 标注并说明影响
+5. 用 Markdown 输出，可直接贴到 release / 群通知
+
+提交列表（共 ${commits.length} 条${commits.length > 40 ? '，仅取最近 40 条' : ''}）：
+${list || '（无提交）'}`
+  chat.show()
+  void chat.send(note)
+}
+
 // ─── Reflog（操作历史，救命用）──────────────────────
 
 const showReflog = ref(false)
@@ -787,11 +1023,44 @@ function confirmDeleteBranch(name: string) {
 
 function confirmDeleteTag(name: string) {
   requestConfirm({
-    message: `删除标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？`,
+    message: `删除标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？${
+      dash.tags.value.find((t) => t.name === name)?.onRemote
+        ? '<br><span class="text-white/45 text-[12px]">仅删除本地标签，远端不受影响（如需删远端用 <span class="gd-mono">git push origin --delete</span>）。</span>'
+        : ''
+    }`,
     confirmLabel: '删除',
     danger: true,
     onConfirm: async () => {
       await dash.doDeleteTag(name)
+      if (expandedTag.value === name) expandedTag.value = ''
+    },
+  })
+}
+
+/** 推送单个标签到远端（git push <remote> <tag>） */
+function confirmPushTag(name: string) {
+  const remote = dash.remotes.value[0]?.name || 'origin'
+  requestConfirm({
+    message: `推送标签 <span class="gd-mono text-violet-300">${esc(name)}</span> 到远端 <span class="gd-mono text-teal-300">${esc(remote)}</span>？${gitPrecheckHtml()}`,
+    confirmLabel: '推送',
+    onConfirm: async () => {
+      await dash.doPushTag(name)
+    },
+  })
+}
+
+/** 检出标签（进入 detached HEAD，用于回滚排查 / 历史构建） */
+function confirmCheckoutTag(name: string) {
+  const dirty = !dash.status.value.clean
+  const warning = dirty
+    ? `<br><span class="text-amber-300/90 text-[12px]">⚠ 工作区有 ${dash.status.value.totalChanges} 个未提交变更，检出可能被 git 拒绝或带入目标。建议先提交或 Stash。</span>`
+    : `<br><span class="text-white/45 text-[12px]">检出标签会进入分离头指针（detached HEAD）状态，适合查看 / 构建 / 回滚排查；若要在此处继续开发，请另建分支 <span class="gd-mono">git checkout -b &lt;新分支&gt; ${esc(name)}</span>。</span>`
+  requestConfirm({
+    message: `检出标签 <span class="gd-mono text-violet-300">${esc(name)}</span>？${warning}`,
+    confirmLabel: '确认检出',
+    onConfirm: async () => {
+      await dash.doCheckout(name)
+      diffCache.clear()
     },
   })
 }
@@ -859,8 +1128,12 @@ function confirmPush() {
 
 function confirmPushTags() {
   closeMoreMenu()
+  const n = unpushedTagCount.value
+  const preview = n > 0
+    ? `<br><span class="text-white/45 text-[12px]">将推送 <span class="text-amber-300 font-medium">${n}</span> 个未同步标签到远端（<span class="gd-mono">git push --tags</span>）。</span>`
+    : `<br><span class="text-white/45 text-[12px]">所有标签均已同步，无需推送。</span>`
   requestConfirm({
-    message: `推送所有本地标签到远端？${gitPrecheckHtml()}`,
+    message: `推送所有本地标签到远端？${gitPrecheckHtml()}${preview}`,
     confirmLabel: '推送标签',
     onConfirm: async () => {
       await dash.doPushTags()
@@ -1921,11 +2194,17 @@ function onBackdropClick() {
                     <div class="flex items-center gap-1.5">
                       <IconTag class="w-3.5 h-3.5" />
                       Tags ({{ dash.tags.value.length }})
+                      <span
+                        v-if="unpushedTagCount > 0"
+                        class="gd-badge-sm"
+                        style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
+                        :title="`${unpushedTagCount} 个标签未推送到远端`"
+                      >未推送 {{ unpushedTagCount }}</span>
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <button class="gd-action text-[11px]" @click="confirmPushTags">
+                      <button class="gd-action text-[11px]" @click="confirmPushTags" title="推送所有本地标签（git push --tags）">
                         <IconUpload class="w-3 h-3" />
-                        <span>Push Tags</span>
+                        <span>推送全部</span>
                       </button>
                       <button class="gd-action text-[11px]" @click="toggleCreateTag">
                         <IconPlus class="w-3 h-3" />
@@ -1940,30 +2219,305 @@ function onBackdropClick() {
                     enter-from-class="opacity-0 -translate-y-2"
                     leave-to-class="opacity-0 -translate-y-2"
                   >
-                    <div v-if="showCreateTag" class="gd-inline-form mb-2">
-                      <div class="gd-form-row">
-                        <input v-model="newTagName" type="text" placeholder="标签名称 *" class="gd-input flex-1" @keydown.enter="submitCreateTag" />
-                        <input v-model="newTagMessage" type="text" placeholder="备注消息（可选）" class="gd-input flex-1" @keydown.enter="submitCreateTag" />
-                        <input v-model="newTagRef" type="text" placeholder="Ref（可选，默认 HEAD）" class="gd-input w-32" @keydown.enter="submitCreateTag" />
-                        <button class="gd-confirm-btn ok" :disabled="!newTagName.trim()" @click="submitCreateTag">创建</button>
+                    <div v-if="showCreateTag" class="gd-inline-form gd-tag-create mb-2">
+                      <!-- 类型 -->
+                      <div class="gd-form-field">
+                        <span class="gd-field-label">类型</span>
+                        <div class="gd-seg-group">
+                          <button
+                            type="button"
+                            class="gd-seg"
+                            :class="{ active: newTagAnnotated }"
+                            @click="newTagAnnotated = true"
+                          >附注标签</button>
+                          <button
+                            type="button"
+                            class="gd-seg"
+                            :class="{ active: !newTagAnnotated }"
+                            @click="newTagAnnotated = false"
+                          >轻量标签</button>
+                        </div>
+                        <span class="gd-field-hint">
+                          {{ newTagAnnotated
+                            ? '保存打标签人、时间与说明，发版推荐用附注标签。'
+                            : '只是 bookmark，不保存额外元数据；临时标记可用。' }}
+                        </span>
+                      </div>
+
+                      <!-- 标签名 -->
+                      <div class="gd-form-field">
+                        <span class="gd-field-label">标签名 *</span>
+                        <input
+                          v-model="newTagName"
+                          type="text"
+                          placeholder="如 v1.2.3、release-2026-07"
+                          class="gd-input"
+                          @keydown.enter="submitCreateTag"
+                        />
+                        <span v-if="tagNameError" class="gd-field-hint danger">{{ tagNameError }}</span>
+                        <span v-else-if="newTagName.trim()" class="gd-field-hint ok">可用</span>
+                      </div>
+
+                      <!-- 指向 commit -->
+                      <div class="gd-form-field">
+                        <span class="gd-field-label">指向</span>
+                        <select v-model="newTagRef" class="gd-input">
+                          <option value="">HEAD · {{ dash.commits.value[0]?.message?.slice(0, 40) || '最新提交' }}</option>
+                          <option v-for="c in dash.commits.value" :key="c.fullHash" :value="c.hash">
+                            {{ c.hash }} · {{ c.message.slice(0, 48) }}
+                          </option>
+                        </select>
+                        <span class="gd-field-hint">默认打在最新提交；可选最近 {{ dash.commits.value.length }} 条中的任意一条。</span>
+                      </div>
+
+                      <!-- 发版说明（仅附注）-->
+                      <div v-if="newTagAnnotated" class="gd-form-field">
+                        <span class="gd-field-label">发版说明 *</span>
+                        <textarea
+                          v-model="newTagMessage"
+                          class="gd-input gd-textarea"
+                          rows="3"
+                          placeholder="如：发版 v1.2.3&#10;- 新增 xxx&#10;- 修复 yyy（Ctrl+Enter 提交）"
+                          @keydown.ctrl.enter="submitCreateTag"
+                          @keydown.meta.enter="submitCreateTag"
+                        />
+                      </div>
+
+                      <!-- 操作 -->
+                      <div class="flex items-center justify-end gap-2 mt-1">
+                        <button class="gd-confirm-btn ok" :disabled="!canSubmitTag" @click="submitCreateTag">创建标签</button>
                         <button class="gd-confirm-btn cancel" @click="toggleCreateTag">取消</button>
                       </div>
                     </div>
                   </Transition>
 
-                  <div v-if="dash.tags.value.length" class="gd-list">
-                    <div v-for="t in dash.tags.value" :key="t.name" class="gd-list-row">
-                      <IconTag class="w-3.5 h-3.5 flex-shrink-0 text-violet-400/60" />
-                      <span class="gd-mono text-violet-300/80 flex-shrink-0">{{ t.name }}</span>
-                      <span class="gd-hash flex-shrink-0">{{ t.hash }}</span>
-                      <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.message }}</span>
-                      <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
-                      <button class="gd-mini-btn danger" title="删除此标签" :aria-label="`删除标签 ${t.name}`" @click.stop="confirmDeleteTag(t.name)">
-                        <IconTrash class="w-3 h-3" />
-                      </button>
+                  <!-- 搜索 / 排序 / 批量工具栏（仅有标签时显示）-->
+                  <div v-if="dash.tags.value.length" class="gd-tag-toolbar mb-2">
+                    <div class="relative flex-1 min-w-0 max-w-[260px]">
+                      <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                      <input
+                        v-model="tagSearch"
+                        type="text"
+                        placeholder="搜索标签名或说明…"
+                        class="gd-input gd-input-sm"
+                        @keydown.esc="tagSearch = ''"
+                      />
+                    </div>
+                    <div class="gd-seg-group flex-shrink-0 ml-auto">
+                      <button
+                        type="button"
+                        class="gd-seg"
+                        :class="{ active: tagSort === 'date' }"
+                        title="按创建时间倒序"
+                        @click="tagSort = 'date'"
+                      >日期</button>
+                      <button
+                        type="button"
+                        class="gd-seg"
+                        :class="{ active: tagSort === 'semver' }"
+                        title="按语义化版本号倒序"
+                        @click="tagSort = 'semver'"
+                      >版本</button>
                     </div>
                   </div>
-                  <div v-else class="py-6 text-center text-white/30 text-[12px]">暂无标签</div>
+
+                  <div v-if="dash.tags.value.length">
+                    <div v-if="displayedTags.length" class="gd-list">
+                      <template v-for="(t, idx) in displayedTags" :key="t.name">
+                        <!-- 版本分组头（仅版本排序时，在该组首条前渲染）-->
+                        <div
+                          v-if="tagSort === 'semver' && isGroupStart(idx)"
+                          class="gd-tag-group-header"
+                          :style="groupStyleOf(t.name)"
+                          role="button"
+                          tabindex="0"
+                          :aria-label="`${tagGroupOf(t.name)} 分组，${groupCount(tagGroupOf(t.name))} 个标签，点击${collapsedGroups.has(tagGroupOf(t.name)) ? '展开' : '折叠'}`"
+                          @click="toggleGroup(tagGroupOf(t.name))"
+                          @keydown.enter="toggleGroup(tagGroupOf(t.name))"
+                          @keydown.space.prevent="toggleGroup(tagGroupOf(t.name))"
+                        >
+                          <IconChevronRight
+                            class="w-3.5 h-3.5 flex-shrink-0 transition-transform"
+                            :class="{ 'rotate-90': !collapsedGroups.has(tagGroupOf(t.name)) }"
+                          />
+                          <span class="font-semibold">{{ tagGroupOf(t.name) }}</span>
+                          <span class="text-[11px] opacity-70">{{ groupCount(tagGroupOf(t.name)) }} 个标签</span>
+                          <span
+                            v-if="collapsedGroups.has(tagGroupOf(t.name))"
+                            class="ml-auto text-[10px] opacity-50"
+                          >已折叠</span>
+                        </div>
+                        <div
+                          v-if="!isTagRowHidden(t.name)"
+                          class="gd-list-row group cursor-pointer"
+                          @click="toggleTagDetail(t)"
+                        >
+                          <IconTag class="w-3.5 h-3.5 flex-shrink-0 text-violet-400/60" />
+                          <span
+                            v-if="idx === 0 && !tagSearch.trim() && isVersionTag(t.name)"
+                            class="gd-badge-sm"
+                            style="background: rgba(45,212,191,0.14); color: rgb(94,234,212); border-color: rgba(45,212,191,0.24)"
+                            title="最新版本标签"
+                          >latest</span>
+                        <span class="gd-mono text-violet-300/80 flex-shrink-0">{{ t.name }}</span>
+                        <span
+                          v-if="!t.onRemote"
+                          class="gd-badge-sm"
+                          style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
+                          title="本地已创建，远端还没有此标签"
+                        >未推送</span>
+                        <span class="gd-hash flex-shrink-0">{{ t.hash }}</span>
+                        <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.message || '(轻量标签)' }}</span>
+                        <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
+                        <div class="gd-row-actions">
+                          <button
+                            v-if="!t.onRemote"
+                            class="gd-mini-btn"
+                            title="推送此标签到远端"
+                            :aria-label="`推送标签 ${t.name}`"
+                            @click.stop="confirmPushTag(t.name)"
+                          >
+                            <IconUpload class="w-3 h-3" />
+                          </button>
+                          <button
+                            class="gd-mini-btn"
+                            title="检出此标签（detached HEAD，用于回滚排查）"
+                            :aria-label="`检出标签 ${t.name}`"
+                            @click.stop="confirmCheckoutTag(t.name)"
+                          >
+                            <IconSwitch class="w-3 h-3" />
+                          </button>
+                          <button
+                            class="gd-mini-btn danger"
+                            title="删除此标签"
+                            :aria-label="`删除标签 ${t.name}`"
+                            @click.stop="confirmDeleteTag(t.name)"
+                          >
+                            <IconTrash class="w-3 h-3" />
+                          </button>
+                        </div>
+                        <IconChevronRight
+                          class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
+                          :class="{ 'rotate-90 text-teal-400/60': expandedTag === t.name }"
+                        />
+                      </div>
+
+                      <!-- 标签详情：metadata + 自上一 tag 以来的提交 + 操作栏 -->
+                      <div v-if="expandedTag === t.name && !isTagRowHidden(t.name)" class="gd-tag-detail">
+                        <div v-if="tagDetailLoading" class="py-4 text-center text-white/40 text-[12px]">
+                          <IconLoading class="w-4 h-4 gd-spin inline align-middle" /> 加载发版内容…
+                        </div>
+                        <template v-else>
+                          <div class="gd-tag-meta">
+                            <div class="flex items-center gap-2 flex-wrap text-[11px] text-white/40">
+                              <span class="gd-hash">{{ t.hash }}</span>
+                              <span class="text-white/20">·</span>
+                              <span>{{ fmtDate(t.date) }}</span>
+                              <span class="text-white/20">·</span>
+                              <span>{{ t.annotated ? '附注标签' : '轻量标签' }}</span>
+                              <span
+                                v-if="t.onRemote"
+                                class="gd-badge-sm"
+                                style="background: rgba(45,212,191,0.12); color: rgb(94,234,212); border-color: rgba(45,212,191,0.2)"
+                              >已同步</span>
+                              <span
+                                v-else
+                                class="gd-badge-sm"
+                                style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
+                              >仅本地</span>
+                            </div>
+                            <p v-if="t.message" class="mt-2 text-[13px] text-white/72 leading-relaxed">{{ t.message }}</p>
+                          </div>
+
+                          <div class="gd-tag-commits">
+                            <div class="gd-section-title text-[10px] mb-1">
+                              <IconCommit class="w-3 h-3" />
+                              {{ tagPrevName ? `自 ${tagPrevName} 以来的提交` : '此标签包含的提交' }}
+                              <span class="text-white/30 font-normal normal-case">({{ tagCommits.length }})</span>
+                            </div>
+                            <div v-if="tagCommits.length" class="gd-list gd-tag-commit-list">
+                              <template v-for="c in tagCommits" :key="c.fullHash">
+                                <div
+                                  class="gd-list-row group cursor-pointer"
+                                  @click="viewDiff(`c-${c.fullHash}`, () => dash.getCommitDetail(c.fullHash))"
+                                >
+                                  <IconCommit class="w-3 h-3 flex-shrink-0 text-white/25" />
+                                  <span class="gd-hash flex-shrink-0">{{ c.hash }}</span>
+                                  <span class="flex-1 truncate text-white/70 text-[12px]">{{ c.message }}</span>
+                                  <span class="text-white/30 text-[11px] flex-shrink-0">{{ c.author }}</span>
+                                  <IconChevronRight
+                                    class="w-3 h-3 text-white/20 flex-shrink-0 transition-transform"
+                                    :class="{ 'rotate-90 text-teal-400/60': diffTarget === `c-${c.fullHash}` }"
+                                  />
+                                </div>
+                                <GitDiffBox
+                                  v-if="diffTarget === `c-${c.fullHash}`"
+                                  :content="diffContent"
+                                  :loading="diffLoading"
+                                  :ai-ready="aiReady"
+                                  @explain="askXiaowuDiff"
+                                />
+                              </template>
+                            </div>
+                            <div v-else class="py-3 text-center text-white/30 text-[12px]">无新增提交（与上一标签间无差异）</div>
+                          </div>
+
+                          <div class="gd-tag-actions">
+                            <button
+                              v-if="aiReady"
+                              class="gd-handoff-btn"
+                              title="让小吴根据这批提交生成发版说明"
+                              @click="askXiaowuReleaseNotes(t.name, tagCommits)"
+                            >
+                              <IconRobot class="w-3 h-3" />
+                              <span>让小吴写发版说明</span>
+                            </button>
+                            <button
+                              v-if="!t.onRemote"
+                              class="gd-confirm-btn ok ghost"
+                              title="推送此标签到远端"
+                              @click="confirmPushTag(t.name)"
+                            >
+                              <IconUpload class="w-3 h-3" />
+                              推送
+                            </button>
+                            <button
+                              class="gd-confirm-btn ok ghost"
+                              title="检出此标签（detached HEAD）"
+                              @click="confirmCheckoutTag(t.name)"
+                            >
+                              <IconSwitch class="w-3 h-3" />
+                              检出
+                            </button>
+                            <button
+                              class="gd-confirm-btn ok ghost"
+                              :title="`复制 git checkout ${t.name}`"
+                              @click="copyCheckoutCmd(t.name)"
+                            >
+                              <IconCopy class="w-3 h-3" />
+                              {{ copiedTag === t.name ? '已复制' : '复制命令' }}
+                            </button>
+                            <button
+                              v-if="t.onRemote"
+                              class="gd-confirm-btn danger ml-auto"
+                              title="删除远端标签（影响所有协作者与 CI/CD）"
+                              @click="confirmDeleteRemoteTag(t.name)"
+                            >
+                              <IconTrash class="w-3 h-3" />
+                              删远端
+                            </button>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    </div>
+                    <div v-else class="py-8 text-center text-white/30 text-[12px]">
+                      无匹配标签 · <button class="gd-link-btn" @click="tagSearch = ''">清除搜索</button>
+                    </div>
+                  </div>
+                  <div v-else class="py-8 text-center text-white/30 text-[12px]">
+                    暂无标签 · 打一个发版标签试试
+                  </div>
                 </div>
 
                 <!-- Stashes -->
@@ -2337,6 +2891,81 @@ function onBackdropClick() {
 }
 .gd-blame-row:hover { background: rgba(255, 255, 255, 0.03); }
 
+/* ═══ 标签详情面板 ═══ */
+.gd-tag-detail {
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.gd-tag-meta { line-height: 1.5; }
+.gd-tag-commits { display: flex; flex-direction: column; gap: 4px; }
+.gd-tag-commit-list {
+  max-height: 320px; overflow-y: auto;
+  scrollbar-width: thin;
+}
+.gd-tag-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.gd-tag-actions .gd-confirm-btn { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ═══ 版本分组头（仅 semver 排序时出现）═══ */
+.gd-tag-group-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid;
+  cursor: pointer; user-select: none;
+  transition: filter 0.12s;
+}
+.gd-tag-group-header:hover { filter: brightness(1.12); }
+.gd-tag-group-header:focus-visible { outline: 2px solid rgba(94, 234, 212, 0.5); outline-offset: -2px; }
+
+/* ═══ 标签创建表单（竖向字段） ═══ */
+.gd-tag-create { display: flex; flex-direction: column; gap: 12px; }
+.gd-form-field { display: flex; flex-direction: column; gap: 5px; }
+.gd-field-label {
+  font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.02em;
+}
+.gd-field-hint {
+  font-size: 11px; line-height: 1.45; color: rgba(255, 255, 255, 0.38);
+}
+.gd-field-hint.danger { color: rgb(252, 165, 165); }
+.gd-field-hint.ok { color: rgb(134, 239, 172); }
+
+/* 分段选择（annotated/轻量、日期/版本 排序等） */
+.gd-seg-group { display: inline-flex; gap: 2px; }
+.gd-seg {
+  padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer; transition: all 0.15s;
+}
+.gd-seg:hover { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.72); }
+.gd-seg.active {
+  background: rgba(45, 212, 191, 0.14); color: rgb(94, 234, 212);
+  border-color: rgba(45, 212, 191, 0.28);
+}
+
+/* ═══ 标签工具栏（搜索 / 排序 / 批量） ═══ */
+.gd-tag-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.gd-input-sm { padding: 5px 10px 5px 30px; font-size: 12px; }
+
+/* 文字链接按钮（清除搜索等） */
+.gd-link-btn {
+  color: rgb(94, 234, 212); cursor: pointer; font-size: 12px;
+  background: none; border: none; padding: 0;
+}
+.gd-link-btn:hover { text-decoration: underline; }
+
 /* ═══ 输入 ═══ */
 .gd-input {
   width: 100%; padding: 8px 12px; border-radius: 8px;
@@ -2348,6 +2977,11 @@ function onBackdropClick() {
 .gd-input::placeholder { color: rgba(255, 255, 255, 0.25); }
 .gd-input:focus { border-color: rgba(45, 212, 191, 0.35); }
 select.gd-input { cursor: pointer; }
+/* <option> 在 Windows 下不继承 <select> 的背景，只继承白字 → 白字白底看不清；显式配深色 */
+.gd-input option {
+  background-color: rgb(15, 23, 42);
+  color: rgba(255, 255, 255, 0.88);
+}
 .gd-prefix-select { width: auto; flex-shrink: 0; padding-right: 28px; }
 .gd-textarea { resize: vertical; min-height: 56px; font-family: inherit; line-height: 1.5; }
 

@@ -12,7 +12,6 @@
  * Dashboard 打开时由 composable 统一管理轮询，关闭后自动恢复 widget 轮询。
  */
 import { computed, onMounted, onUnmounted } from 'vue'
-import IconGit from '~icons/mdi/source-branch'
 import IconModified from '~icons/mdi/circle-edit-outline'
 import { useGitDashboard } from '@/features/git'
 import GitDashboard from '@/components/GitDashboard.vue'
@@ -25,6 +24,14 @@ const gitFeatureConfigured = computed(() =>
 const enabled = computed(() => gitFeatureConfigured.value || !!dash.overview.value?.enabled)
 const unavailable = computed(() => dash.gitUnavailable.value)
 const changes = computed(() => dash.status.value.totalChanges)
+const branchParts = computed(() => {
+  const branch = dash.branch.value || '—'
+  const cut = branch.lastIndexOf('/')
+  if (cut <= 0 || cut === branch.length - 1) {
+    return { scope: '', leaf: branch }
+  }
+  return { scope: branch.slice(0, cut + 1), leaf: branch.slice(cut + 1) }
+})
 
 const syncCue = computed(() => {
   const sync = dash.sync.value
@@ -67,25 +74,30 @@ onUnmounted(() => dash.stopWidgetPolling())
     class="git-widget"
     :class="{ 'is-unavailable': unavailable }"
     :title="widgetTitle"
+    :aria-label="widgetTitle"
     @click="dashboardOpen = true"
   >
-    <IconGit class="w-3.5 h-3.5" />
     <template v-if="unavailable">
       <span class="git-branch">Git 未连接</span>
       <span class="git-sync tone-danger">!</span>
     </template>
     <template v-else>
-      <span class="git-branch">{{ dash.branch.value }}</span>
-      <span v-if="changes > 0" class="git-changes" title="未提交变更">
-        <IconModified class="w-3 h-3" />
-        {{ changes }}
+      <span class="git-branch" :title="dash.branch.value || '—'">
+        <span v-if="branchParts.scope" class="git-branch-scope">{{ branchParts.scope }}</span>
+        <span class="git-branch-leaf">{{ branchParts.leaf }}</span>
       </span>
-      <span
-        v-if="syncCue.text"
-        class="git-sync"
-        :class="`tone-${syncCue.tone}`"
-        :title="syncCue.detail"
-      >{{ syncCue.text }}</span>
+      <span class="git-meta">
+        <span v-if="changes > 0" class="git-changes" title="未提交变更">
+          <IconModified class="w-3 h-3" />
+          {{ changes }}
+        </span>
+        <span
+          v-if="syncCue.text"
+          class="git-sync"
+          :class="`tone-${syncCue.tone}`"
+          :title="syncCue.detail"
+        >{{ syncCue.text }}</span>
+      </span>
     </template>
   </button>
   <GitDashboard v-model:open="dashboardOpen" />
@@ -95,49 +107,76 @@ onUnmounted(() => dash.stopWidgetPolling())
 .git-widget {
   display: inline-flex;
   align-items: center;
+  max-width: min(34vw, 360px);
+  min-width: 0;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 3px 8px;
+  border: 0;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
   line-height: 1;
-  cursor: pointer;
-  transition: all 0.15s;
+  letter-spacing: -0.01em;
+  color: #fff;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
 }
 .git-widget:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(45, 212, 191, 0.25);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.93);
+}
+.git-widget:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
 }
 .git-widget.is-unavailable {
-  background: rgba(244, 63, 94, 0.08);
-  border-color: rgba(244, 63, 94, 0.22);
   color: #fecdd3;
 }
 .git-widget.is-unavailable:hover {
-  background: rgba(244, 63, 94, 0.13);
-  border-color: rgba(244, 63, 94, 0.34);
+  background: rgba(244, 63, 94, 0.1);
 }
 .git-branch {
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.git-branch-scope {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.55);
+}
+.git-branch-leaf {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: inherit;
+}
+.git-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
 }
 .git-changes {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   color: #fbbf24;
-  font-weight: 500;
-  margin-left: 2px;
+  font-weight: 650;
 }
 .git-sync {
-  margin-left: 2px;
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 .git-sync.tone-ahead {
   color: #fbbf24;
@@ -149,6 +188,14 @@ onUnmounted(() => dash.stopWidgetPolling())
   color: #fb7185;
 }
 .git-sync.tone-muted {
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.42);
+}
+@media (max-width: 760px) {
+  .git-widget {
+    max-width: 42vw;
+  }
+  .git-meta {
+    display: none;
+  }
 }
 </style>

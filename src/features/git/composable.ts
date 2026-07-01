@@ -351,6 +351,35 @@ async function doDeleteTag(name: string): Promise<GitActionResponse> {
   return doAction('tag-delete', { name })
 }
 
+/**
+ * 推送单个标签到远端：复用 push action（`git push <remote> <tag>`），
+ * remote 取首个配置的远端（几乎总是 origin），缺失回退 origin。
+ */
+async function doPushTag(name: string): Promise<GitActionResponse> {
+  const remote = remotes.value[0]?.name || 'origin'
+  return doAction('push', { remote, branch: name })
+}
+
+/**
+ * 删除远端标签（`git push <remote> --delete <tag>`）。⚠ 影响所有协作者与 CI/CD。
+ */
+async function doDeleteRemoteTag(name: string): Promise<GitActionResponse> {
+  const remote = remotes.value[0]?.name || 'origin'
+  return doAction('tag-delete-remote', { name, remote })
+}
+
+/**
+ * 自上一 tag 以来的提交（用于 tag 详情的「本次发版包含的提交」）。
+ * - 有 prevTag：`git log prevTag..tag`（仅本版本新增）
+ * - 无 prevTag（最旧的那个）：`git log tag`（该 tag 可达的全部提交）
+ */
+async function getTagCommits(tag: string, prevTag?: string): Promise<GitCommit[]> {
+  const data = prevTag
+    ? await fetchGitCommits(prevTag, 80, { ref2: tag })
+    : await fetchGitCommits(tag, 80)
+  return data.commits
+}
+
 // ─── 回滚 / 合并 / 撤销 / 丢弃 ────────────────────
 
 async function doReset(
@@ -467,6 +496,8 @@ export function useGitDashboard() {
     doDeleteBranch,
     doCreateTag,
     doDeleteTag,
+    doDeleteRemoteTag,
+    doPushTag,
     doReset,
     doMerge,
     doRevert,
@@ -483,5 +514,6 @@ export function useGitDashboard() {
     getReflog,
     searchCommits,
     getBranchLog,
+    getTagCommits,
   }
 }

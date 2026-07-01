@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useWbscfServices, wbscfServices } from '@/features/wbscf'
 import WbscfToastHost from './WbscfToastHost.vue'
+import GitWidget from './GitWidget.vue'
 import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
@@ -158,6 +159,9 @@ function openUrl(url: string): void {
           target="_blank"
           rel="noopener noreferrer"
         >{{ item.label }}</a>
+      </li>
+      <li class="status-nav-item status-nav-git-item">
+        <GitWidget />
       </li>
     </ul>
   </nav>

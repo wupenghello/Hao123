@@ -43,13 +43,19 @@ export async function fetchGitOverview(): Promise<GitOverviewResponse> {
   return (await res.json()) as GitOverviewResponse
 }
 
-/** 拉取指定分支的 commit 日志 */
+/**
+ * 拉取 commit 日志。
+ * - 仅 branch：`git log <branch>`
+ * - branch + ref2：`git log <branch>..<ref2>`（用于「自上一 tag 以来的提交」等区间查询）
+ */
 export async function fetchGitCommits(
   branch?: string,
   count = 20,
+  options?: { ref2?: string },
 ): Promise<{ enabled: boolean; commits: GitCommit[] }> {
   const params = new URLSearchParams()
   if (branch) params.set('branch', branch)
+  if (options?.ref2) params.set('ref2', options.ref2)
   params.set('count', String(count))
   const res = await fetch(`${BASE}/commits?${params}`, { headers: { accept: 'application/json' } })
   if (!res.ok) throw new Error(`/git/commits -> ${res.status}`)

@@ -281,11 +281,19 @@ async function getRemoteBranches(cwd: string): Promise<GitBranch[]> {
     })
 }
 
-async function getCommits(cwd: string, ref: string, count: number): Promise<GitCommit[]> {
+async function getCommits(
+  cwd: string,
+  ref: string,
+  count: number,
+  ref2?: string,
+): Promise<GitCommit[]> {
   const SEP = '|||'
+  // ref1..ref2 形式只能由两个已校验的 ref 拼出（assertSafeRef 会拒 `..`），
+  // 调用方（端点 / overview）负责确保 ref / ref2 合法。
+  const range = ref2 ? `${ref}..${ref2}` : ref
   const r = await git(cwd, [
     'log',
-    ref,
+    range,
     `--max-count=${count}`,
     `--format=%h${SEP}%H${SEP}%an${SEP}%aI${SEP}%s`,
   ])
@@ -307,14 +315,58 @@ async function getCommits(cwd: string, ref: string, count: number): Promise<GitC
     })
 }
 
+// ─── 远端 tag 名缓存 ──────────────────────────────────
+// git ls-remote --tags 有网络开销，每次 overview（8s/30s 轮询）都打会拖慢；
+// 单独缓存 + in-flight 去重，写操作成功后由 invalidateOverview() 清空。
+
+const REMOTE_TAG_TTL_MS = 30_000
+let remoteTagCache: { names: Set<string>; ts: number } | null = null
+let remoteTagInFlight: Promise<Set<string>> | null = null
+
+/** 远端已存在的 tag 名集合（失败 / 离线返回空集，所有 tag 视为未推送） */
+async function getRemoteTagNames(cwd: string): Promise<Set<string>> {
+  const now = Date.now()
+  if (remoteTagCache && now - remoteTagCache.ts < REMOTE_TAG_TTL_MS) {
+    return remoteTagCache.names
+  }
+  if (remoteTagInFlight) return remoteTagInFlight
+  remoteTagInFlight = (async () => {
+    try {
+      const r = await git(cwd, ['ls-remote', '--tags', 'origin'], 12_000)
+      const names = new Set<string>()
+      if (r.status === 0) {
+        for (const line of r.stdout.split('\n')) {
+          // 格式：<hash>\trefs/tags/<name>，附注 tag 还会多一行 ^{} 后缀
+          const m = line.match(/^\S+\trefs\/tags\/([^\s]+)$/)
+          if (m) {
+            const n = m[1].replace(/\^\{\}$/, '')
+            if (n) names.add(n)
+          }
+        }
+      }
+      remoteTagCache = { names, ts: Date.now() }
+      return names
+    } catch {
+      if (!remoteTagCache) remoteTagCache = { names: new Set(), ts: Date.now() }
+      return remoteTagCache.names
+    } finally {
+      remoteTagInFlight = null
+    }
+  })()
+  return remoteTagInFlight
+}
+
 async function getTags(cwd: string): Promise<GitTag[]> {
   const SEP = '|||'
   const r = await git(cwd, [
     'tag',
     '--sort=-creatordate',
-    `--format=%(refname:short)${SEP}%(objectname:short)${SEP}%(contents:subject)${SEP}%(creatordate:iso)`,
+    `--format=%(refname:short)${SEP}%(objectname:short)${SEP}%(contents:subject)${SEP}%(creatordate:iso)${SEP}%(objecttype)`,
   ])
   if (r.status !== 0) return []
+
+  // 与 ls-remote 并行无依赖，但需等待结果回填 onRemote
+  const remoteNames = await getRemoteTagNames(cwd)
 
   return r.stdout
     .trim()
@@ -322,11 +374,15 @@ async function getTags(cwd: string): Promise<GitTag[]> {
     .filter((l) => l.trim())
     .map((line) => {
       const parts = line.split(SEP)
+      const name = parts[0] || ''
       return {
-        name: parts[0] || '',
+        name,
         hash: parts[1] || '',
         message: parts[2] || '',
         date: parts[3] || '',
+        // objecttype：附注 tag 指向 tag 对象（type=tag），轻量 tag 直接指向 commit
+        annotated: parts[4]?.trim() === 'tag',
+        onRemote: remoteNames.has(name),
       }
     })
 }
@@ -684,6 +740,16 @@ async function doAction(
         r = await git(cwd, ['tag', '-d', name])
         break
       }
+      case 'tag-delete-remote': {
+        // 删远端标签：`git push <remote> --delete <tag>`
+        const name = params.name
+        if (!name) return { success: false, message: '', error: '未指定标签名' }
+        assertSafeRef(name, '标签名')
+        const remote = params.remote || 'origin'
+        assertSafeRef(remote, '远端名')
+        r = await git(cwd, ['push', remote, '--delete', name], 60_000)
+        break
+      }
 
       default:
         return { success: false, message: '', error: `未知操作：${action}` }
@@ -719,6 +785,8 @@ let overviewInFlight: Promise<GitOverviewResponse> | null = null
 
 function invalidateOverview(): void {
   overviewCache = null
+  // 写操作（push tag / delete tag 等）可能改变远端 tag 集合，一并清掉
+  remoteTagCache = null
 }
 
 export function gitPlugin(options: GitPluginOptions): Plugin {
@@ -813,8 +881,12 @@ export function gitPlugin(options: GitPluginOptions): Plugin {
               return
             }
             const ref = u.searchParams.get('branch') || 'HEAD'
+            const ref2 = u.searchParams.get('ref2') || ''
             const count = Math.min(parseInt(u.searchParams.get('count') || '20', 10), 100)
-            sendJson(res, 200, { enabled: true, commits: await getCommits(root, ref, count) })
+            // 区间查询两个 ref 都要单独校验（getCommits 内部拼 `ref..ref2`，assertSafeRef 拒 `..`）
+            assertSafeRef(ref, 'ref')
+            if (ref2) assertSafeRef(ref2, 'ref2')
+            sendJson(res, 200, { enabled: true, commits: await getCommits(root, ref, count, ref2 || undefined) })
             return
           }
 

@@ -59,6 +59,10 @@ export interface GitTag {
   hash: string
   message: string
   date: string
+  /** 是否为附注标签（true）vs 轻量标签（false）；缺省视为轻量 */
+  annotated?: boolean
+  /** 远端是否已存在此标签；缺省视为未知（按未推送处理） */
+  onRemote?: boolean
 }
 
 /** 一条 stash */
@@ -158,6 +162,7 @@ export type GitAction =
   // 标签
   | 'tag-create'
   | 'tag-delete'
+  | 'tag-delete-remote'
 
 /** 操作响应 */
 export interface GitActionResponse {
