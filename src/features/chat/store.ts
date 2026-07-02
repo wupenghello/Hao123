@@ -33,6 +33,7 @@ import {
   MAX_HISTORY_TOKENS,
 } from './utils'
 import type { ChatMessage, ToolActivity, ToolApproval } from './types'
+import type { FeedbackCategory, FeedbackStats } from './types'
 
 /** agent 循环最大轮数，防止工具调用失控 */
 const MAX_ROUNDS = 5
@@ -122,6 +123,62 @@ function pendingApprovalResult(wireName: string, approval: ToolApproval) {
     args: approval.args,
     note: '该动作需要用户在界面确认后才会执行；当前尚未执行。',
   }
+}
+
+const FEEDBACK_CATEGORIES: { key: FeedbackCategory; label: string }[] = [
+  { key: 'briefing', label: '晨报' },
+  { key: 'task-planning', label: '任务排序' },
+  { key: 'git', label: 'Git' },
+  { key: 'kb', label: '知识库' },
+  { key: 'weather', label: '天气' },
+  { key: 'local-task', label: '本地待办' },
+  { key: 'zentao', label: '禅道' },
+  { key: 'vision', label: '图片理解' },
+  { key: 'general', label: '通用' },
+]
+
+function emptyCategoryStats() {
+  return { up: 0, down: 0, regenerations: 0 }
+}
+
+function defaultFeedbackStats(): FeedbackStats {
+  return { up: 0, down: 0, regenerations: 0, byCategory: {} }
+}
+
+function normalizeFeedbackStats(v: FeedbackStats): FeedbackStats {
+  if (!v.byCategory) v.byCategory = {}
+  for (const cat of FEEDBACK_CATEGORIES) {
+    v.byCategory[cat.key] = { ...emptyCategoryStats(), ...(v.byCategory[cat.key] ?? {}) }
+  }
+  return v
+}
+
+function categoryLabel(cat?: FeedbackCategory): string {
+  return FEEDBACK_CATEGORIES.find((c) => c.key === cat)?.label || '通用'
+}
+
+function incCategory(stats: FeedbackStats, cat: FeedbackCategory, key: keyof ReturnType<typeof emptyCategoryStats>, delta: number) {
+  const cur = stats.byCategory[cat] ?? emptyCategoryStats()
+  cur[key] = Math.max(0, cur[key] + delta)
+  stats.byCategory[cat] = cur
+}
+
+function classifyAssistantMessage(history: ChatMessage[], assistant: ChatMessage): FeedbackCategory {
+  const recent = history.slice(-8)
+  const text = [...recent, assistant]
+    .map((m) => [m.content, ...(m.activities?.map((a) => `${a.name} ${a.label} ${a.detail || ''}`) ?? [])].join('\n'))
+    .join('\n')
+    .toLowerCase()
+
+  if (/今日简报|晨报|briefing/.test(text)) return 'briefing'
+  if (/接手模式|今天最该|处理顺序|任务排序|小吴已就绪|逾期|临期|停滞|安排今天/.test(text)) return 'task-planning'
+  if (/git|commit|branch|checkout|pull|push|diff|blame|reflog|stash|tag/.test(text)) return 'git'
+  if (/知识库|kb|文档|环境地址|部署流程|kb__search/.test(text)) return 'kb'
+  if (/天气|气温|下雨|带伞|穿衣|weather/.test(text)) return 'weather'
+  if (/本地待办|local__|记一下|提醒我|待办/.test(text)) return 'local-task'
+  if (/禅道|zentao|任务详情|bug/.test(text)) return 'zentao'
+  if (/图片|截图|视觉|image_url|看图/.test(text) || recent.some((m) => m.images?.length)) return 'vision'
+  return 'general'
 }
 
 // ============ 轻量意图分类（本地回答，省 LLM 调用）============
@@ -292,14 +349,31 @@ export const useChatStore = defineStore('chat', () => {
   /** 未读提示：面板关闭时收到新回复，圆钮上显示小红点 */
   const unread = ref(false)
   /** 反馈统计（持久化，用于质量追踪） */
-  const feedbackStats = useStorage<{ up: number; down: number; regenerations: number }>(
+  const feedbackStats = useStorage<FeedbackStats>(
     'hao123-chat-feedback',
-    { up: 0, down: 0, regenerations: 0 },
+    defaultFeedbackStats(),
   )
+  feedbackStats.value = normalizeFeedbackStats(feedbackStats.value)
 
   const configured = computed(() => llm.configured)
   const hasMessages = computed(() =>
     messages.value.some((m) => m.role === 'user' || m.role === 'assistant'),
+  )
+  const feedbackCategoryRows = computed(() =>
+    FEEDBACK_CATEGORIES
+      .map((cat) => {
+        const stats = feedbackStats.value.byCategory[cat.key] ?? emptyCategoryStats()
+        return {
+          key: cat.key,
+          label: cat.label,
+          up: stats.up,
+          down: stats.down,
+          regenerations: stats.regenerations,
+          total: stats.up + stats.down + stats.regenerations,
+        }
+      })
+      .filter((row) => row.total > 0)
+      .sort((a, b) => b.down + b.regenerations - (a.down + a.regenerations) || b.total - a.total),
   )
 
   let abortController: AbortController | null = null
@@ -339,18 +413,34 @@ export const useChatStore = defineStore('chat', () => {
   function rate(messageIndex: number, rating: 'up' | 'down') {
     const msg = messages.value[messageIndex]
     if (!msg || msg.role !== 'assistant') return
+    if (!msg.qualityCategory) {
+      msg.qualityCategory = classifyAssistantMessage(messages.value.slice(0, messageIndex), msg)
+    }
+    const cat = msg.qualityCategory || 'general'
 
     // 撤销之前的反馈（如果有）
-    if (msg.feedback === 'up') feedbackStats.value.up--
-    if (msg.feedback === 'down') feedbackStats.value.down--
+    if (msg.feedback === 'up') {
+      feedbackStats.value.up--
+      incCategory(feedbackStats.value, cat, 'up', -1)
+    }
+    if (msg.feedback === 'down') {
+      feedbackStats.value.down--
+      incCategory(feedbackStats.value, cat, 'down', -1)
+    }
 
     // 设置新反馈（点击同一按钮则取消）
     if (msg.feedback === rating) {
       msg.feedback = undefined
     } else {
       msg.feedback = rating
-      if (rating === 'up') feedbackStats.value.up++
-      if (rating === 'down') feedbackStats.value.down++
+      if (rating === 'up') {
+        feedbackStats.value.up++
+        incCategory(feedbackStats.value, cat, 'up', 1)
+      }
+      if (rating === 'down') {
+        feedbackStats.value.down++
+        incCategory(feedbackStats.value, cat, 'down', 1)
+      }
     }
   }
 
@@ -394,7 +484,10 @@ export const useChatStore = defineStore('chat', () => {
         if (signal.aborted) return
 
         // 无工具调用 → 本轮即最终回答，结束
-        if (!toolCalls.length) break
+        if (!toolCalls.length) {
+          assistant.qualityCategory = classifyAssistantMessage(messages.value.slice(0, idx), assistant)
+          break
+        }
 
         // 解析参数 + 建立可视活动（先标记 running）
         assistant.tool_calls = toolCalls
@@ -473,6 +566,7 @@ export const useChatStore = defineStore('chat', () => {
           role: 'assistant',
           content: '（已达到工具调用轮数上限，未能给出最终答复，请缩小问题范围或继续追问。）',
           ts: Date.now(),
+          qualityCategory: 'general',
         })
       }
     } catch (e) {
@@ -516,7 +610,7 @@ export const useChatStore = defineStore('chat', () => {
     const localIntent = images.length ? null : detectLocalIntent(content)
     if (localIntent) {
       messages.value.push({ role: 'user', content, ts: Date.now() })
-      messages.value.push({ role: 'assistant', content: localIntent.answer, ts: Date.now() })
+      messages.value.push({ role: 'assistant', content: localIntent.answer, ts: Date.now(), qualityCategory: 'general' })
       return
     }
 
@@ -544,8 +638,14 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     if (lastUser < 0) return
+    const lastAssistant = messages.value
+      .slice(lastUser + 1)
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content)
+    const regenCategory = lastAssistant?.qualityCategory || 'general'
     messages.value = messages.value.slice(0, lastUser + 1)
     feedbackStats.value.regenerations++
+    incCategory(feedbackStats.value, regenCategory, 'regenerations', 1)
     await runAgentLoop()
   }
 
@@ -749,6 +849,8 @@ export const useChatStore = defineStore('chat', () => {
     configured,
     hasMessages,
     feedbackStats,
+    feedbackCategoryRows,
+    categoryLabel,
     toggle,
     show,
     close,

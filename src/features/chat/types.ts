@@ -53,6 +53,31 @@ export interface ToolApproval {
   decidedAt?: number
 }
 
+/** AI 质量反馈分类，用于把赞踩归因到具体能力场景 */
+export type FeedbackCategory =
+  | 'briefing'
+  | 'task-planning'
+  | 'git'
+  | 'kb'
+  | 'weather'
+  | 'local-task'
+  | 'zentao'
+  | 'vision'
+  | 'general'
+
+export interface FeedbackCategoryStats {
+  up: number
+  down: number
+  regenerations: number
+}
+
+export interface FeedbackStats {
+  up: number
+  down: number
+  regenerations: number
+  byCategory: Partial<Record<FeedbackCategory, FeedbackCategoryStats>>
+}
+
 /** 对话消息（与 DeepSeek/OpenAI chat/completions 的 message 对齐） */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -71,6 +96,8 @@ export interface ChatMessage {
   ts?: number
   /** 用户反馈（仅 assistant 消息）；用于质量追踪与 prompt 迭代 */
   feedback?: 'up' | 'down'
+  /** 反馈归因分类：用于判断小吴哪类能力最不稳定 */
+  qualityCategory?: FeedbackCategory
 }
 
 /** 一轮流式响应的累积结果 */

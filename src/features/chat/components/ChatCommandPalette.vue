@@ -808,6 +808,9 @@ onUnmounted(() => {
                         v-if="!isStreamingAt(i)"
                         class="cmd-actions"
                       >
+                        <span class="cmd-quality-tag" :title="`反馈归因：${store.categoryLabel(m.qualityCategory)}`">
+                          {{ store.categoryLabel(m.qualityCategory) }}
+                        </span>
                         <button class="cmd-action" :title="copiedIdx === i ? '已复制' : '复制'" @click="copy(m.content, i)">
                           <IconCheck v-if="copiedIdx === i" class="w-3.5 h-3.5 text-emerald-300/80" />
                           <IconCopy v-else class="w-3.5 h-3.5" />
@@ -1035,6 +1038,17 @@ onUnmounted(() => {
                 </span>
                 <span class="flex items-center gap-0.5">
                   <IconThumbDownFill class="w-2.5 h-2.5 text-rose-400/50" />{{ store.feedbackStats.down }}
+                </span>
+              </span>
+              <span v-if="store.feedbackCategoryRows.length" class="cmd-quality-summary">
+                <span>质量关注</span>
+                <span
+                  v-for="row in store.feedbackCategoryRows.slice(0, 3)"
+                  :key="row.key"
+                  class="cmd-quality-pill"
+                  :title="`${row.label}: 赞 ${row.up} / 踩 ${row.down} / 重答 ${row.regenerations}`"
+                >
+                  {{ row.label }} {{ row.down + row.regenerations }}
                 </span>
               </span>
               <span class="ml-auto flex items-center gap-2.5">
@@ -1518,6 +1532,7 @@ onUnmounted(() => {
 /* ============ 消息操作 ============ */
 .cmd-actions {
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-top: 7px;
   opacity: 0;
@@ -1539,6 +1554,38 @@ onUnmounted(() => {
 .cmd-action:hover {
   color: rgba(255, 255, 255, 0.85);
   background: rgba(255, 255, 255, 0.1);
+}
+.cmd-quality-tag {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(199, 210, 254, 0.76);
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(165, 180, 252, 0.14);
+}
+.cmd-quality-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.25);
+}
+.cmd-quality-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 84px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: rgba(253, 230, 138, 0.72);
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ============ 推荐问题 ============ */
