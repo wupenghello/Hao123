@@ -32,7 +32,7 @@ import {
   cleanupEmptyAssistant,
   MAX_HISTORY_TOKENS,
 } from './utils'
-import type { ChatMessage, ToolActivity } from './types'
+import type { ChatMessage, ToolActivity, ToolApproval } from './types'
 
 /** agent 循环最大轮数，防止工具调用失控 */
 const MAX_ROUNDS = 5
@@ -46,6 +46,82 @@ const RESULT_PREVIEW_MAX = 800
 function previewResultJson(result: unknown): string {
   const json = JSON.stringify(result)
   return json.length > RESULT_PREVIEW_MAX ? json.slice(0, RESULT_PREVIEW_MAX) + '\n…（已截断，完整结果已带入上下文）' : json
+}
+
+type ApprovalPolicy = Omit<ToolApproval, 'args'>
+
+const APPROVAL_TOOL_LABELS: Record<string, string> = {
+  git__checkout: '切换 Git 分支',
+  git__fetch: 'Fetch 远端',
+  git__pull: 'Pull 远端',
+  git__push: 'Push 到远端',
+  git__add: '暂存 Git 文件',
+  git__commit: '创建 Git 提交',
+  git__branch: '管理 Git 分支',
+  local__create: '新建本地待办',
+  local__update: '修改本地待办',
+  local__complete: '变更本地待办完成状态',
+  local__delete: '删除本地待办',
+  wbscf__launch: '启动本地 dev 服务',
+  claude__launch: '启动 Claude Code',
+}
+
+function approvalPolicy(wireName: string, args: Record<string, unknown>): ApprovalPolicy | null {
+  const label = APPROVAL_TOOL_LABELS[wireName]
+  if (!label) return null
+
+  if (wireName.startsWith('git__')) {
+    return {
+      title: label,
+      description: '这会改变 wbscf-web 仓库状态或远端同步状态。',
+      risk: '执行前请确认当前分支、未提交改动、远端方向和提交内容都符合预期。',
+    }
+  }
+  if (wireName === 'local__delete') {
+    return {
+      title: label,
+      description: `将删除本地待办 ${args.id ? `#${String(args.id)}` : ''}，并清理其附件。`,
+      risk: '删除不可恢复，请确认这不是误删。',
+    }
+  }
+  if (wireName.startsWith('local__')) {
+    return {
+      title: label,
+      description: '这会写入浏览器本地待办数据。',
+      risk: '确认后会立即更新本地清单。',
+    }
+  }
+  if (wireName === 'wbscf__launch') {
+    return {
+      title: label,
+      description: `将启动 ${args.app ? String(args.app) : '指定'} 子应用的本地 dev 服务。`,
+      risk: '可能拉起新的本地进程并占用端口；TodayOps 退出时会尝试清理由它拉起的服务。',
+    }
+  }
+  if (wireName === 'claude__launch') {
+    return {
+      title: label,
+      description: '将在 wbscf-web 根目录打开新的终端窗口并启动 Claude Code。',
+      risk: '新终端由用户自行管理，TodayOps 不会自动关闭该窗口。',
+    }
+  }
+  return {
+    title: label,
+    description: '该动作会改变本地或外部状态。',
+    risk: '请确认后再执行。',
+  }
+}
+
+function pendingApprovalResult(wireName: string, approval: ToolApproval) {
+  return {
+    approvalRequired: true,
+    tool: wireName,
+    title: approval.title,
+    description: approval.description,
+    risk: approval.risk,
+    args: approval.args,
+    note: '该动作需要用户在界面确认后才会执行；当前尚未执行。',
+  }
 }
 
 // ============ 轻量意图分类（本地回答，省 LLM 调用）============
@@ -352,8 +428,16 @@ export const useChatStore = defineStore('chat', () => {
             }
             let result: unknown
             try {
-              result = await callTool(call.function.name, args, signal)
-              activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+              const policy = approvalPolicy(call.function.name, args)
+              if (policy) {
+                const approval: ToolApproval = { ...policy, args }
+                result = pendingApprovalResult(call.function.name, approval)
+                activity.status = 'pending'
+                activity.approval = approval
+              } else {
+                result = await callTool(call.function.name, args, signal)
+                activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+              }
               activity.result = previewResultJson(result)
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
@@ -546,6 +630,107 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function findToolMessageIndex(toolCallId: string, after: number): number {
+    for (let i = after + 1; i < messages.value.length; i++) {
+      if (messages.value[i].role === 'tool' && messages.value[i].tool_call_id === toolCallId) return i
+    }
+    return -1
+  }
+
+  function truncateAfterToolResult(toolMsgIndex: number): void {
+    let lastToolIdx = toolMsgIndex
+    for (let i = toolMsgIndex + 1; i < messages.value.length; i++) {
+      if (messages.value[i].role === 'tool') lastToolIdx = i
+      else break
+    }
+    messages.value = messages.value.slice(0, lastToolIdx + 1)
+  }
+
+  /** 用户确认 pending approval 后，才真正执行工具并把真实结果回灌给模型 */
+  async function approveTool(messageIndex: number, activityIndex: number) {
+    if (streaming.value) return
+    const msg = messages.value[messageIndex]
+    if (!msg?.activities || !msg.tool_calls) return
+    const activity = msg.activities[activityIndex]
+    const toolCall = msg.tool_calls[activityIndex]
+    if (!activity?.approval || !toolCall || activity.status !== 'pending') return
+
+    let args: Record<string, unknown>
+    try {
+      args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {}
+    } catch {
+      activity.status = 'error'
+      activity.result = previewResultJson({ error: '工具参数解析失败，无法执行审批动作' })
+      return
+    }
+
+    activity.approval.decision = 'approved'
+    activity.approval.decidedAt = Date.now()
+    activity.status = 'running'
+    activity.startTime = Date.now()
+    activity.endTime = undefined
+    activity.duration = undefined
+    activity.result = undefined
+
+    abortController?.abort()
+    const approvalController = new AbortController()
+    abortController = approvalController
+    streaming.value = true
+
+    let result: unknown
+    try {
+      result = await callTool(toolCall.function.name, args, approvalController.signal)
+      activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+      activity.result = previewResultJson(result)
+    } catch (e) {
+      result = { error: (e as Error)?.message || '工具执行失败' }
+      activity.status = 'error'
+      activity.result = previewResultJson(result)
+    } finally {
+      activity.endTime = Date.now()
+      activity.duration = activity.endTime - activity.startTime!
+      if (abortController === approvalController) abortController = null
+      streaming.value = false
+    }
+
+    const toolMsgIndex = findToolMessageIndex(toolCall.id, messageIndex)
+    if (toolMsgIndex < 0) return
+    messages.value[toolMsgIndex].content = JSON.stringify(result)
+
+    truncateAfterToolResult(toolMsgIndex)
+    await runAgentLoop()
+  }
+
+  /** 用户拒绝 pending approval：不执行工具，只把拒绝结果回灌给模型 */
+  async function rejectTool(messageIndex: number, activityIndex: number) {
+    if (streaming.value) return
+    const msg = messages.value[messageIndex]
+    if (!msg?.activities || !msg.tool_calls) return
+    const activity = msg.activities[activityIndex]
+    const toolCall = msg.tool_calls[activityIndex]
+    if (!activity?.approval || !toolCall || activity.status !== 'pending') return
+
+    activity.approval.decision = 'rejected'
+    activity.approval.decidedAt = Date.now()
+    activity.status = 'error'
+    activity.endTime = Date.now()
+    activity.duration = activity.startTime ? activity.endTime - activity.startTime : undefined
+
+    const result = {
+      approvalRejected: true,
+      tool: toolCall.function.name,
+      title: activity.approval.title,
+      note: '用户拒绝执行该动作；工具未执行。',
+    }
+    activity.result = previewResultJson(result)
+
+    const toolMsgIndex = findToolMessageIndex(toolCall.id, messageIndex)
+    if (toolMsgIndex < 0) return
+    messages.value[toolMsgIndex].content = JSON.stringify(result)
+    truncateAfterToolResult(toolMsgIndex)
+    await runAgentLoop()
+  }
+
   /**
    * 切换工具活动详情展开/收起
    */
@@ -573,6 +758,8 @@ export const useChatStore = defineStore('chat', () => {
     regenerate,
     rate,
     retryTool,
+    approveTool,
+    rejectTool,
     toggleActivityExpand,
   }
 })

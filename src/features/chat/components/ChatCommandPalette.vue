@@ -601,7 +601,7 @@ function isLastAssistant(idx: number): boolean {
 }
 
 const activityIcon = (s: ToolActivity['status']) =>
-  s === 'running' ? IconLoading : s === 'error' ? IconAlert : IconCheck
+  s === 'running' ? IconLoading : s === 'pending' ? IconAlert : s === 'error' ? IconAlert : IconCheck
 
 // 初始化尺寸监听
 onMounted(() => {
@@ -710,7 +710,7 @@ onUnmounted(() => {
                         v-for="(a, ai) in m.activities"
                         :key="ai"
                         class="cmd-activity cursor-pointer"
-                        :class="[toolColorClass(a.label), a.status, { 'is-error': a.status === 'error', 'is-expanded': a.expanded }]"
+                        :class="[toolColorClass(a.label), a.status, { 'is-error': a.status === 'error', 'is-pending': a.status === 'pending', 'is-expanded': a.expanded }]"
                         @click="store.toggleActivityExpand(i, ai)"
                       >
                         <div class="flex items-center w-full">
@@ -719,6 +719,7 @@ onUnmounted(() => {
                             class="w-3.5 h-3.5 shrink-0"
                             :class="{
                               'animate-spin text-teal-300/80': a.status === 'running',
+                              'text-amber-300/90': a.status === 'pending',
                               'text-emerald-300/80': a.status === 'done',
                               'text-rose-300/80': a.status === 'error',
                             }"
@@ -727,7 +728,8 @@ onUnmounted(() => {
                           <span v-if="a.detail" class="text-white/35 truncate">· {{ a.detail }}</span>
                           <span class="ml-auto text-[10px] text-white/30 shrink-0 flex items-center gap-1">
                             <span v-if="a.status === 'running'">查询中</span>
-                            <span v-else-if="a.status === 'error'">失败</span>
+                            <span v-else-if="a.status === 'pending'" class="text-amber-300/80">待确认</span>
+                            <span v-else-if="a.status === 'error'">{{ a.approval?.decision === 'rejected' ? '已取消' : '失败' }}</span>
                             <template v-else>
                               <span class="text-emerald-300/60">✓</span>
                               <span v-if="a.duration">{{ formatDuration(a.duration) }}</span>
@@ -748,12 +750,42 @@ onUnmounted(() => {
                           </svg>
                           <!-- 重试按钮（失败时显示） -->
                           <button
-                            v-if="a.status === 'error' && !store.streaming"
+                            v-if="a.status === 'error' && !a.approval && !store.streaming"
                             class="ml-2 px-2 py-0.5 text-[10px] text-rose-300/80 bg-rose-400/10 hover:bg-rose-400/20 rounded transition-colors"
                             @click.stop="store.retryTool(i, ai)"
                           >
                             重试
                           </button>
+                        </div>
+
+                        <!-- 产品级审批卡：危险工具只有用户确认后才真正执行 -->
+                        <div v-if="a.status === 'pending' && a.approval" class="cmd-approval" @click.stop>
+                          <div class="cmd-approval-head">
+                            <span class="cmd-approval-kicker">需要确认</span>
+                            <strong>{{ a.approval.title }}</strong>
+                          </div>
+                          <p class="cmd-approval-desc">{{ a.approval.description }}</p>
+                          <p class="cmd-approval-risk">{{ a.approval.risk }}</p>
+                          <details class="cmd-approval-args">
+                            <summary>查看参数</summary>
+                            <pre>{{ JSON.stringify(a.approval.args, null, 2) }}</pre>
+                          </details>
+                          <div class="cmd-approval-actions">
+                            <button
+                              class="cmd-approval-btn is-cancel"
+                              :disabled="store.streaming"
+                              @click="store.rejectTool(i, ai)"
+                            >
+                              取消
+                            </button>
+                            <button
+                              class="cmd-approval-btn is-confirm"
+                              :disabled="store.streaming"
+                              @click="store.approveTool(i, ai)"
+                            >
+                              确认执行
+                            </button>
+                          </div>
                         </div>
 
                         <!-- 展开的结果预览 -->
@@ -1339,6 +1371,103 @@ onUnmounted(() => {
   border-color: rgba(244, 63, 94, 0.2);
   border-left-color: rgba(244, 63, 94, 0.5);
 }
+.cmd-activity.is-pending {
+  display: block;
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.24);
+  border-left-color: rgba(251, 191, 36, 0.62);
+}
+.cmd-approval {
+  margin-top: 9px;
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(2, 6, 23, 0.34);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+}
+.cmd-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cmd-approval-head strong {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.cmd-approval-kicker {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 650;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.14);
+}
+.cmd-approval-desc,
+.cmd-approval-risk {
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.cmd-approval-desc {
+  color: rgba(255, 255, 255, 0.66);
+}
+.cmd-approval-risk {
+  color: rgba(253, 230, 138, 0.86);
+}
+.cmd-approval-args {
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.cmd-approval-args summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.cmd-approval-args pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 140px;
+  overflow: auto;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.68);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cmd-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cmd-approval-btn {
+  height: 27px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+.cmd-approval-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cmd-approval-btn.is-cancel {
+  color: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.07);
+}
+.cmd-approval-btn.is-cancel:hover:not(:disabled) {
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.11);
+}
+.cmd-approval-btn.is-confirm {
+  color: #fff7ed;
+  background: rgba(245, 158, 11, 0.72);
+}
+.cmd-approval-btn.is-confirm:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.9);
+}
 /* 工具类型色标 + 左侧色条强化 */
 .cmd-activity.tool-weather {
   background: rgba(56, 189, 248, 0.1);
@@ -1379,6 +1508,11 @@ onUnmounted(() => {
 }
 .cmd-activity.tool-local :deep(.animate-spin) {
   color: rgba(94, 234, 212, 0.9) !important;
+}
+.cmd-activity.is-pending {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.24);
+  border-left-color: rgba(251, 191, 36, 0.62);
 }
 
 /* ============ 消息操作 ============ */
