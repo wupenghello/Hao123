@@ -106,8 +106,8 @@ function detailBug(b: ZentaoBug) {
 
 const taskTypeProp = {
   type: 'string',
-  enum: ['finishedBy', 'assignedTo', 'openedBy'],
-  description: '任务维度：finishedBy（由我完成，默认）/ assignedTo（指派给我）/ openedBy（由我创建）',
+  enum: ['assignedTo', 'finishedBy', 'openedBy'],
+  description: '任务维度：assignedTo（指派给我，默认）/ finishedBy（由我完成）/ openedBy（由我创建）',
 }
 const bugTypeProp = {
   type: 'string',
@@ -121,9 +121,9 @@ type TaskType = 'finishedBy' | 'assignedTo' | 'openedBy'
 type BugType = 'resolvedBy' | 'assignedTo' | 'openedBy'
 
 function pickTaskType(t: unknown): TaskType {
-  return (['finishedBy', 'assignedTo', 'openedBy'] as string[]).includes(t as string)
+  return (['assignedTo', 'finishedBy', 'openedBy'] as string[]).includes(t as string)
     ? (t as TaskType)
-    : 'finishedBy'
+    : 'assignedTo'
 }
 function pickBugType(t: unknown): BugType {
   return (['resolvedBy', 'assignedTo', 'openedBy'] as string[]).includes(t as string)

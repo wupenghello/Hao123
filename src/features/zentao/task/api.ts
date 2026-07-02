@@ -9,6 +9,26 @@ import { request, toArray, ZentaoApiError, type RequestOptions } from '../shared
 import { ZENTAO_MOCK, mockMyTasks, mockTaskDetail } from '../shared/mock'
 import type { ZentaoTask, MyTaskData, TaskDetailData } from './types'
 
+function isTask(v: unknown): v is ZentaoTask {
+  return !!v && typeof v === 'object' && 'id' in v && 'name' in v
+}
+
+function normalizeTaskList(v: unknown): ZentaoTask[] {
+  return toArray<ZentaoTask>(v as Record<string, ZentaoTask> | ZentaoTask[] | undefined).filter(isTask)
+}
+
+function extractTasks(data: unknown): ZentaoTask[] {
+  const payload = data as MyTaskData & {
+    taskStats?: Record<string, ZentaoTask> | ZentaoTask[]
+    taskList?: Record<string, ZentaoTask> | ZentaoTask[]
+  }
+  for (const key of ['tasks', 'taskStats', 'taskList'] as const) {
+    const list = normalizeTaskList(payload?.[key])
+    if (list.length) return list
+  }
+  return normalizeTaskList(data)
+}
+
 export const taskApi = {
   /**
    * 我的任务 my-task-<type>-<orderBy>-<pageID>-<recPerPage>（PATH_INFO）
@@ -20,13 +40,13 @@ export const taskApi = {
    */
   async myTasks(
     sid: string,
-    status: 'assignedTo' | 'openedBy' | 'finishedBy' = 'finishedBy',
+    status: 'assignedTo' | 'openedBy' | 'finishedBy' = 'assignedTo',
     limit = 200,
     opts?: RequestOptions,
   ): Promise<ZentaoTask[]> {
     if (ZENTAO_MOCK) return mockMyTasks(status)
     const env = await request(`my-task-${status}-id_desc-1-${limit}`, sid, {}, opts)
-    return toArray<ZentaoTask>((env.data as MyTaskData)?.tasks)
+    return extractTasks(env.data)
   },
 
   /**

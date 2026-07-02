@@ -78,6 +78,10 @@ export interface ZentaoTask {
  */
 export interface MyTaskData {
   tasks?: Record<string, ZentaoTask> | ZentaoTask[]
+  /** 部分禅道版本的 my-task 列表字段名 */
+  taskStats?: Record<string, ZentaoTask> | ZentaoTask[]
+  /** 兼容少数二次封装后的任务列表字段名 */
+  taskList?: Record<string, ZentaoTask> | ZentaoTask[]
   pager?: import('../shared/types').ZentaoPager
 }
 

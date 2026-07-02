@@ -37,8 +37,7 @@ export const useTaskStore = defineStore('zentao-task', () => {
   let detailAbort: AbortController | null = null
 
   /**
-   * 拉取「我的任务」。
-   * 任务取「由我完成」(finishedBy)——该账号 assignedTo 维度通常为空，这个维度才有数据。
+   * 拉取「我的任务」面板列表：默认就是禅道「指派给我」维度。
    * 显式给大分页（默认仅首页 20 条），确保数量与列表完整。
    */
   async function load() {
@@ -52,11 +51,13 @@ export const useTaskStore = defineStore('zentao-task', () => {
 
     try {
       const result = await session.withSession(
-        (sid) => taskApi.myTasks(sid, 'finishedBy', 200, { signal }),
+        (sid) => taskApi.myTasks(sid, 'assignedTo', 200, { signal }),
         signal,
       )
       if (signal.aborted) return
       tasks.value = result
+      assigned.value = result
+      assignedError.value = null
       // 列表刷新后清空详情缓存，避免重开详情时拿到刷新前的陈旧数据
       detailCache.clear()
     } catch (e) {
@@ -88,7 +89,7 @@ export const useTaskStore = defineStore('zentao-task', () => {
 
   /**
    * 拉取「指派给我」(assignedTo) 的任务，供首页待办提醒展示。
-   * 与 load()（finishedBy 维度）相互独立，各用各的 abortController 与状态，互不覆盖。
+   * 与 load() 各用各的 abortController 与状态，避免组件卸载/刷新时互相误中止。
    */
   async function loadAssigned() {
     assignedAbort?.abort()
@@ -106,6 +107,8 @@ export const useTaskStore = defineStore('zentao-task', () => {
       )
       if (signal.aborted) return
       assigned.value = result
+      tasks.value = result
+      error.value = null
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return
       assignedError.value = session.toMessage(e, '任务加载失败')

@@ -140,6 +140,18 @@ export async function request(
       // 不是 JSON 字符串就原样保留（极少数纯文本场景）
     }
   }
+
+  // 已登录态失效时，部分禅道版本不会返回 failed / 401，而是返回：
+  // { status: 'success', data: '{"locate":".../user-login-xxx.json"}' }
+  // 这其实是业务请求被引导去登录页，不能当作空列表解析，否则前端会误显示「没有数据」。
+  const locate =
+    env.data && typeof env.data === 'object'
+      ? (env.data as { locate?: unknown }).locate
+      : undefined
+  if (route !== 'user-login' && typeof locate === 'string' && /user-login/i.test(locate)) {
+    throw new ZentaoApiError('auth', '禅道会话已失效，正在重新登录')
+  }
+
   return env
 }
 

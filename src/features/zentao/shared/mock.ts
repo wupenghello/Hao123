@@ -167,8 +167,8 @@ const bugById = new Map(MOCK_BUGS.map((b) => [String(b.id), b]))
 
 /**
  * 假「我的任务」列表。
- * 演示数据对所有维度（finishedBy/assignedTo/openedBy）都返回同一批，
- * 避免「首页待办（assignedTo）有数据、但对话默认查 finishedBy 返回空」的不一致，
+ * 演示数据对所有维度（assignedTo/finishedBy/openedBy）都返回同一批，
+ * 避免不同入口切换维度时出现演示数据不一致，
  * 让演示在任意维度下都有一致可见的数据。
  */
 export function mockMyTasks(_type: string): ZentaoTask[] {
