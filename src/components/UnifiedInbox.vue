@@ -11,7 +11,7 @@
  * 数据来源：禅道（task/bug store 的 assigned 维度，配置后才加载）+ 本地（localStorage，始终可用）。
  * 未配置禅道时，本地待办即清单主角；两者都空时给清闲空态 + 创建入口。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/features/zentao'
 import {
   priorityBadge as ztPri,
@@ -37,10 +37,12 @@ import {
   buildInboxItemActionFlowPrompt,
   buildInboxPlanActionFlowPrompt,
   buildInsightActionFlowPrompt,
+  gitEnabled,
   useChatStore,
   useInboxInsight,
 } from '@/features/chat'
 import type { ActionFlowItem } from '@/features/chat'
+import { useWeatherStore } from '@/features/weather'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
 import IconCircle from '~icons/mdi/circle-outline'
@@ -55,10 +57,12 @@ import IconCalendarClock from '~icons/mdi/calendar-clock-outline'
 import IconPause from '~icons/mdi/pause-circle-outline'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
+import IconInfo from '~icons/mdi/information-outline'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
+const weather = useWeatherStore()
 /** 小吴的「风险预测」——对收件箱工作项做启发式预测（逾期 / 临期 / 停滞）+ 汇总成状态条 */
 const { predictions, summary } = useInboxInsights()
 /** 小吴的「洞察」——检测到的模式 + LLM 解读（驱动「小吴的洞察」卡） */
@@ -142,6 +146,126 @@ const urgentCount = computed(
 )
 const total = computed(() => items.value.length)
 const isEmpty = computed(() => !loading.value && total.value === 0 && localStore.doneCount === 0)
+
+// ============ 信任面板：把「为什么这么排」产品化，而不是藏在 tooltip 里 ============
+const trustOpen = ref(false)
+const trustUpdatedAt = ref(Date.now())
+
+watch(
+  [
+    total,
+    urgentCount,
+    () => summary.value.overdue,
+    () => summary.value.dueSoon,
+    () => summary.value.stalled,
+    () => taskStore.assignedLoading,
+    () => bugStore.assignedLoading,
+    () => taskStore.assignedError,
+    () => bugStore.assignedError,
+    () => localStore.openCount,
+    () => weather.now?.obsTime,
+    () => weather.error,
+  ],
+  () => {
+    trustUpdatedAt.value = Date.now()
+  },
+)
+
+function trustTime(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+type TrustTone = 'ok' | 'warn' | 'error' | 'idle'
+interface TrustSource {
+  label: string
+  status: string
+  tone: TrustTone
+  detail: string
+  unavailable?: boolean
+}
+
+const trustSources = computed<TrustSource[]>(() => {
+  const zentaoLoading = taskStore.assignedLoading || bugStore.assignedLoading
+  const zentaoError = taskStore.assignedError || bugStore.assignedError
+  const zentao: TrustSource = !zentaoConfigured.value
+    ? {
+        label: '禅道',
+        status: '未配置',
+        tone: 'warn',
+        detail: '任务 / Bug 不参与当前收件箱排序。',
+        unavailable: true,
+      }
+    : zentaoLoading
+      ? {
+          label: '禅道',
+          status: '同步中',
+          tone: 'idle',
+          detail: '正在拉取指派给我的任务和 Bug。',
+        }
+      : zentaoError
+        ? {
+            label: '禅道',
+            status: '异常',
+            tone: 'error',
+            detail: zentaoError,
+            unavailable: true,
+          }
+        : {
+            label: '禅道',
+            status: '已接入',
+            tone: 'ok',
+            detail: `${taskStore.assignedCount} 个任务 · ${bugStore.assignedCount} 个 Bug 参与排序。`,
+          }
+
+  const local: TrustSource = {
+    label: '本地待办',
+    status: '已接入',
+    tone: 'ok',
+    detail: `${localStore.openCount} 个未完成 · ${localStore.doneCount} 个已完成；未完成项参与排序。`,
+  }
+
+  const weatherSource: TrustSource = weather.loading || weather.locating
+    ? {
+        label: '天气',
+        status: '同步中',
+        tone: 'idle',
+        detail: '天气用于晨报和节奏建议，不改变收件箱风险排序。',
+      }
+    : weather.now
+      ? {
+          label: '天气',
+          status: '已接入',
+          tone: 'ok',
+          detail: `${weather.cityName || '当前城市'} · ${weather.now.text} ${weather.now.temp}°C；用于晨报和节奏建议。`,
+        }
+      : {
+          label: '天气',
+          status: weather.error ? '异常' : '未就绪',
+          tone: weather.error ? 'error' : 'warn',
+          detail: weather.error || '天气暂不可用；不影响收件箱排序。',
+          unavailable: true,
+        }
+
+  const git: TrustSource = gitEnabled
+    ? {
+        label: 'Git',
+        status: '可用',
+        tone: 'ok',
+        detail: '用于仓库健康、diff 解释和 Git 助手能力；不改变收件箱排序。',
+      }
+    : {
+        label: 'Git',
+        status: '未启用',
+        tone: 'warn',
+        detail: '需要 dev 环境并配置 VITE_WBSCF_WEB_ROOT；当前不参与 AI 上下文。',
+        unavailable: true,
+      }
+
+  return [zentao, local, weatherSource, git]
+})
+
+const unavailableSources = computed(() => trustSources.value.filter((s) => s.unavailable))
 
 /** 行点击：禅道项打开详情；本地项不在整行绑定点击（标题/圆点各有自己的交互） */
 function onRowClick(it: InboxItem) {
@@ -509,10 +633,68 @@ onUnmounted(() => {
           <span v-if="summary.stalled" class="is-stall">{{ summary.stalled }} 停滞</span>
         </span>
         <span class="zt-insight-head">{{ summary.headline }}</span>
-        <span v-if="chat.configured" class="zt-insight-go">让小吴排一下 →</span>
       </template>
       <span v-else class="zt-insight-head">一切平稳，没有需要紧急处理的，按自己的节奏来。</span>
+      <button
+        class="zt-trust-toggle"
+        :class="{ 'is-open': trustOpen }"
+        title="查看数据来源、判断规则和不可用项"
+        @click.stop="trustOpen = !trustOpen"
+      >
+        <IconInfo class="w-3.5 h-3.5" />
+        <span>为什么这么排</span>
+        <span class="zt-trust-chev">▾</span>
+      </button>
+      <span v-if="chat.configured" class="zt-insight-go">让小吴排一下 →</span>
     </div>
+
+    <!-- 信任面板：显式解释排序依据，避免 AI 判断像黑箱 -->
+    <section v-if="trustOpen && total > 0" class="zt-trust" aria-label="为什么这么排">
+      <header class="zt-trust-head">
+        <div>
+          <p class="zt-trust-kicker">排序透明度</p>
+          <h3 class="zt-trust-title">为什么这么排</h3>
+        </div>
+        <span class="zt-trust-time">最近更新 {{ trustTime(trustUpdatedAt) }}</span>
+      </header>
+
+      <div class="zt-trust-grid">
+        <div class="zt-trust-block">
+          <p class="zt-trust-label">数据来源</p>
+          <ul class="zt-trust-sources">
+            <li v-for="source in trustSources" :key="source.label" class="zt-trust-source">
+              <span class="zt-trust-dot" :class="`is-${source.tone}`" />
+              <div class="min-w-0">
+                <div class="zt-trust-source-line">
+                  <span class="zt-trust-source-name">{{ source.label }}</span>
+                  <span class="zt-trust-source-status" :class="`is-${source.tone}`">{{ source.status }}</span>
+                </div>
+                <p class="zt-trust-source-detail">{{ source.detail }}</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="zt-trust-block">
+          <p class="zt-trust-label">判断规则</p>
+          <ul class="zt-trust-rules">
+            <li><strong>逾期</strong><span>截止日早于今天，优先级最高。</span></li>
+            <li><strong>临期</strong><span>今天或明天到期，排在普通项前。</span></li>
+            <li><strong>停滞</strong><span>未推进状态、至少 5 天未变动，且值得提醒。</span></li>
+            <li><strong>主排序</strong><span>紧急 → 优先级 → 截止日期；需求线只负责把相关项连起来。</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="zt-trust-foot">
+        <span class="zt-trust-current">
+          当前命中：{{ summary.overdue }} 逾期 · {{ summary.dueSoon }} 临期 · {{ summary.stalled }} 停滞
+        </span>
+        <span class="zt-trust-missing">
+          不可用：{{ unavailableSources.length ? unavailableSources.map((s) => s.label).join('、') : '暂无' }}
+        </span>
+      </div>
+    </section>
 
     <!-- 小吴的洞察：检测到值得说的模式时主动开口（LLM 解读 / 未配置走检测模板） -->
     <div v-if="insights.length" class="zt-ic">
@@ -1052,6 +1234,173 @@ onUnmounted(() => {
 .zt-insight-stats .is-stall { color: #c4b5fd; background: rgba(139, 92, 246, 0.1); }
 .zt-insight-head { color: rgba(255, 255, 255, 0.55); }
 .zt-insight-go { margin-left: auto; color: #a5b4fc; flex-shrink: 0; }
+.zt-trust-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: rgba(199, 210, 254, 0.82);
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(165, 180, 252, 0.16);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.zt-trust-toggle:hover,
+.zt-trust-toggle.is-open {
+  color: #e0e7ff;
+  background: rgba(129, 140, 248, 0.18);
+  border-color: rgba(165, 180, 252, 0.3);
+}
+.zt-trust-chev {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.42);
+  transition: transform 0.15s;
+}
+.zt-trust-toggle.is-open .zt-trust-chev { transform: rotate(180deg); }
+
+/* 「为什么这么排」信任面板：把 AI 判断依据显式产品化 */
+.zt-trust {
+  padding: 13px 16px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(120deg, rgba(2, 6, 23, 0.42), rgba(15, 23, 42, 0.22)),
+    linear-gradient(90deg, rgba(165, 180, 252, 0.07), rgba(45, 212, 191, 0.04));
+}
+.zt-trust-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.zt-trust-kicker {
+  margin: 0 0 2px;
+  font-family: var(--hud-font-data);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(165, 180, 252, 0.64);
+}
+.zt-trust-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.9);
+}
+.zt-trust-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.zt-trust-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 12px;
+}
+.zt-trust-block {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  background: rgba(2, 6, 23, 0.24);
+}
+.zt-trust-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+}
+.zt-trust-sources,
+.zt-trust-rules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.zt-trust-source {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.zt-trust-source + .zt-trust-source {
+  margin-top: 9px;
+}
+.zt-trust-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.72);
+}
+.zt-trust-dot.is-ok { background: #34d399; box-shadow: 0 0 8px rgba(52, 211, 153, 0.5); }
+.zt-trust-dot.is-warn { background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.42); }
+.zt-trust-dot.is-error { background: #fb7185; box-shadow: 0 0 8px rgba(251, 113, 133, 0.45); }
+.zt-trust-dot.is-idle { background: #38bdf8; box-shadow: 0 0 8px rgba(56, 189, 248, 0.42); }
+.zt-trust-source-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.zt-trust-source-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+}
+.zt-trust-source-status {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: rgba(148, 163, 184, 0.12);
+  color: rgba(226, 232, 240, 0.68);
+}
+.zt-trust-source-status.is-ok { color: #86efac; background: rgba(34, 197, 94, 0.12); }
+.zt-trust-source-status.is-warn { color: #fde68a; background: rgba(251, 191, 36, 0.12); }
+.zt-trust-source-status.is-error { color: #fda4af; background: rgba(244, 63, 94, 0.13); }
+.zt-trust-source-status.is-idle { color: #7dd3fc; background: rgba(56, 189, 248, 0.12); }
+.zt-trust-source-detail {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.48);
+}
+.zt-trust-rules li {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.zt-trust-rules li + li {
+  margin-top: 7px;
+}
+.zt-trust-rules strong {
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 650;
+}
+.zt-trust-rules span {
+  color: rgba(255, 255, 255, 0.52);
+}
+.zt-trust-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+.zt-trust-current {
+  color: rgba(226, 232, 240, 0.62);
+}
+.zt-trust-missing {
+  color: rgba(251, 191, 36, 0.76);
+}
 
 /* 「小吴的洞察」卡：LLM 主动开口的深度发现（与状态条同语言，更突出） */
 .zt-ic {
@@ -1321,6 +1670,9 @@ onUnmounted(() => {
   .zt-tabs,
   .zt-head-actions {
     justify-content: flex-start;
+  }
+  .zt-trust-grid {
+    grid-template-columns: 1fr;
   }
 }
 @media (prefers-reduced-motion: reduce) {
