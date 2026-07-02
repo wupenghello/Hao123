@@ -16,7 +16,7 @@
  */
 import { onMounted, onUnmounted, ref } from 'vue'
 import type { WbscfServiceStatus } from './types'
-import { fetchWbscfServices, wbscfLaunchUrl } from './api'
+import { fetchWbscfReady, fetchWbscfServices, wbscfLaunchUrl } from './api'
 import { wbscfServices } from './config'
 import { LAUNCH_TIMEOUT_MS } from './llm-tools'
 
@@ -106,10 +106,16 @@ export function useWbscfServices() {
       await refresh()
       const s = statusOf(app)
       if (s?.running) {
-        upsertToast(app, 'ready')
-        dismissToast(app, READY_DISMISS_MS)
-        stopLaunchPoll(app)
-        return
+        try {
+          if (await fetchWbscfReady(app)) {
+            upsertToast(app, 'ready')
+            dismissToast(app, READY_DISMISS_MS)
+            stopLaunchPoll(app)
+            return
+          }
+        } catch {
+          /* ready 端点抖动时继续轮询 */
+        }
       }
       if (Date.now() - startedAt > LAUNCH_TIMEOUT_MS) {
         upsertToast(app, 'failed')

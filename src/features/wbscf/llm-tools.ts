@@ -13,7 +13,7 @@
  * 模型据此说明「当前不可用」而非收到一条报错。
  */
 import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
-import { fetchWbscfServices, triggerWbscfLaunch } from './api'
+import { fetchWbscfReady, fetchWbscfServices, triggerWbscfLaunch } from './api'
 import type { WbscfServicesResponse } from './types'
 
 /** fetchWbscfServices 在生产（无 dev server，/wbscf/services 404）会抛错；
@@ -129,7 +129,13 @@ const launchTool: LlmTool<{ app: string; signal?: AbortSignal }, unknown> = {
     }
     const before = resp.services.find((s) => s.app === app)
     if (before?.running) {
-      return { enabled: true, action: 'already_running', ...pickServices(resp, app)[0] }
+      try {
+        if (await fetchWbscfReady(app)) {
+          return { enabled: true, action: 'already_running', ...pickServices(resp, app)[0] }
+        }
+      } catch {
+        // ready 端点抖动时继续走拉起路径；ensureStarted 幂等，不会重复启动。
+      }
     }
     if (before && !before.available) {
       return {
@@ -157,7 +163,13 @@ const launchTool: LlmTool<{ app: string; signal?: AbortSignal }, unknown> = {
       if (resp.enabled) {
         const cur = resp.services.find((s) => s.app === app)
         if (cur?.running) {
-          return { enabled: true, action: 'started', ...pickServices(resp, app)[0] }
+          try {
+            if (await fetchWbscfReady(app)) {
+              return { enabled: true, action: 'started', ...pickServices(resp, app)[0] }
+            }
+          } catch {
+            // ready 探测失败时继续轮询到超时，由超时信息引导看终端日志。
+          }
         }
       }
     }
