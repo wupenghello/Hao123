@@ -161,6 +161,7 @@ export type GitAction =
   | 'revert'
   // 标签
   | 'tag-create'
+  | 'tag-update'
   | 'tag-delete'
   | 'tag-delete-remote'
 

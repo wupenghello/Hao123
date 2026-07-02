@@ -51,6 +51,7 @@ import IconReflog from '~icons/mdi/clock-outline'
 import IconBlame from '~icons/mdi/account-eye-outline'
 import IconInfo from '~icons/mdi/information-outline'
 import IconCopy from '~icons/mdi/content-copy'
+import IconEdit from '~icons/mdi/pencil-outline'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
@@ -189,15 +190,24 @@ const newTagRef = ref('')
 /** 附注（true，推荐发版用）/ 轻量（false，仅 bookmark） */
 const newTagAnnotated = ref(true)
 
-const tagNameError = computed(() => {
-  const name = newTagName.value.trim()
+const editingTagOriginalName = ref('')
+const editTagName = ref('')
+const editTagMessage = ref('')
+const editTagRef = ref('')
+const editTagAnnotated = ref(true)
+const editTagWasRemote = ref(false)
+
+function validateTagName(name: string, currentName = ''): string {
   if (!name) return ''
   if (name.startsWith('-')) return '标签名不能以 - 开头'
   if (/[\s~^:?*\[\]\\]/.test(name)) return '标签名含非法字符（空格 / ~ ^ : ? * [ ] \\）'
   if (name.includes('..')) return '标签名不能包含 ..'
-  if (dash.tags.value.some((t) => t.name === name)) return `标签 ${name} 已存在`
+  if (dash.tags.value.some((t) => t.name === name && t.name !== currentName)) return `标签 ${name} 已存在`
   return ''
-})
+}
+
+const tagNameError = computed(() => validateTagName(newTagName.value.trim()))
+const editTagNameError = computed(() => validateTagName(editTagName.value.trim(), editingTagOriginalName.value))
 
 const canSubmitTag = computed(() => {
   const name = newTagName.value.trim()
@@ -207,13 +217,34 @@ const canSubmitTag = computed(() => {
   return true
 })
 
+const canSubmitEditTag = computed(() => {
+  const name = editTagName.value.trim()
+  if (!editingTagOriginalName.value || !name || editTagNameError.value) return false
+  if (editTagAnnotated.value && !editTagMessage.value.trim()) return false
+  return true
+})
+
+function clearNewTagForm() {
+  newTagName.value = ''
+  newTagMessage.value = ''
+  newTagRef.value = ''
+  newTagAnnotated.value = true
+}
+
+function cancelEditTag() {
+  editingTagOriginalName.value = ''
+  editTagName.value = ''
+  editTagMessage.value = ''
+  editTagRef.value = ''
+  editTagAnnotated.value = true
+  editTagWasRemote.value = false
+}
+
 function toggleCreateTag() {
   showCreateTag.value = !showCreateTag.value
+  if (showCreateTag.value) cancelEditTag()
   if (!showCreateTag.value) {
-    newTagName.value = ''
-    newTagMessage.value = ''
-    newTagRef.value = ''
-    newTagAnnotated.value = true
+    clearNewTagForm()
   }
 }
 
@@ -225,10 +256,44 @@ async function submitCreateTag() {
     ref: newTagRef.value.trim() || undefined,
   })
   showCreateTag.value = false
-  newTagName.value = ''
-  newTagMessage.value = ''
-  newTagRef.value = ''
-  newTagAnnotated.value = true
+  clearNewTagForm()
+}
+
+function startEditTag(t: GitTag) {
+  showCreateTag.value = false
+  clearNewTagForm()
+  editingTagOriginalName.value = t.name
+  editTagName.value = t.name
+  editTagMessage.value = t.message || ''
+  editTagRef.value = ''
+  editTagAnnotated.value = !!t.annotated
+  editTagWasRemote.value = !!t.onRemote
+}
+
+function submitEditTag() {
+  if (!gitReady.value || !canSubmitEditTag.value) return
+  const oldName = editingTagOriginalName.value
+  const name = editTagName.value.trim()
+  const remoteWarning = editTagWasRemote.value
+    ? '<br><span class="text-amber-300/90 text-[12px]">⚠ 该标签已同步到远端。本操作只会更新本地标签；如果要让远端一致，需要删除远端旧标签后再推送新标签。</span>'
+    : ''
+  requestConfirm({
+    message: `更新标签 <span class="gd-mono text-violet-300">${esc(oldName)}</span>${
+      oldName === name ? '' : ` → <span class="gd-mono text-teal-300">${esc(name)}</span>`
+    }？<br><span class="text-white/45 text-[12px]">Git 标签不可原地编辑，这会在本地重建标签并保留当前指向（除非你选择了新的提交）。</span>${remoteWarning}`,
+    confirmLabel: '更新标签',
+    onConfirm: async () => {
+      const result = await dash.doUpdateTag(oldName, {
+        name,
+        message: editTagAnnotated.value ? editTagMessage.value.trim() || undefined : undefined,
+        ref: editTagRef.value.trim() || undefined,
+      })
+      if (result.success) {
+        if (expandedTag.value === oldName) expandedTag.value = name
+        cancelEditTag()
+      }
+    },
+  })
 }
 
 // ─── 标签详情（点行展开）────────────────────────────
@@ -1266,6 +1331,7 @@ watch(
       showCreateBranch.value = false
       showMergeForm.value = false
       showCreateTag.value = false
+      cancelEditTag()
       showStashForm.value = false
       showResetForm.value = false
       showReflog.value = false
@@ -2371,6 +2437,14 @@ function onBackdropClick() {
                         <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
                         <div class="gd-row-actions">
                           <button
+                            class="gd-mini-btn"
+                            title="编辑此标签"
+                            :aria-label="`编辑标签 ${t.name}`"
+                            @click.stop="startEditTag(t)"
+                          >
+                            <IconEdit class="w-3 h-3" />
+                          </button>
+                          <button
                             v-if="!t.onRemote"
                             class="gd-mini-btn"
                             title="推送此标签到远端"
@@ -2401,6 +2475,84 @@ function onBackdropClick() {
                           :class="{ 'rotate-90 text-teal-400/60': expandedTag === t.name }"
                         />
                       </div>
+
+                      <Transition
+                        enter-active-class="transition-all duration-200"
+                        leave-active-class="transition-all duration-150"
+                        enter-from-class="opacity-0 -translate-y-2"
+                        leave-to-class="opacity-0 -translate-y-2"
+                      >
+                        <div
+                          v-if="editingTagOriginalName === t.name && !isTagRowHidden(t.name)"
+                          class="gd-inline-form gd-tag-create gd-tag-edit mb-2"
+                        >
+                          <div class="gd-form-field">
+                            <span class="gd-field-label">类型</span>
+                            <div class="gd-seg-group">
+                              <button
+                                type="button"
+                                class="gd-seg"
+                                :class="{ active: editTagAnnotated }"
+                                @click="editTagAnnotated = true"
+                              >附注标签</button>
+                              <button
+                                type="button"
+                                class="gd-seg"
+                                :class="{ active: !editTagAnnotated }"
+                                @click="editTagAnnotated = false"
+                              >轻量标签</button>
+                            </div>
+                            <span class="gd-field-hint">编辑会重建本地标签；已推送标签需要另行处理远端旧标签。</span>
+                          </div>
+
+                          <div class="gd-form-field">
+                            <span class="gd-field-label">标签名 *</span>
+                            <input
+                              v-model="editTagName"
+                              type="text"
+                              class="gd-input"
+                              @keydown.enter="submitEditTag"
+                            />
+                            <span v-if="editTagNameError" class="gd-field-hint danger">{{ editTagNameError }}</span>
+                            <span v-else class="gd-field-hint ok">可用</span>
+                          </div>
+
+                          <div class="gd-form-field">
+                            <span class="gd-field-label">指向</span>
+                            <select v-model="editTagRef" class="gd-input">
+                              <option value="">保持当前指向</option>
+                              <option v-for="c in dash.commits.value" :key="c.fullHash" :value="c.hash">
+                                {{ c.hash }} · {{ c.message.slice(0, 48) }}
+                              </option>
+                            </select>
+                            <span class="gd-field-hint">不选择时保持此标签当前指向；也可以改到最近 {{ dash.commits.value.length }} 条提交中的一条。</span>
+                          </div>
+
+                          <div v-if="editTagAnnotated" class="gd-form-field">
+                            <span class="gd-field-label">发版说明 *</span>
+                            <textarea
+                              v-model="editTagMessage"
+                              class="gd-input gd-textarea"
+                              rows="3"
+                              placeholder="更新此附注标签的说明（Ctrl+Enter 提交）"
+                              @keydown.ctrl.enter="submitEditTag"
+                              @keydown.meta.enter="submitEditTag"
+                            />
+                          </div>
+
+                          <div
+                            v-if="editTagWasRemote"
+                            class="gd-field-hint danger"
+                          >
+                            此标签已在远端存在；更新只影响本地。同步远端时需要删除旧远端标签，再推送更新后的标签。
+                          </div>
+
+                          <div class="flex items-center justify-end gap-2 mt-1">
+                            <button class="gd-confirm-btn ok" :disabled="!canSubmitEditTag" @click="submitEditTag">更新标签</button>
+                            <button class="gd-confirm-btn cancel" @click="cancelEditTag">取消</button>
+                          </div>
+                        </div>
+                      </Transition>
 
                       <!-- 标签详情：metadata + 自上一 tag 以来的提交 + 操作栏 -->
                       <div v-if="expandedTag === t.name && !isTagRowHidden(t.name)" class="gd-tag-detail">
@@ -2480,6 +2632,14 @@ function onBackdropClick() {
                             >
                               <IconUpload class="w-3 h-3" />
                               推送
+                            </button>
+                            <button
+                              class="gd-confirm-btn ok ghost"
+                              title="编辑此标签"
+                              @click="startEditTag(t)"
+                            >
+                              <IconEdit class="w-3 h-3" />
+                              编辑
                             </button>
                             <button
                               class="gd-confirm-btn ok ghost"

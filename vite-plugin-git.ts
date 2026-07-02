@@ -733,6 +733,73 @@ async function doAction(
         r = await git(cwd, args)
         break
       }
+      case 'tag-update': {
+        const oldName = params.oldName
+        const name = params.name || oldName
+        if (!oldName) return { success: false, message: '', error: '未指定原标签名' }
+        if (!name) return { success: false, message: '', error: '未指定标签名' }
+        assertSafeRef(oldName, '原标签名')
+        assertSafeRef(name, '标签名')
+
+        const target = params.ref || (await git(cwd, ['rev-parse', `${oldName}^{}`])).stdout.trim()
+        if (!target) return { success: false, message: '', error: `无法读取标签 ${oldName} 的指向` }
+        assertSafeRef(target, '标签 ref')
+
+        if (name !== oldName) {
+          const existing = await git(cwd, ['rev-parse', '--verify', '--quiet', `refs/tags/${name}`])
+          if (existing.status === 0) {
+            return { success: false, message: '', error: `标签 ${name} 已存在` }
+          }
+        }
+
+        const args = ['tag']
+        if (name === oldName) args.push('-f')
+        if (params.message) {
+          args.push('-a', name, '-m', params.message)
+        } else {
+          args.push(name)
+        }
+        args.push(target)
+
+        const createResult = await git(cwd, args)
+        if (createResult.status !== 0 || name === oldName) {
+          r = createResult
+          break
+        }
+
+        const deleteResult = await git(cwd, ['tag', '-d', oldName])
+        if (deleteResult.status !== 0) {
+          const rollbackResult = await git(cwd, ['tag', '-d', name])
+          r = {
+            status: deleteResult.status,
+            stdout: [createResult.stdout.trim(), deleteResult.stdout.trim(), rollbackResult.stdout.trim()]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: [
+              createResult.stderr.trim(),
+              deleteResult.stderr.trim(),
+              rollbackResult.status === 0
+                ? `已回滚新标签 ${name}`
+                : `删除旧标签失败，且新标签 ${name} 回滚失败：${rollbackResult.stderr.trim() || rollbackResult.stdout.trim()}`,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          }
+          if (rollbackResult.status !== 0) invalidateOverview()
+          break
+        }
+
+        r = {
+          status: 0,
+          stdout: [createResult.stdout.trim(), deleteResult.stdout.trim()]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: [createResult.stderr.trim(), deleteResult.stderr.trim()]
+            .filter(Boolean)
+            .join('\n'),
+        }
+        break
+      }
       case 'tag-delete': {
         const name = params.name
         if (!name) return { success: false, message: '', error: '未指定标签名' }

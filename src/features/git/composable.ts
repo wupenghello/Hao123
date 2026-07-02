@@ -347,6 +347,18 @@ async function doCreateTag(
   })
 }
 
+async function doUpdateTag(
+  oldName: string,
+  options: { name: string; message?: string; ref?: string },
+): Promise<GitActionResponse> {
+  return doAction('tag-update', {
+    oldName,
+    name: options.name,
+    message: options.message || '',
+    ref: options.ref || '',
+  })
+}
+
 async function doDeleteTag(name: string): Promise<GitActionResponse> {
   return doAction('tag-delete', { name })
 }
@@ -495,6 +507,7 @@ export function useGitDashboard() {
     doCreateBranch,
     doDeleteBranch,
     doCreateTag,
+    doUpdateTag,
     doDeleteTag,
     doDeleteRemoteTag,
     doPushTag,
