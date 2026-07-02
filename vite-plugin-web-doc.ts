@@ -22,6 +22,10 @@ const REQUEST_TIMEOUT_MS = 10000
 const MODAO_RENDER_TIMEOUT_MS = 35000
 const MODAO_RENDER_TEXT_CHARS = 8000
 
+interface WebDocPluginOptions {
+  modaoUrl?: string
+}
+
 interface ExtractedLink {
   text: string
   url: string
@@ -58,6 +62,7 @@ interface RenderedPageText {
   workspaceText: string
   canvasText: string
   commentsText: string
+  screenshotDataUrl?: string
   buttonTexts: string[]
   canvasCount: number
   iframeCount: number
@@ -390,19 +395,49 @@ function outlinePages(entries: ModaoEntry[]): ModaoPageSummary[] {
   })
 }
 
-function groupOutline(pages: ModaoPageSummary[], maxGroups = 12, maxChildren = 24) {
+function groupOutline(pages: ModaoPageSummary[], maxGroups = 24, maxChildren = 120) {
   const children = new Map<string, ModaoPageSummary[]>()
   for (const p of pages) children.set(p.parent, [...(children.get(p.parent) || []), p])
   const roots = [...(children.get('B@main') || []), ...(children.get('@@M') || [])]
-  return roots.slice(0, maxGroups).map((root) => ({
-    name: root.name,
-    id: root.id,
-    folder: root.folder,
-    children: (children.get(root.id) || [])
-      .filter((p) => !p.folder)
+
+  const descendants = (rootId: string, seen = new Set<string>()): ModaoPageSummary[] => {
+    if (seen.has(rootId)) return []
+    seen.add(rootId)
+    return (children.get(rootId) || []).flatMap((p) =>
+      p.folder ? descendants(p.id, seen) : [p],
+    )
+  }
+
+  const covered = new Set<string>()
+  const groups = roots.slice(0, maxGroups).map((root) => {
+    const allChildren = root.folder ? descendants(root.id) : [root, ...descendants(root.id)]
+    for (const child of allChildren) covered.add(child.id)
+    return {
+      name: root.name,
+      id: root.id,
+      folder: root.folder,
+      childCount: allChildren.length,
+      truncated: allChildren.length > maxChildren,
+      children: allChildren
       .slice(0, maxChildren)
-      .map((p) => ({ id: p.id, name: p.name })),
-  }))
+        .map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    }
+  })
+
+  const rest = pages.filter((p) => !p.folder && !covered.has(p.id))
+  if (rest.length) {
+    groups.push({
+      name: '其他',
+      id: 'modao-other',
+      folder: true,
+      childCount: rest.length,
+      truncated: rest.length > maxChildren,
+      children: rest
+        .slice(0, maxChildren)
+        .map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    })
+  }
+  return groups
 }
 
 async function getFreePort(): Promise<number> {
@@ -635,7 +670,20 @@ async function renderPublicPageText(url: string, signal?: AbortSignal): Promise<
       returnByValue: true,
       awaitPromise: true,
     }, 12000) as { result?: { value?: RenderedPageText } }
-    return evaluated.result?.value || null
+    let screenshotDataUrl: string | undefined
+    try {
+      const screenshot = await cdp.call('Page.captureScreenshot', {
+        format: 'jpeg',
+        quality: 76,
+        captureBeyondViewport: false,
+      }, 12000) as { data?: string }
+      if (screenshot.data) screenshotDataUrl = `data:image/jpeg;base64,${screenshot.data}`
+    } catch {
+      // 文本与元数据仍可用，截图失败不使整个读取失败。
+    }
+
+    const value = evaluated.result?.value
+    return value ? { ...value, screenshotDataUrl } : null
   } catch (e) {
     return {
       title: '',
@@ -644,6 +692,7 @@ async function renderPublicPageText(url: string, signal?: AbortSignal): Promise<
       workspaceText: '',
       canvasText: '',
       commentsText: '',
+      screenshotDataUrl: undefined,
       buttonTexts: [],
       canvasCount: 0,
       iframeCount: 0,
@@ -729,6 +778,7 @@ async function readModaoPrototype(url: URL, token: string, signal: AbortSignal):
           currentCanvasText: rendered.canvasText || undefined,
           commentsText: rendered.commentsText || undefined,
           visibleText: rendered.workspaceText || rendered.bodyText || undefined,
+          screenshotDataUrl: rendered.screenshotDataUrl,
           buttonTexts: rendered.buttonTexts,
           canvasCount: rendered.canvasCount,
           iframeCount: rendered.iframeCount,
@@ -804,16 +854,82 @@ async function readWebDoc(rawUrl: string): Promise<unknown> {
   }
 }
 
-export function webDocPlugin(): Plugin {
+function browserNameFromPath(exe: string | null): string | undefined {
+  if (!exe) return undefined
+  const lower = exe.toLowerCase()
+  if (lower.includes('msedge')) return 'Edge'
+  if (lower.includes('chrome')) return 'Chrome'
+  return path.basename(exe)
+}
+
+function modaoStatusResponse(modaoUrl: string) {
+  const browser = findBrowserExecutable()
+  return {
+    enabled: !!modaoUrl,
+    configured: !!modaoUrl,
+    browserRender: !!browser,
+    browserName: browserNameFromPath(browser),
+    note: !modaoUrl
+      ? 'VITE_MODAO_PROJECT_URL is not configured.'
+      : browser
+      ? 'Modao prototype reader is available. Dynamic text extraction uses a temporary no-login headless browser.'
+      : 'Metadata reading is available, but no local Edge/Chrome executable was found for dynamic rendering. Set WEB_DOC_BROWSER_PATH to enable rendered text extraction.',
+  }
+}
+
+async function readModaoDoc(rawUrl: string, defaultUrl: string): Promise<unknown> {
+  const target = rawUrl || defaultUrl
+  if (!target) {
+    return {
+      enabled: false,
+      ok: false,
+      error: 'VITE_MODAO_PROJECT_URL is not configured.',
+    }
+  }
+  const url = await assertPublicHttpUrl(target)
+  const modaoToken = modaoTokenFromUrl(url)
+  if (!modaoToken) {
+    return {
+      enabled: true,
+      ok: false,
+      error: 'Only public modao.cc/proto links with an access token are supported.',
+    }
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MODAO_RENDER_TIMEOUT_MS)
+  try {
+    return await readModaoPrototype(url, modaoToken, controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export function webDocPlugin(options: WebDocPluginOptions = {}): Plugin {
+  const modaoUrl = options.modaoUrl?.trim() || ''
   return {
     name: 'web-doc-reader',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const reqUrl = req.url || ''
-        if (!reqUrl.startsWith('/web-doc/')) return next()
+        if (!reqUrl.startsWith('/web-doc/') && !reqUrl.startsWith('/modao/')) return next()
 
         try {
           const url = new URL(reqUrl, 'http://localhost')
+          if (url.pathname.startsWith('/modao/')) {
+            if (url.pathname === '/modao/status' && req.method === 'GET') {
+              sendJson(res, 200, modaoStatusResponse(modaoUrl))
+              return
+            }
+            if (url.pathname === '/modao/read' && req.method === 'GET') {
+              const target = url.searchParams.get('url') || ''
+              sendJson(res, 200, await readModaoDoc(target, modaoUrl))
+              return
+            }
+            sendJson(res, 404, { error: `Unknown endpoint: ${url.pathname}` })
+            return
+          }
+
           if (url.pathname !== '/web-doc/read' || req.method !== 'GET') {
             sendJson(res, 404, { error: `Unknown endpoint: ${url.pathname}` })
             return

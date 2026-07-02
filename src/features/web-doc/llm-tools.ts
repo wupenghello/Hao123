@@ -1,4 +1,5 @@
 import type { LlmTool, LlmToolDef } from '@/features/chat/llm/types'
+import { omitRenderedScreenshot } from '@/features/rendered-screenshot'
 import { fetchWebDoc } from './api'
 
 export const webDocEnabled = import.meta.env.DEV
@@ -30,7 +31,7 @@ const readTool: LlmTool<{ url: string }> = {
     if (!/^https?:\/\//i.test(target)) {
       return { enabled: true, ok: false, error: 'Only http/https URLs are supported.' }
     }
-    return fetchWebDoc(target, signal)
+    return omitRenderedScreenshot(await fetchWebDoc(target, signal))
   },
 }
 

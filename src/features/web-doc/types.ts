@@ -16,5 +16,6 @@ export interface WebDocReadResponse {
   links?: WebDocLink[]
   limited?: boolean
   dynamicHint?: string
+  rendered?: { screenshotDataUrl?: string }
   error?: string
 }

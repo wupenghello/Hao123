@@ -15,6 +15,7 @@ import { wbscfToolDefs, callWbscfTool } from '@/features/wbscf'
 import { gitToolDefs, callGitTool } from '@/features/git'
 import { claudeToolDefs, callClaudeTool, claudeEnabled } from '@/features/claude'
 import { webDocToolDefs, callWebDocTool, webDocEnabled } from '@/features/web-doc'
+import { modaoToolDefs, callModaoTool, modaoEnabled } from '@/features/modao'
 import type { LlmToolDef } from './llm/types'
 
 /** OpenAI 兼容的工具声明形态 */
@@ -55,6 +56,7 @@ export const openAiTools: OpenAiTool[] = [
   ...(wbscfEnabled ? toOpenAi(wbscfToolDefs) : []),
   ...(gitEnabled ? toOpenAi(gitToolDefs) : []),
   ...(claudeEnabled ? toOpenAi(claudeToolDefs) : []),
+  ...(modaoEnabled ? toOpenAi(modaoToolDefs) : []),
   ...(webDocEnabled ? toOpenAi(webDocToolDefs) : []),
 ]
 
@@ -77,6 +79,7 @@ export async function callTool(
   if (realName.startsWith('wbscf.')) return callWbscfTool(realName, args, signal)
   if (realName.startsWith('git.')) return callGitTool(realName, args, signal)
   if (realName.startsWith('claude.')) return callClaudeTool(realName, args, signal)
+  if (realName.startsWith('modao.')) return callModaoTool(realName, args, signal)
   if (realName.startsWith('webdoc.')) return callWebDocTool(realName, args, signal)
   throw new Error(`未知工具：${realName}`)
 }
@@ -118,6 +121,8 @@ const TOOL_LABELS: Record<string, string> = {
   'git__branch': '管理 Git 分支',
   'claude__status': '查询 Claude 可用状态',
   'claude__launch': '启动 Claude Code',
+  'modao__status': '查询墨刀读取状态',
+  'modao__read': '读取墨刀原型',
   'webdoc__read': '读取公开文档链接',
 }
 

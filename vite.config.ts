@@ -34,6 +34,7 @@ export default defineConfig(({ mode }) => {
   // 让状态栏导航的 localhost 入口可「点击启动/打开本地服务」。生产构建无 dev server，自动降级。
   const wbscfRoot = env.VITE_WBSCF_WEB_ROOT || ''
   const wbscfPkgMgr = env.VITE_WBSCF_PKG_MGR || 'pnpm'
+  const modaoUrl = env.VITE_MODAO_PROJECT_URL || ''
 
   return {
     plugins: [
@@ -50,7 +51,7 @@ export default defineConfig(({ mode }) => {
       // wbscf-web git 仓库信息：执行 git 命令返回 JSON（仅 dev，提供 /git/* 中间件）
       gitPlugin({ root: wbscfRoot }),
       // 外部文档只读抓取：给小吴尝试读取禅道详情里的公开文档链接（仅 dev server 中间件）
-      webDocPlugin(),
+      webDocPlugin({ modaoUrl }),
     ],
     resolve: {
       alias: {

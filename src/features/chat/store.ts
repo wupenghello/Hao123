@@ -21,6 +21,7 @@ import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import { useWeatherStore } from '@/features/weather'
+import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/rendered-screenshot'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
@@ -128,6 +129,53 @@ async function kbVisionContextFromResult(wireName: string, result: unknown, sign
     ].join('\n'),
     images,
   }
+}
+
+interface ModaoScreenshotResult {
+  title?: string
+  url?: string
+  finalUrl?: string
+  project?: { name?: string }
+  targetScreen?: { id?: string; name?: string; path?: string[] }
+  rendered?: {
+    finalUrl?: string
+    screenshotDataUrl?: string
+    visibleText?: string
+    currentCanvasText?: string
+    buttonTexts?: string[]
+  }
+}
+
+async function modaoVisionContextFromResult(wireName: string, result: unknown): Promise<ChatMessage | null> {
+  if (wireName !== 'modao__read') return null
+  const image = renderedScreenshotDataUrl(result)
+  if (!image) return null
+  const data = result as ModaoScreenshotResult
+  const screen = data.targetScreen?.name || data.targetScreen?.id || '项目概览'
+  const project = data.project?.name || data.title || '墨刀原型'
+  return {
+    role: 'user',
+    content: [
+      '以下图片是刚才 modao.read 工具返回的墨刀 UI 截图预览。',
+      '用户明确要求看 UI 截图预览或视觉布局时，请直接基于这张图判断；同时结合工具返回的页面树、文案、按钮和画布元信息。',
+      `项目：${project}`,
+      `页面：${screen}`,
+      data.targetScreen?.path?.length ? `路径：${data.targetScreen.path.join(' / ')}` : '',
+      data.rendered?.finalUrl || data.finalUrl || data.url ? `渲染 URL：${data.rendered?.finalUrl || data.finalUrl || data.url}` : '',
+    ].filter(Boolean).join('\n'),
+    images: [image],
+  }
+}
+
+async function visionContextFromToolResult(
+  wireName: string,
+  result: unknown,
+  signal: AbortSignal,
+): Promise<ChatMessage | null> {
+  return (
+    await modaoVisionContextFromResult(wireName, result) ||
+    await kbVisionContextFromResult(wireName, result, signal)
+  )
 }
 
 function hasWireTool(wireName: string): boolean {
@@ -367,8 +415,11 @@ function buildCapabilitiesFromTools(): string[] {
   if (has('claude')) {
     lines.push('- Claude Code CLI：查询启动功能可用性，并可在wbscf-web代码库根目录下新开独立终端窗口启动Claude Code，与用户点击状态栏「Claude」按钮效果完全一致。')
   }
+  if (has('modao')) {
+    lines.push('- 墨刀项目迭代原型：默认读取 .env 中 VITE_MODAO_PROJECT_URL 配置的原型，无需用户重复提供地址；可提取项目、目标页面、页面树、可见文案与按钮文本，用于理解需求、拆开发任务、整理验收点。')
+  }
   if (has('webdoc')) {
-    lines.push('- 公开文档链接读取：当禅道任务/Bug 详情或用户消息里包含外部文档、原型、Wiki、PRD 链接时，可尝试读取网页的静态标题、正文与链接；若页面是墨刀这类动态原型且返回内容很少，要如实说明需要导出文档、截图或纳入知识库。')
+    lines.push('- 公开文档链接读取：当禅道任务/Bug 详情或用户消息里包含外部文档、Wiki、PRD 链接时，可尝试读取网页的静态标题、正文与链接；墨刀原型链接优先使用专门的 modao.read。')
   }
 
   return lines
@@ -387,6 +438,7 @@ const STATIC_SYSTEM_PROMPT = [
   '- 用户说「记一下」「提醒我」「加个待办：…」等要落一条待办时，用 local.create 创建本地待办；查看/完成/修改同理调用对应工具。删除任务（local.delete）前先向用户确认。',
   '- Git 查询类请求（状态、日志、diff、blame、搜索、贡献者、配置）可以直接调用工具；任何会改变仓库状态的 Git 操作（checkout / pull / push / add / commit / branch 等）必须先用 git.status 看清当前分支、同步状态与未提交变更，再用一句话复述将执行的动作和影响，获得用户明确确认后再执行。',
   '- 用户只是讨论方案、让你评估风险、生成提交信息或解释 diff 时，不等于授权执行 Git 写操作；分支名、远端、文件列表、提交信息、force/amend 意图不明确时先追问。涉及删除、强制、覆盖历史或脏工作区下 pull/checkout 的风险动作，必须额外提醒风险并二次确认。',
+  '- 用户问「项目迭代」「迭代原型」「墨刀里有什么」等时，直接调用 modao.read，不要追问链接；只有用户明确给了另一条墨刀链接时才把该链接传给工具。普通需求基于项目、页面树、targetScreen 和 rendered 文案总结。若用户明确要求看 UI 截图预览、视觉稿、页面布局、按钮位置或截图内容，调用 modao.read 时设置 includeScreenshot=true，系统会把截图作为图片上下文补给你；这时可以基于图片本身回答。',
   '- 用户没指明地点/日期时，用下方「当前上下文」里的默认城市与当前日期补全，直接执行，不要反问。',
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',
   '- 用户可能发送图片（截图 / 照片）。你能看图：分析报错截图、识别白板或照片里的文字（必要时据此用 local.create 落成待办）。回答时先简述你从图里看到的关键信息，再给判断或行动。',
@@ -585,7 +637,7 @@ export const useChatStore = defineStore('chat', () => {
    * 跑一轮 agent 循环（基于当前 messages 末尾的上下文）。
    * 调用前应已 push 好用户消息（或已截断到要重答的位置）。
    */
-  async function runAgentLoop() {
+  async function runAgentLoop(extraHiddenContexts: ChatMessage[] = []) {
     abortController?.abort()
     const controller = new AbortController()
     abortController = controller
@@ -598,7 +650,7 @@ export const useChatStore = defineStore('chat', () => {
     // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
     // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
     const toolsForThisTurn = openAiTools
-    const hiddenContexts: ChatMessage[] = []
+    const hiddenContexts: ChatMessage[] = [...extraHiddenContexts]
     const latestUser = [...messages.value].reverse().find((m) => m.role === 'user')
     const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
     if (ambientKbContext) hiddenContexts.push(ambientKbContext)
@@ -673,8 +725,10 @@ export const useChatStore = defineStore('chat', () => {
                 result = await callTool(call.function.name, args, signal)
                 activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
               }
-              activity.result = previewResultJson(result)
-              visionContexts[i] = await kbVisionContextFromResult(call.function.name, result, signal)
+              const messageResult = omitRenderedScreenshot(result)
+              activity.result = previewResultJson(messageResult)
+              visionContexts[i] = await visionContextFromToolResult(call.function.name, result, signal)
+              result = messageResult
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
               activity.status = 'error'
@@ -838,6 +892,8 @@ export const useChatStore = defineStore('chat', () => {
     try {
       result = await callTool(toolCall.function.name, args, retryController.signal)
       activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+      const visionContext = await visionContextFromToolResult(toolCall.function.name, result, retryController.signal)
+      result = omitRenderedScreenshot(result)
       activity.result = previewResultJson(result)
       activity.endTime = Date.now()
       activity.duration = activity.endTime - activity.startTime!
@@ -865,7 +921,7 @@ export const useChatStore = defineStore('chat', () => {
         else break
       }
       messages.value = messages.value.slice(0, lastToolIdx + 1)
-      await runAgentLoop()
+      await runAgentLoop(visionContext ? [visionContext] : [])
     } catch (e) {
       result = { error: (e as Error)?.message || '工具执行失败' }
       activity.status = 'error'
@@ -923,9 +979,12 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
 
     let result: unknown
+    let visionContext: ChatMessage | null = null
     try {
       result = await callTool(toolCall.function.name, args, approvalController.signal)
       activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
+      visionContext = await visionContextFromToolResult(toolCall.function.name, result, approvalController.signal)
+      result = omitRenderedScreenshot(result)
       activity.result = previewResultJson(result)
     } catch (e) {
       result = { error: (e as Error)?.message || '工具执行失败' }
@@ -943,7 +1002,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value[toolMsgIndex].content = JSON.stringify(result)
 
     truncateAfterToolResult(toolMsgIndex)
-    await runAgentLoop()
+    await runAgentLoop(visionContext ? [visionContext] : [])
   }
 
   /** 用户拒绝 pending approval：不执行工具，只把拒绝结果回灌给模型 */
