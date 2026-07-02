@@ -176,7 +176,7 @@ const launchTool: LlmTool<{ app: string; signal?: AbortSignal }, unknown> = {
     return {
       enabled: true,
       action: 'timeout',
-      note: `启动超时（>${LAUNCH_TIMEOUT_MS / 1000}s），请到运行 Hao123 的终端查看 wbscf-web 报错。`,
+      note: `启动超时（>${LAUNCH_TIMEOUT_MS / 1000}s），请到运行 TodayOps 的终端查看 wbscf-web 报错。`,
       ...pickServices(resp, app)[0],
     }
   },

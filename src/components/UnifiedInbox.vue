@@ -33,7 +33,14 @@ const InboxConstellation = defineAsyncComponent(() => import('@/components/inbox
 import { useInboxInsights } from '@/features/insights'
 import type { Prediction } from '@/features/insights'
 import type { Insight } from '@/features/insights'
-import { useChatStore, useInboxInsight } from '@/features/chat'
+import {
+  buildInboxItemActionFlowPrompt,
+  buildInboxPlanActionFlowPrompt,
+  buildInsightActionFlowPrompt,
+  useChatStore,
+  useInboxInsight,
+} from '@/features/chat'
+import type { ActionFlowItem } from '@/features/chat'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
 import IconCircle from '~icons/mdi/circle-outline'
@@ -150,36 +157,102 @@ function isUrgent(it: InboxItem): boolean {
       : isUrgentLocalTask(it.ref as LocalTask)
 }
 
-// ============ 小吴：行内风险 → 一键交给小吴（无对话框，AI 带上下文接手）============
+// ============ 小吴：AI 主动入口 → 行动流接手（带结构化上下文）============
+function cleanDeadline(deadline?: string): string | undefined {
+  if (!deadline || /^0000/.test(deadline)) return undefined
+  return String(deadline).slice(0, 10)
+}
+
+function actionItem(it: InboxItem): ActionFlowItem {
+  const id = String((it.ref as { id: string | number }).id)
+  const thread = threadOf(it)?.label
+  if (it.kind === 'task') {
+    const t = it.ref as ZentaoTask
+    return {
+      key: it.key,
+      kind: '禅道任务',
+      id,
+      title: t.name,
+      source: '禅道',
+      priority: ztPri(t.pri)?.label,
+      status: taskStatusBadge(t.status).label,
+      deadline: cleanDeadline(t.deadline),
+      thread,
+      meta: [t.projectName && `项目 ${t.projectName}`, t.executionName && `执行 ${t.executionName}`, t.assignedTo && `指派给 ${t.assignedTo}`]
+        .filter(Boolean)
+        .join('；') || undefined,
+      riskLabel: it.risk?.label,
+      riskWhy: it.risk?.why,
+    }
+  }
+  if (it.kind === 'bug') {
+    const b = it.ref as ZentaoBug
+    return {
+      key: it.key,
+      kind: '禅道 Bug',
+      id,
+      title: b.title,
+      source: '禅道',
+      priority: severityBadge(b.severity)?.label || ztPri(b.pri)?.label,
+      status: bugStatusBadge(b.status).label,
+      deadline: cleanDeadline(b.deadline),
+      thread,
+      meta: [b.productName && `产品 ${b.productName}`, b.projectName && `项目 ${b.projectName}`, b.type && `类型 ${b.type}`]
+        .filter(Boolean)
+        .join('；') || undefined,
+      riskLabel: it.risk?.label,
+      riskWhy: it.risk?.why,
+    }
+  }
+  const t = it.ref as LocalTask
+  return {
+    key: it.key,
+    kind: '本地待办',
+    id,
+    title: t.title,
+    source: '本地',
+    priority: priBadge(t.pri).label,
+    status: t.done ? '已完成' : '未完成',
+    deadline: cleanDeadline(t.deadline),
+    meta: [t.note && `备注 ${t.note}`, t.attachments?.length && `附件 ${t.attachments.length} 个`]
+      .filter(Boolean)
+      .join('；') || undefined,
+    riskLabel: it.risk?.label,
+    riskWhy: it.risk?.why,
+  }
+}
+
 /** 行内风险徽标点击：带上下文把这项交给小吴跟进（LLM 未配置则不响应，徽标仅作信息提示） */
 function askXiaowu(it: InboxItem) {
   if (!chat.configured || !it.risk) return
   chat.show()
-  void chat.send(it.risk.action)
+  void chat.send(buildInboxItemActionFlowPrompt(actionItem(it)))
 }
 /** 状态条「让小吴排一下」：把今天的风险概况交给小吴排出处理顺序与节奏 */
 function askXiaowuToPlan() {
   if (!chat.configured) return
   const s = summary.value
-  const parts = [
-    s.overdue && `${s.overdue} 项逾期`,
-    s.dueSoon && `${s.dueSoon} 项今明到期`,
-    s.stalled && `${s.stalled} 项停滞`,
-  ]
-    .filter(Boolean)
-    .join('、')
-  // 有风险 → 排处理顺序；清闲 → 看看怎么安排顺手
-  const body = parts
-    ? `今天有 ${parts}，帮我排出处理顺序和节奏，先点名最该收的。`
-    : '我手头这几项都没有紧迫的，帮我看看今天怎么安排比较顺手。'
   chat.show()
-  void chat.send(body)
+  void chat.send(
+    buildInboxPlanActionFlowPrompt(
+      {
+        total: total.value,
+        urgentCount: urgentCount.value,
+        overdue: s.overdue,
+        dueSoon: s.dueSoon,
+        stalled: s.stalled,
+        headline: s.headline,
+      },
+      items.value.slice(0, 8).map(actionItem),
+    ),
+  )
 }
 /** 「小吴的洞察」卡 → 让小吴就这条洞察展开分析（带上下文） */
 function askXiaowuInsight(ins?: Insight) {
   if (!chat.configured || !ins) return
   chat.show()
-  void chat.send(ins.action)
+  const related = items.value.filter((it) => ins.itemKeys.includes(it.key)).slice(0, 8).map(actionItem)
+  void chat.send(buildInsightActionFlowPrompt(ins, related))
 }
 
 // ============ 需求线分组：把同属一条需求线 / 项目的禅道项自动连起来 ============

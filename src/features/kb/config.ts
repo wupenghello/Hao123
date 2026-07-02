@@ -2,7 +2,7 @@
  * 知识库 · 配置（env 驱动）
  *
  * VITE_KB_SOURCE 指定知识库来源：
- *   - 本地文件夹路径（如 D:/projects/hao123-kb）：dev 由 vite-plugin-kb 读 fs、
+ *   - 本地文件夹路径（如 D:/projects/todayops-kb）：dev 由 vite-plugin-kb 读 fs、
  *     构建时注入虚拟模块；改文档后 dev 刷新生效、生产需重新构建。
  *   - http(s) URL（如 https://example.com/kb/manifest.json）：前端运行时 fetch，
  *     dev/生产均可用；该 URL 须返回 JSON 文档数组 [{doc,title,content}, ...]。

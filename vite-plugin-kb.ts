@@ -11,7 +11,7 @@
  * 仅当 VITE_KB_SOURCE 为「本地路径」时插件读取文件系统；为「http URL」时插件注入
  * 空数组（前端改走 fetch 远程 manifest，见 source.ts）。
  *
- * env 路径写法：Windows 建议用正斜杠，如 D:/projects/hao123-kb
+ * env 路径写法：Windows 建议用正斜杠，如 D:/projects/todayops-kb
  *   （反斜杠在 .env / dotenv 解析中可能被当作转义符，正斜杠最稳妥）。
  */
 import fs from 'node:fs'

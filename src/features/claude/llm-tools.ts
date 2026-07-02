@@ -40,10 +40,10 @@ const launchTool: LlmTool<{ signal?: AbortSignal }, unknown> = {
   name: 'claude.launch',
   description:
     '在wbscf-web代码库根目录下新开独立终端窗口启动 Claude Code CLI，与用户点击状态栏Claude按钮效果完全一致。' +
-    '启动成功后会打开新的终端窗口运行claude命令，不影响当前Hao123页面。' +
+    '启动成功后会打开新的终端窗口运行claude命令，不影响当前TodayOps页面。' +
     '【适用】用户说「打开Claude」「启动Claude Code」「帮我开个Claude窗口」「在wbscf目录启动Claude」等场景。' +
     '【不适用】生产环境或未配置VITE_WBSCF_WEB_ROOT时无法使用，会返回enabled=false。' +
-    '注意：启动后终端窗口由用户自行管理，Hao123退出不会自动关闭Claude窗口。',
+    '注意：启动后终端窗口由用户自行管理，TodayOps退出不会自动关闭Claude窗口。',
   parameters: {
     type: 'object',
     properties: {},

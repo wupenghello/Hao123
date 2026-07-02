@@ -9,7 +9,7 @@
  *       GET /wbscf/launch?app=<app>  返回一个「拉起 + 等就绪 + 跳转」的中转 HTML 页
  *                                    （已在运行则不重复拉、直接等跳转），供 window.open 打开。
  *   - 拉起用配置的包管理器（VITE_WBSCF_PKG_MGR，默认 pnpm）执行 `run <script>`，
- *     cwd=wbscf-web 根；stdio 继承到 Hao123 dev 终端，方便看 Vite 启动横幅与报错；
+ *     cwd=wbscf-web 根；stdio 继承到 TodayOps dev 终端，方便看 Vite 启动横幅与报错；
  *   - 「是否在运行」用 HTTP 探测 localhost:port（任意响应即视为就绪），既覆盖本插件拉起
  *     的服务，也覆盖用户在别处手动启动的服务——保证「启动了就不重复拉、直接打开」。
  *
@@ -196,7 +196,7 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
 
   /**
    * 预热 workspace 包的 CLI shim：pnpm 首次执行某个 filter 时会生成/校验 node_modules/.bin，
-   * 提前在 Hao123 dev server 启动后空闲期做掉，用户点击时少等一段同步准备时间。
+   * 提前在 TodayOps dev server 启动后空闲期做掉，用户点击时少等一段同步准备时间。
    */
   function warmPnpmFilters(): void {
     if (pkgMgr !== 'pnpm' || !snapshot().enabled) return
@@ -280,7 +280,7 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
   <div class="ring"></div>
   <h1>正在启动 <b>${svc.label}</b> 本地服务…</h1>
   <div class="url">端口 ${svc.port} · <code>${svc.url}</code></div>
-  <div class="hint" id="hint">首次构建可能需要数十秒，请稍候（启动日志见运行 Hao123 的终端）</div>
+  <div class="hint" id="hint">首次构建可能需要数十秒，请稍候（启动日志见运行 TodayOps 的终端）</div>
 </div>
 <script>
 var CFG=${cfg};
@@ -304,7 +304,7 @@ var watchdog=setInterval(function(){
     clearInterval(watchdog);
     document.getElementById("wrap").classList.add("err");
     document.getElementById("hint").innerHTML=
-      "启动超时，请到运行 Hao123 的终端查看 wbscf-web 的报错；"+
+      "启动超时，请到运行 TodayOps 的终端查看 wbscf-web 的报错；"+
       '<a href="'+CFG.url+'">点此手动打开</a> 或重试。';
   }
 },1000);
@@ -434,7 +434,7 @@ setInterval(function(){if(!stopped)xhr();},1500);
         })
       })
 
-      // Hao123 dev server 退出时连带收掉拉起的子进程树，避免孤儿 dev server。
+      // TodayOps dev server 退出时连带收掉拉起的子进程树，避免孤儿 dev server。
       // 'exit' 不覆盖 SIGKILL/崩溃；补 SIGINT/SIGTERM 让 Ctrl+C / 信号终止也能清理
       // （处理后主动 exit，交给 Vite 其余收尾）。handler 幂等 + 一次性，防 server 重启叠加。
       let cleaned = false
@@ -444,7 +444,7 @@ setInterval(function(){if(!stopped)xhr();},1500);
         clearTimeout(warmTimer)
         for (const [, st] of states) killTree(st)
         states.clear()
-        // Claude 是独立终端窗口，用户自己管理，Hao123 退出不强制关闭
+        // Claude 是独立终端窗口，用户自己管理，TodayOps 退出不强制关闭
       }
       process.on('exit', cleanup)
       process.once('SIGINT', () => { cleanup(); process.exit(0) })

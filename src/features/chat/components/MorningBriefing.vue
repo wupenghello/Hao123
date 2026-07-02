@@ -12,7 +12,7 @@
  * 让「AI 简报」与「待办清单」一眼可分。
  */
 import { computed } from 'vue'
-import { useBriefing, renderMarkdown, ASSISTANT_NAME } from '@/features/chat'
+import { useBriefing, renderMarkdown, ASSISTANT_NAME, buildBriefingActionFlowPrompt } from '@/features/chat'
 import { useChatStore } from '../store'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
@@ -20,9 +20,11 @@ import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const { briefing, generating, error, refresh } = useBriefing()
 const chat = useChatStore()
-/** 承接原首页「下一步建议」条的深聊入口：看完简报想细聊，拉起小吴 */
-function openChat() {
+/** 看完简报后进入行动流，而不是只打开空聊天 */
+function startActionFlow() {
+  if (!briefing.value?.content) return
   chat.show()
+  void chat.send(buildBriefingActionFlowPrompt(briefing.value.content))
 }
 
 const html = computed(() => (briefing.value ? renderMarkdown(briefing.value.content) : ''))
@@ -75,11 +77,11 @@ const relTime = computed(() => {
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
       <div v-else-if="html" class="mb-body" v-html="html" />
 
-      <!-- 深聊入口（承接原首页「下一步建议」条：看完简报想细聊，拉起小吴） -->
+      <!-- 行动流入口：看完简报后让小吴直接接手今天的处理顺序 -->
       <footer v-if="html" class="mb-foot">
-        <button class="mb-ask" :title="`问${ASSISTANT_NAME}`" @click="openChat">
+        <button class="mb-ask" :title="`让${ASSISTANT_NAME}接手今日安排`" @click="startActionFlow">
           <IconSpark class="w-3 h-3" />
-          <span>想细聊？问 {{ ASSISTANT_NAME }} →</span>
+          <span>让 {{ ASSISTANT_NAME }} 接手安排 →</span>
         </button>
       </footer>
     </section>

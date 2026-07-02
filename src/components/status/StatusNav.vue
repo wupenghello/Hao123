@@ -9,7 +9,7 @@ import IconLoading from '~icons/mdi/loading'
 /**
  * 状态栏左侧「工作台导航」
  *
- * 紧跟在品牌（Hao123）右侧的一排内部系统入口：
+ * 紧跟在品牌（TodayOps）右侧的一排内部系统入口：
  *   - 账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP：hover 展开本地 dev 服务 + dev/test/pre；
  *   - 水星 / GitLab Tags / 发布平台 / 我的地盘-禅道 / apifox：普通直链（新标签打开）。
  *
