@@ -10,6 +10,7 @@
  *   - commits         指定分支 commit 日志
  *   - diff            文件 diff
  *   - commit-detail   单个 commit 的 diff
+ *   - tag-detail      单个 tag 的完整附注说明
  *   - blame / reflog / contributors / config / search
  *   - action          执行操作
  *
@@ -23,6 +24,7 @@ import type {
   GitReflogEntry,
   GitContributor,
   GitConfigEntry,
+  GitTagDetail,
 } from './types'
 
 const BASE = '/git'
@@ -86,6 +88,18 @@ export async function fetchGitCommitDetail(
   })
   if (!res.ok) throw new Error(`/git/commit-detail -> ${res.status}`)
   return (await res.json()) as { enabled: boolean; diff: string }
+}
+
+/** 拉取 tag 详情（完整附注说明，避免编辑时只拿 subject 第一行） */
+export async function fetchGitTagDetail(
+  name: string,
+): Promise<{ enabled: boolean; tag: GitTagDetail | null }> {
+  const params = new URLSearchParams({ name })
+  const res = await fetch(`${BASE}/tag-detail?${params}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`/git/tag-detail -> ${res.status}`)
+  return (await res.json()) as { enabled: boolean; tag: GitTagDetail | null }
 }
 
 /** 拉取文件的 git blame（逐行追溯） */

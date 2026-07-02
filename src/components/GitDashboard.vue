@@ -196,6 +196,8 @@ const editTagMessage = ref('')
 const editTagRef = ref('')
 const editTagAnnotated = ref(true)
 const editTagWasRemote = ref(false)
+const editTagSyncRemote = ref(false)
+const editTagDetailLoading = ref(false)
 
 function validateTagName(name: string, currentName = ''): string {
   if (!name) return ''
@@ -238,6 +240,8 @@ function cancelEditTag() {
   editTagRef.value = ''
   editTagAnnotated.value = true
   editTagWasRemote.value = false
+  editTagSyncRemote.value = false
+  editTagDetailLoading.value = false
 }
 
 function toggleCreateTag() {
@@ -259,7 +263,7 @@ async function submitCreateTag() {
   clearNewTagForm()
 }
 
-function startEditTag(t: GitTag) {
+async function startEditTag(t: GitTag) {
   showCreateTag.value = false
   clearNewTagForm()
   editingTagOriginalName.value = t.name
@@ -268,14 +272,30 @@ function startEditTag(t: GitTag) {
   editTagRef.value = ''
   editTagAnnotated.value = !!t.annotated
   editTagWasRemote.value = !!t.onRemote
+  editTagSyncRemote.value = !!t.onRemote
+  if (!t.annotated) return
+
+  editTagDetailLoading.value = true
+  try {
+    const detail = await dash.getTagDetail(t.name)
+    if (editingTagOriginalName.value === t.name && detail) {
+      editTagMessage.value = detail.message || t.message || ''
+      editTagAnnotated.value = !!detail.annotated
+    }
+  } finally {
+    if (editingTagOriginalName.value === t.name) editTagDetailLoading.value = false
+  }
 }
 
 function submitEditTag() {
   if (!gitReady.value || !canSubmitEditTag.value) return
   const oldName = editingTagOriginalName.value
   const name = editTagName.value.trim()
+  const shouldSyncRemote = editTagWasRemote.value && editTagSyncRemote.value
   const remoteWarning = editTagWasRemote.value
-    ? '<br><span class="text-amber-300/90 text-[12px]">⚠ 该标签已同步到远端。本操作只会更新本地标签；如果要让远端一致，需要删除远端旧标签后再推送新标签。</span>'
+    ? shouldSyncRemote
+      ? `<br><span class="text-rose-300/90 text-[12px]">⚠ 保存后会用本地标签更新远端同名标签；${oldName === name ? '远端已有 tag 会被覆盖。' : '远端旧标签会先删除，再推送新标签名。'}</span>`
+      : '<br><span class="text-amber-300/90 text-[12px]">⚠ 只更新本地标签；远端不会变化，之后可在标签行点「更新远端」。</span>'
     : ''
   requestConfirm({
     message: `更新标签 <span class="gd-mono text-violet-300">${esc(oldName)}</span>${
@@ -289,6 +309,14 @@ function submitEditTag() {
         ref: editTagRef.value.trim() || undefined,
       })
       if (result.success) {
+        if (shouldSyncRemote) {
+          if (oldName !== name) {
+            const deleted = await dash.doDeleteRemoteTag(oldName)
+            if (!deleted.success) return
+          }
+          const pushed = await dash.doPushTag(name, true)
+          if (!pushed.success) return
+        }
         if (expandedTag.value === oldName) expandedTag.value = name
         cancelEditTag()
       }
@@ -306,6 +334,10 @@ const tagPrevName = ref('')
 /** 未推送到远端的标签数（驱动状态条 + 推送预览） */
 const unpushedTagCount = computed(
   () => dash.tags.value.filter((t) => !t.onRemote).length,
+)
+/** 远端已有同名标签，但本地 tag 对象已变化（编辑后需显式更新远端） */
+const outdatedTagCount = computed(
+  () => dash.tags.value.filter((t) => t.remoteOutdated).length,
 )
 
 /** 版本号样式的标签名（用于 latest 徽标，避免给 debug-xxx 误打） */
@@ -1102,7 +1134,7 @@ function confirmDeleteTag(name: string) {
   })
 }
 
-/** 推送单个标签到远端（git push <remote> <tag>） */
+/** 推送单个标签到远端（git push <remote> refs/tags/<tag>:refs/tags/<tag>） */
 function confirmPushTag(name: string) {
   const remote = dash.remotes.value[0]?.name || 'origin'
   requestConfirm({
@@ -1110,6 +1142,19 @@ function confirmPushTag(name: string) {
     confirmLabel: '推送',
     onConfirm: async () => {
       await dash.doPushTag(name)
+    },
+  })
+}
+
+/** 更新远端已有标签：覆盖远端同名 tag（危险，影响所有协作者 / CI） */
+function confirmUpdateRemoteTag(name: string) {
+  const remote = dash.remotes.value[0]?.name || 'origin'
+  requestConfirm({
+    message: `更新远端标签 <span class="gd-mono text-violet-300">${esc(name)}</span>？<br><span class="text-rose-300/90 text-[12px] leading-relaxed">⚠ 远端已存在同名标签，普通推送不会覆盖。此操作会用本地标签对象覆盖远端 <span class="gd-mono">${esc(remote)}</span> 上的同名标签，可能影响已拉取此标签的协作者与 CI/CD。</span>${gitPrecheckHtml()}`,
+    confirmLabel: '更新远端标签',
+    danger: true,
+    onConfirm: async () => {
+      await dash.doPushTag(name, true)
     },
   })
 }
@@ -1194,11 +1239,15 @@ function confirmPush() {
 function confirmPushTags() {
   closeMoreMenu()
   const n = unpushedTagCount.value
+  const dirty = outdatedTagCount.value
   const preview = n > 0
-    ? `<br><span class="text-white/45 text-[12px]">将推送 <span class="text-amber-300 font-medium">${n}</span> 个未同步标签到远端（<span class="gd-mono">git push --tags</span>）。</span>`
-    : `<br><span class="text-white/45 text-[12px]">所有标签均已同步，无需推送。</span>`
+    ? `<br><span class="text-white/45 text-[12px]">将只推送 <span class="text-amber-300 font-medium">${n}</span> 个远端不存在的标签；不会覆盖远端已有标签。</span>`
+    : `<br><span class="text-white/45 text-[12px]">没有远端缺失的标签可推送。</span>`
+  const outdated = dirty > 0
+    ? `<br><span class="text-amber-300/90 text-[12px]">另有 ${dirty} 个标签本地已编辑但远端仍是旧对象，请在对应标签行点击「更新远端」。</span>`
+    : ''
   requestConfirm({
-    message: `推送所有本地标签到远端？${gitPrecheckHtml()}${preview}`,
+    message: `推送未同步标签到远端？${gitPrecheckHtml()}${preview}${outdated}`,
     confirmLabel: '推送标签',
     onConfirm: async () => {
       await dash.doPushTags()
@@ -2266,9 +2315,15 @@ function onBackdropClick() {
                         style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
                         :title="`${unpushedTagCount} 个标签未推送到远端`"
                       >未推送 {{ unpushedTagCount }}</span>
+                      <span
+                        v-if="outdatedTagCount > 0"
+                        class="gd-badge-sm"
+                        style="background: rgba(244,63,94,0.14); color: rgb(253,164,175); border-color: rgba(244,63,94,0.24)"
+                        :title="`${outdatedTagCount} 个远端标签需要更新`"
+                      >待更新 {{ outdatedTagCount }}</span>
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <button class="gd-action text-[11px]" @click="confirmPushTags" title="推送所有本地标签（git push --tags）">
+                      <button class="gd-action text-[11px]" @click="confirmPushTags" title="只推送远端不存在的本地标签">
                         <IconUpload class="w-3 h-3" />
                         <span>推送全部</span>
                       </button>
@@ -2432,6 +2487,12 @@ function onBackdropClick() {
                           style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
                           title="本地已创建，远端还没有此标签"
                         >未推送</span>
+                        <span
+                          v-else-if="t.remoteOutdated"
+                          class="gd-badge-sm"
+                          style="background: rgba(244,63,94,0.14); color: rgb(253,164,175); border-color: rgba(244,63,94,0.24)"
+                          :title="`远端还是旧标签对象${t.remoteHash ? `（${t.remoteHash}）` : ''}`"
+                        >待更新</span>
                         <span class="gd-hash flex-shrink-0">{{ t.hash }}</span>
                         <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.message || '(轻量标签)' }}</span>
                         <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
@@ -2450,6 +2511,15 @@ function onBackdropClick() {
                             title="推送此标签到远端"
                             :aria-label="`推送标签 ${t.name}`"
                             @click.stop="confirmPushTag(t.name)"
+                          >
+                            <IconUpload class="w-3 h-3" />
+                          </button>
+                          <button
+                            v-else-if="t.remoteOutdated"
+                            class="gd-mini-btn danger"
+                            title="用本地标签更新远端同名标签"
+                            :aria-label="`更新远端标签 ${t.name}`"
+                            @click.stop="confirmUpdateRemoteTag(t.name)"
                           >
                             <IconUpload class="w-3 h-3" />
                           </button>
@@ -2502,7 +2572,11 @@ function onBackdropClick() {
                                 @click="editTagAnnotated = false"
                               >轻量标签</button>
                             </div>
-                            <span class="gd-field-hint">编辑会重建本地标签；已推送标签需要另行处理远端旧标签。</span>
+                            <span class="gd-field-hint">
+                              {{ editTagWasRemote
+                                ? '编辑会重建本地标签；可选择保存后同步更新远端。'
+                                : '编辑会重建本地标签。' }}
+                            </span>
                           </div>
 
                           <div class="gd-form-field">
@@ -2538,13 +2612,23 @@ function onBackdropClick() {
                               @keydown.ctrl.enter="submitEditTag"
                               @keydown.meta.enter="submitEditTag"
                             />
+                            <span v-if="editTagDetailLoading" class="gd-field-hint">正在读取完整附注说明…</span>
                           </div>
 
-                          <div
-                            v-if="editTagWasRemote"
-                            class="gd-field-hint danger"
-                          >
-                            此标签已在远端存在；更新只影响本地。同步远端时需要删除旧远端标签，再推送更新后的标签。
+                          <div v-if="editTagWasRemote" class="gd-form-field">
+                            <label class="gd-check-row">
+                              <input v-model="editTagSyncRemote" type="checkbox" />
+                              <span>保存后同步更新远端标签</span>
+                            </label>
+                            <span class="gd-field-hint danger">
+                              {{
+                                editTagSyncRemote
+                                  ? (editTagName.trim() === editingTagOriginalName
+                                    ? '将覆盖远端同名标签，已拉取旧标签的协作者需要强制刷新 tags。'
+                                    : '将删除远端旧标签名，再推送新的标签名。')
+                                  : '仅更新本地；远端不会变化，之后可在标签行点“更新远端”。'
+                              }}
+                            </span>
                           </div>
 
                           <div class="flex items-center justify-end gap-2 mt-1">
@@ -2570,8 +2654,10 @@ function onBackdropClick() {
                               <span
                                 v-if="t.onRemote"
                                 class="gd-badge-sm"
-                                style="background: rgba(45,212,191,0.12); color: rgb(94,234,212); border-color: rgba(45,212,191,0.2)"
-                              >已同步</span>
+                                :style="t.remoteOutdated
+                                  ? 'background: rgba(244,63,94,0.14); color: rgb(253,164,175); border-color: rgba(244,63,94,0.24)'
+                                  : 'background: rgba(45,212,191,0.12); color: rgb(94,234,212); border-color: rgba(45,212,191,0.2)'"
+                              >{{ t.remoteOutdated ? '待更新远端' : '已同步' }}</span>
                               <span
                                 v-else
                                 class="gd-badge-sm"
@@ -2632,6 +2718,15 @@ function onBackdropClick() {
                             >
                               <IconUpload class="w-3 h-3" />
                               推送
+                            </button>
+                            <button
+                              v-else-if="t.remoteOutdated"
+                              class="gd-confirm-btn danger"
+                              title="用本地标签覆盖远端同名标签"
+                              @click="confirmUpdateRemoteTag(t.name)"
+                            >
+                              <IconUpload class="w-3 h-3" />
+                              更新远端
                             </button>
                             <button
                               class="gd-confirm-btn ok ghost"
@@ -3161,6 +3256,11 @@ select.gd-input { cursor: pointer; }
   font-size: 11px; color: rgba(255, 255, 255, 0.5); cursor: pointer;
 }
 .gd-check-inline input { accent-color: rgb(45, 212, 191); }
+.gd-check-row {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; color: rgba(255, 255, 255, 0.72); cursor: pointer;
+}
+.gd-check-row input { accent-color: rgb(45, 212, 191); }
 
 /* ═══ 确认按钮 ═══ */
 .gd-confirm-btn {

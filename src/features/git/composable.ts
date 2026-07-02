@@ -30,6 +30,7 @@ import {
   fetchGitOverview,
   fetchGitDiff,
   fetchGitCommitDetail,
+  fetchGitTagDetail,
   fetchGitCommits,
   fetchGitBlame,
   fetchGitReflog,
@@ -272,7 +273,8 @@ async function doPush(): Promise<GitActionResponse> {
 }
 
 async function doPushTags(): Promise<GitActionResponse> {
-  return doAction('push', { tags: 'true' })
+  const remote = remotes.value[0]?.name || 'origin'
+  return doAction('tag-push-missing', { remote })
 }
 
 // ─── 分支管理 ───────────────────────────────────────
@@ -364,12 +366,12 @@ async function doDeleteTag(name: string): Promise<GitActionResponse> {
 }
 
 /**
- * 推送单个标签到远端：复用 push action（`git push <remote> <tag>`），
+ * 推送单个标签到远端：显式 refs/tags refspec，避免和同名分支歧义。
  * remote 取首个配置的远端（几乎总是 origin），缺失回退 origin。
  */
-async function doPushTag(name: string): Promise<GitActionResponse> {
+async function doPushTag(name: string, force = false): Promise<GitActionResponse> {
   const remote = remotes.value[0]?.name || 'origin'
-  return doAction('push', { remote, branch: name })
+  return doAction('tag-push', { remote, name, force: force ? 'true' : '' })
 }
 
 /**
@@ -390,6 +392,11 @@ async function getTagCommits(tag: string, prevTag?: string): Promise<GitCommit[]
     ? await fetchGitCommits(prevTag, 80, { ref2: tag })
     : await fetchGitCommits(tag, 80)
   return data.commits
+}
+
+async function getTagDetail(name: string): Promise<GitTag | null> {
+  const data = await fetchGitTagDetail(name)
+  return data.tag as GitTag | null
 }
 
 // ─── 回滚 / 合并 / 撤销 / 丢弃 ────────────────────
@@ -528,5 +535,6 @@ export function useGitDashboard() {
     searchCommits,
     getBranchLog,
     getTagCommits,
+    getTagDetail,
   }
 }

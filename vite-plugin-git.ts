@@ -315,40 +315,53 @@ async function getCommits(
     })
 }
 
-// ─── 远端 tag 名缓存 ──────────────────────────────────
+// ─── 远端 tag 缓存 ────────────────────────────────────
 // git ls-remote --tags 有网络开销，每次 overview（8s/30s 轮询）都打会拖慢；
 // 单独缓存 + in-flight 去重，写操作成功后由 invalidateOverview() 清空。
 
 const REMOTE_TAG_TTL_MS = 30_000
-let remoteTagCache: { names: Set<string>; ts: number } | null = null
-let remoteTagInFlight: Promise<Set<string>> | null = null
+interface RemoteTagInfo {
+  names: Set<string>
+  hashes: Map<string, string>
+}
+let remoteTagCache: { info: RemoteTagInfo; ts: number } | null = null
+let remoteTagInFlight: Promise<RemoteTagInfo> | null = null
 
-/** 远端已存在的 tag 名集合（失败 / 离线返回空集，所有 tag 视为未推送） */
-async function getRemoteTagNames(cwd: string): Promise<Set<string>> {
+function emptyRemoteTagInfo(): RemoteTagInfo {
+  return { names: new Set(), hashes: new Map() }
+}
+
+/** 远端已存在的 tag 名与对象 hash（失败 / 离线返回空集，所有 tag 视为未推送） */
+async function getRemoteTags(cwd: string): Promise<RemoteTagInfo> {
   const now = Date.now()
   if (remoteTagCache && now - remoteTagCache.ts < REMOTE_TAG_TTL_MS) {
-    return remoteTagCache.names
+    return remoteTagCache.info
   }
   if (remoteTagInFlight) return remoteTagInFlight
   remoteTagInFlight = (async () => {
     try {
       const r = await git(cwd, ['ls-remote', '--tags', 'origin'], 12_000)
       const names = new Set<string>()
+      const hashes = new Map<string, string>()
       if (r.status === 0) {
         for (const line of r.stdout.split('\n')) {
           // 格式：<hash>\trefs/tags/<name>，附注 tag 还会多一行 ^{} 后缀
-          const m = line.match(/^\S+\trefs\/tags\/([^\s]+)$/)
+          const m = line.match(/^(\S+)\trefs\/tags\/([^\s]+)$/)
           if (m) {
-            const n = m[1].replace(/\^\{\}$/, '')
-            if (n) names.add(n)
+            const n = m[2].replace(/\^\{\}$/, '')
+            if (n) {
+              names.add(n)
+              if (!line.endsWith('^{}')) hashes.set(n, m[1])
+            }
           }
         }
       }
-      remoteTagCache = { names, ts: Date.now() }
-      return names
+      const info = { names, hashes }
+      remoteTagCache = { info, ts: Date.now() }
+      return info
     } catch {
-      if (!remoteTagCache) remoteTagCache = { names: new Set(), ts: Date.now() }
-      return remoteTagCache.names
+      if (!remoteTagCache) remoteTagCache = { info: emptyRemoteTagInfo(), ts: Date.now() }
+      return remoteTagCache.info
     } finally {
       remoteTagInFlight = null
     }
@@ -365,8 +378,8 @@ async function getTags(cwd: string): Promise<GitTag[]> {
   ])
   if (r.status !== 0) return []
 
-  // 与 ls-remote 并行无依赖，但需等待结果回填 onRemote
-  const remoteNames = await getRemoteTagNames(cwd)
+  // 与 ls-remote 并行无依赖，但需等待结果回填 onRemote / remoteOutdated
+  const remoteTags = await getRemoteTags(cwd)
 
   return r.stdout
     .trim()
@@ -375,14 +388,18 @@ async function getTags(cwd: string): Promise<GitTag[]> {
     .map((line) => {
       const parts = line.split(SEP)
       const name = parts[0] || ''
+      const hash = parts[1] || ''
+      const remoteHash = remoteTags.hashes.get(name) || ''
       return {
         name,
-        hash: parts[1] || '',
+        hash,
         message: parts[2] || '',
         date: parts[3] || '',
         // objecttype：附注 tag 指向 tag 对象（type=tag），轻量 tag 直接指向 commit
         annotated: parts[4]?.trim() === 'tag',
-        onRemote: remoteNames.has(name),
+        onRemote: remoteTags.names.has(name),
+        remoteHash: remoteHash.slice(0, 12) || undefined,
+        remoteOutdated: !!remoteHash && !!hash && !remoteHash.startsWith(hash),
       }
     })
 }
@@ -407,6 +424,28 @@ async function getStashes(cwd: string): Promise<GitStash[]> {
         date: parts[2] || '',
       }
     })
+}
+
+async function getTagDetail(cwd: string, name: string): Promise<GitTag | null> {
+  assertSafeRef(name, '标签名')
+  const SEP = '|||'
+  const meta = await git(cwd, [
+    'for-each-ref',
+    `refs/tags/${name}`,
+    `--format=%(refname:short)${SEP}%(objecttype)`,
+  ])
+  if (meta.status !== 0 || !meta.stdout.trim()) return null
+  const [tagName, objectType] = meta.stdout.trim().split(SEP)
+  const message = objectType === 'tag'
+    ? (await git(cwd, ['for-each-ref', `refs/tags/${name}`, '--format=%(contents)'])).stdout.trim()
+    : ''
+  return {
+    name: tagName || name,
+    hash: '',
+    message,
+    date: '',
+    annotated: objectType === 'tag',
+  }
 }
 
 // ─── 扩展查询 ──────────────────────────────────────────
@@ -800,6 +839,41 @@ async function doAction(
         }
         break
       }
+      case 'tag-push': {
+        const name = params.name
+        if (!name) return { success: false, message: '', error: '未指定标签名' }
+        assertSafeRef(name, '标签名')
+        const remote = params.remote || 'origin'
+        assertSafeRef(remote, '远端名')
+        const prefix = params.force === 'true' ? '+' : ''
+        r = await git(cwd, ['push', remote, `${prefix}refs/tags/${name}:refs/tags/${name}`], 60_000)
+        break
+      }
+      case 'tag-push-missing': {
+        const remote = params.remote || 'origin'
+        assertSafeRef(remote, '远端名')
+        const local = await git(cwd, ['tag', '--format=%(refname:short)'])
+        if (local.status !== 0) {
+          r = local
+          break
+        }
+        const remoteTags = await getRemoteTags(cwd)
+        const missing = local.stdout
+          .split('\n')
+          .map((name) => name.trim())
+          .filter((name) => name && !remoteTags.names.has(name))
+        for (const name of missing) assertSafeRef(name, '标签名')
+        if (!missing.length) {
+          r = { status: 0, stdout: '所有标签均已同步', stderr: '' }
+          break
+        }
+        r = await git(
+          cwd,
+          ['push', remote, ...missing.map((name) => `refs/tags/${name}:refs/tags/${name}`)],
+          60_000,
+        )
+        break
+      }
       case 'tag-delete': {
         const name = params.name
         if (!name) return { success: false, message: '', error: '未指定标签名' }
@@ -991,6 +1065,20 @@ export function gitPlugin(options: GitPluginOptions): Plugin {
             assertSafeHash(hash)
             const r = await git(root, ['show', hash, '--stat', '--format=fuller'])
             sendJson(res, 200, { enabled: true, diff: r.stdout || '' })
+            return
+          }
+
+          if (pathname === '/git/tag-detail' && req.method === 'GET') {
+            if (!repoOk) {
+              sendJson(res, 200, { enabled: false, tag: null })
+              return
+            }
+            const name = u.searchParams.get('name') || ''
+            if (!name) {
+              sendJson(res, 400, { enabled: true, tag: null, error: '未指定标签名' })
+              return
+            }
+            sendJson(res, 200, { enabled: true, tag: await getTagDetail(root, name) })
             return
           }
 

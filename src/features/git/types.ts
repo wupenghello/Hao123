@@ -63,6 +63,17 @@ export interface GitTag {
   annotated?: boolean
   /** 远端是否已存在此标签；缺省视为未知（按未推送处理） */
   onRemote?: boolean
+  /** 远端同名 tag 的对象 hash（短 hash），用于判断本地编辑后是否待更新远端 */
+  remoteHash?: string
+  /** 远端同名 tag 存在，但对象 hash 与本地不同 */
+  remoteOutdated?: boolean
+}
+
+/** tag 详情（编辑时读取完整附注说明） */
+export interface GitTagDetail {
+  name: string
+  message: string
+  annotated: boolean
 }
 
 /** 一条 stash */
@@ -162,6 +173,8 @@ export type GitAction =
   // 标签
   | 'tag-create'
   | 'tag-update'
+  | 'tag-push'
+  | 'tag-push-missing'
   | 'tag-delete'
   | 'tag-delete-remote'
 

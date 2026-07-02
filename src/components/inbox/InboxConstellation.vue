@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Three.js 任务星域：把统一收件箱里的真实工作项渲染成一个带电影感的 3D 科幻星图。
+ * Three.js 工作星图：把统一收件箱里的真实工作项渲染成一个带电影感的 3D 科幻星图。
  *
  * 视觉关键点：
  *   - UnrealBloomPass + OutputPass 后处理：让 emissive/sprite 真正辉光（否则只是色块）。
@@ -106,7 +106,7 @@ let frame = 0
 let resizeObserver: ResizeObserver | null = null
 const nodeSprites = new Map<string, THREE.Sprite>()
 const nodeCores = new Map<string, THREE.Mesh>()
-/** 仅任务拥有轨道（一任务一轨道）；bugs / 本地项无轨道，散落分布 */
+/** 任务 / Bug 拥有轨道（一项一轨道）；本地项无轨道，散落分布 */
 const nodeOrbits = new Map<string, { ring: THREE.LineLoop; angle: number; speed: number; radiusX: number; radiusY: number }>()
 const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; drifts: boolean }>()
 
@@ -265,7 +265,7 @@ function setupScene() {
 
   root = new THREE.Group()
   root.rotation.x = -0.2
-  // HUD 悬浮在右侧时，把任务星域的视觉重心保留在原左侧舞台位置，避免核心被面板遮住。
+  // HUD 悬浮在右侧时，把工作星图的视觉重心保留在原左侧舞台位置，避免核心被面板遮住。
   root.position.x = -2.2
   scene.add(root)
 
@@ -391,7 +391,7 @@ function createCore() {
   root.add(coreOuter)
 }
 
-/** 构建一条任务的专属轨道环（椭圆，独立倾角） */
+/** 构建一条工作项的专属轨道环（椭圆，独立倾角） */
 function makeOrbitRing(
   radiusX: number,
   radiusY: number,
@@ -433,16 +433,16 @@ function rebuildNodes() {
   nodeOrbits.clear()
   nodeBase.clear()
 
-  const tasks = props.items.filter((it) => it.kind === 'task')
-  const others = props.items.filter((it) => it.kind !== 'task')
+  const orbitingItems = props.items.filter((it) => it.kind === 'task' || it.kind === 'bug')
+  const driftingItems = props.items.filter((it) => it.kind === 'local')
 
-  // 任务：每个任务一条专属轨道，节点沿轨道运行
-  // 半径动态拟合：不管几个任务都落在 [rMin, rMax] 内，避免最外圈跑出视口
-  const N = tasks.length
+  // 任务 / Bug：每个工作项一条专属轨道，节点沿轨道运行
+  // 半径动态拟合：不管几个轨道项都落在 [rMin, rMax] 内，避免最外圈跑出视口
+  const N = orbitingItems.length
   const rMin = 3.4
   const rMax = 7.6
   const spacing = N > 1 ? (rMax - rMin) / (N - 1) : 0
-  tasks.forEach((it, index) => {
+  orbitingItems.forEach((it, index) => {
     const color = colorOf(it.kind, it.riskLevel)
     const radiusX = N === 1 ? (rMin + rMax) / 2 : rMin + index * spacing
     const radiusY = radiusX * (0.32 + Math.random() * 0.16)
@@ -472,16 +472,16 @@ function rebuildNodes() {
     nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, drifts: false })
   })
 
-  // Bug / 本地：无轨道，按类型散落（Bug 中场异常区，本地外缘漂浮带）
-  others.forEach((it, index) => {
+  // 本地项：无轨道，放在外缘漂浮带
+  driftingItems.forEach((it, index) => {
     const color = colorOf(it.kind, it.riskLevel)
     const a = Math.random() * Math.PI * 2
-    const radius = it.kind === 'bug' ? 5.0 + Math.random() * 1.8 : 6.8 + Math.random() * 1.6
+    const radius = 6.8 + Math.random() * 1.6
     const height = (Math.random() - 0.5) * 2.2
     const pos = new THREE.Vector3(Math.cos(a) * radius, height, Math.sin(a) * radius * 0.5)
     const riskBoost = it.riskLevel === 'overdue' ? 0.5 : it.riskLevel === 'due-soon' ? 0.28 : it.riskLevel === 'stalled' ? 0.2 : 0
     const scale = 0.95 + riskBoost + (it.urgent ? 0.18 : 0)
-    const sprite = makeNodeSprite(it.key, index, color, scale, it.riskLevel)
+    const sprite = makeNodeSprite(it.key, index + N, color, scale, it.riskLevel)
     sprite.position.copy(pos)
     nodesGroup!.add(sprite)
     nodeSprites.set(it.key, sprite)
@@ -573,7 +573,7 @@ function animate() {
     const orbit = nodeOrbits.get(key)
     const isActive = key === activeKey
 
-    // 任务沿轨道运行（hover 时该项停住，便于点击）；bug/本地项原地轻飘
+    // 带轨道项沿轨道运行（hover 时该项停住，便于点击）；本地项原地轻飘
     if (orbit) {
       if (!slow && !isActive) orbit.angle += orbit.speed * 0.016
       writeOrbitPosition(orbit, sprite.position)
@@ -598,7 +598,7 @@ function animate() {
       const cs = (0.16 + (base.risk === 'calm' ? 0 : 0.1)) * boost * dim
       coreMesh.scale.setScalar(cs)
     }
-    // 任务轨道环：hover 时该轨道高亮，其余变暗
+    // 工作项轨道环：hover 时该轨道高亮，其余变暗
     if (orbit?.ring.material instanceof THREE.LineBasicMaterial) {
       orbit.ring.material.opacity = isActive ? 0.95 : hasActive ? 0.1 : 0.42
     }
@@ -606,7 +606,7 @@ function animate() {
 
   composer.render()
 
-  // 每帧用最近指针位置做射线检测，让移动中的任务节点也能被 hover 到
+  // 每帧用最近指针位置做射线检测，让移动中的轨道节点也能被 hover 到
   const hit = hudHoveredKey.value ?? raycastNode()
   hoveredKey.value = hit
   if (host.value) host.value.style.cursor = hit ? 'pointer' : 'default'
