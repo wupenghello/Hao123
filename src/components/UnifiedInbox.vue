@@ -620,9 +620,7 @@ onUnmounted(() => {
     <div
       v-if="total > 0"
       class="zt-insight"
-      :class="{ 'is-clickable': chat.configured, 'is-calm': summary.total === 0 }"
-      :title="chat.configured ? '让小吴排出处理顺序' : ''"
-      @click="askXiaowuToPlan"
+      :class="{ 'is-calm': summary.total === 0 }"
     >
       <span class="zt-insight-spark"><IconSpark class="w-3 h-3" /></span>
       <span class="zt-insight-name">小吴已就绪</span>
@@ -645,7 +643,15 @@ onUnmounted(() => {
         <span>为什么这么排</span>
         <span class="zt-trust-chev">▾</span>
       </button>
-      <span v-if="chat.configured" class="zt-insight-go">让小吴排一下 →</span>
+      <button
+        v-if="chat.configured"
+        type="button"
+        class="zt-insight-go"
+        title="让小吴排出处理顺序"
+        @click="askXiaowuToPlan"
+      >
+        让小吴排一下 →
+      </button>
     </div>
 
     <!-- 信任面板：显式解释排序依据，避免 AI 判断像黑箱 -->
@@ -1209,12 +1215,9 @@ onUnmounted(() => {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.75);
 }
-.zt-insight.is-clickable { cursor: pointer; transition: background 0.15s; }
-.zt-insight.is-clickable:hover { background: linear-gradient(120deg, rgba(129, 140, 248, 0.18), rgba(56, 189, 248, 0.08)); }
 /* 清闲态（无风险）：转 teal，呼应「一切平稳」 */
 .zt-insight.is-calm { background: linear-gradient(120deg, rgba(45, 212, 191, 0.08), rgba(56, 189, 248, 0.03)); }
 .zt-insight.is-calm .zt-insight-spark { color: #5eead4; background: rgba(45, 212, 191, 0.16); }
-.zt-insight.is-calm.is-clickable:hover { background: linear-gradient(120deg, rgba(45, 212, 191, 0.14), rgba(56, 189, 248, 0.06)); }
 .zt-insight-spark {
   display: flex;
   align-items: center;
@@ -1233,7 +1236,34 @@ onUnmounted(() => {
 .zt-insight-stats .is-due { color: #fcd34d; background: rgba(251, 191, 36, 0.1); }
 .zt-insight-stats .is-stall { color: #c4b5fd; background: rgba(139, 92, 246, 0.1); }
 .zt-insight-head { color: rgba(255, 255, 255, 0.55); }
-.zt-insight-go { margin-left: auto; color: #a5b4fc; flex-shrink: 0; }
+.zt-insight-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 7px;
+  color: #c7d2fe;
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(165, 180, 252, 0.18);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.zt-insight-go:hover,
+.zt-insight-go:focus-visible {
+  color: #eef2ff;
+  background: rgba(129, 140, 248, 0.2);
+  border-color: rgba(165, 180, 252, 0.34);
+}
+.zt-insight-go:focus-visible {
+  outline: 2px solid rgba(165, 180, 252, 0.45);
+  outline-offset: 2px;
+}
 .zt-trust-toggle {
   display: inline-flex;
   align-items: center;

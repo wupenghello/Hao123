@@ -88,7 +88,7 @@ export function buildInboxPlanActionFlowPrompt(summary: ActionFlowSummary, items
     : '当前没有可列出的工作项。'
 
   return [
-    '我点了「小吴已就绪」，请你接手今天的工作编排。',
+    '我点了「让小吴排一下」，请你接手今天的工作编排。',
     '',
     '# 收件箱概况',
     `- 工作项总数：${summary.total}`,
