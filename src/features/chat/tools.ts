@@ -14,6 +14,7 @@ import { localTaskToolDefs, callLocalTaskTool } from '@/features/local-tasks'
 import { wbscfToolDefs, callWbscfTool } from '@/features/wbscf'
 import { gitToolDefs, callGitTool } from '@/features/git'
 import { claudeToolDefs, callClaudeTool, claudeEnabled } from '@/features/claude'
+import { webDocToolDefs, callWebDocTool, webDocEnabled } from '@/features/web-doc'
 import type { LlmToolDef } from './llm/types'
 
 /** OpenAI 兼容的工具声明形态 */
@@ -54,6 +55,7 @@ export const openAiTools: OpenAiTool[] = [
   ...(wbscfEnabled ? toOpenAi(wbscfToolDefs) : []),
   ...(gitEnabled ? toOpenAi(gitToolDefs) : []),
   ...(claudeEnabled ? toOpenAi(claudeToolDefs) : []),
+  ...(webDocEnabled ? toOpenAi(webDocToolDefs) : []),
 ]
 
 /**
@@ -75,6 +77,7 @@ export async function callTool(
   if (realName.startsWith('wbscf.')) return callWbscfTool(realName, args, signal)
   if (realName.startsWith('git.')) return callGitTool(realName, args, signal)
   if (realName.startsWith('claude.')) return callClaudeTool(realName, args, signal)
+  if (realName.startsWith('webdoc.')) return callWebDocTool(realName, args, signal)
   throw new Error(`未知工具：${realName}`)
 }
 
@@ -115,6 +118,7 @@ const TOOL_LABELS: Record<string, string> = {
   'git__branch': '管理 Git 分支',
   'claude__status': '查询 Claude 可用状态',
   'claude__launch': '启动 Claude Code',
+  'webdoc__read': '读取公开文档链接',
 }
 
 /** 取工具的人类可读标签；未知工具回退为还原后的原始名 */
@@ -129,7 +133,11 @@ export function toolLabel(wireName: string): string {
 export function toolDetail(wireName: string, args: Record<string, unknown>): string {
   const parts: string[] = []
   const loc =
-    (args.city as string) || (args.coord as string) || (args.keyword as string) || (args.query as string)
+    (args.city as string) ||
+    (args.coord as string) ||
+    (args.keyword as string) ||
+    (args.query as string) ||
+    (args.url as string)
   if (loc) parts.push(String(loc))
   // wbscf.services 的 app 参数（account/buyer/…）作为副标题更直观
   const isWbscf = wireName.startsWith('wbscf__')

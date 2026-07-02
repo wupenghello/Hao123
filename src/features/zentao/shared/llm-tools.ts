@@ -1,18 +1,8 @@
 /**
- * 禅道模块 · LLM 工具层（function-calling / tool-use）
+ * Zentao LLM tools.
  *
- * 把禅道「查看」能力以工具形式暴露给大模型，与天气工具层同构（复用其 LlmToolDef 接口）：
- *   - zentaoToolDefs            喂给 LLM 的工具声明（name + description + 参数 JSON Schema）
- *   - callZentaoTool(name, ..)  执行 LLM 选中的工具，返回结构化数据
- *
- * 约束：仅「查看」，不提供任何操作功能。所有工具均为只读查询（GET），
- *      底层只调用现有只读 API（taskApi.myTasks/taskDetail、bugApi.myBugs/bugDetail），
- *      不引入新建/编辑/指派/改状态/评论/关闭等任何写操作。
- *
- * 设计原则：
- *   - 鉴权全部委托 useZentaoSession.withSession（与面板共用会话，失效自动重登）；
- *   - 返回值做「LLM 友好」裁剪（剔除 HTML 大字段，详情正文去标签），省 token；
- *   - 未配置禅道时不抛错中断整轮对话，返回 { error } 让模型据此说明。
+ * Read-only function tools for tasks and bugs. The UI keeps the full rich text,
+ * while the model receives a compact text version plus extracted external links.
  */
 import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
 import { useZentaoSession } from './session'
@@ -21,29 +11,94 @@ import { bugApi } from '../bug/api'
 import type { ZentaoTask } from '../task/types'
 import type { ZentaoBug } from '../bug/types'
 
-// ============ 小工具 ============
+interface ZentaoExternalLink {
+  source: string
+  text: string
+  url: string
+}
 
-/** 去除 HTML 标签 + 折叠空白，便于喂给模型（截断到 maxLen，省 token） */
-function stripHtml(html: string | undefined, maxLen = 800): string | undefined {
-  if (!html) return undefined
-  const text = html
-    .replace(/<[^>]+>/g, ' ')
+interface ParsedHtml {
+  text?: string
+  links: ZentaoExternalLink[]
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!text) return undefined
-  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
 }
 
-/** 0000-00-00 之类的空日期视为无 */
+function stripTagsOnly(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  )
+}
+
+function parseHtml(html: string | undefined, source: string, maxLen = 800): ParsedHtml {
+  if (!html) return { links: [] }
+
+  const links: ZentaoExternalLink[] = []
+  const seen = new Set<string>()
+  const addLink = (url: string, text = '') => {
+    const cleanUrl = decodeHtmlEntities(url).trim()
+    if (!/^https?:\/\//i.test(cleanUrl) || seen.has(cleanUrl)) return
+    seen.add(cleanUrl)
+    links.push({ source, text: text.trim().slice(0, 120) || cleanUrl, url: cleanUrl })
+  }
+
+  const withoutScripts = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+  const withAnchorText = withoutScripts.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (all, attrs: string, body: string) => {
+    const href = attrs.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1]
+    if (!href) return all
+    const url = decodeHtmlEntities(href).trim()
+    if (!/^https?:\/\//i.test(url)) return all
+    const label = stripTagsOnly(body)
+    addLink(url, label)
+    return label && label !== url ? `${label} (${url})` : url
+  })
+
+  const plainText = stripTagsOnly(withAnchorText)
+  const urlRe = /https?:\/\/[^\s<>"')\]]+/gi
+  let plain: RegExpExecArray | null
+  while ((plain = urlRe.exec(plainText))) addLink(plain[0], plain[0])
+
+  return {
+    text: plainText ? (plainText.length > maxLen ? `${plainText.slice(0, maxLen)}...` : plainText) : undefined,
+    links,
+  }
+}
+
 function cleanDate(d: string | undefined): string | undefined {
   return d && !/^0000/.test(d) ? d : undefined
 }
 
-// ============ 列表/详情裁剪 ============
+
+function collectLinks(groups: ParsedHtml[]): ZentaoExternalLink[] {
+  const out: ZentaoExternalLink[] = []
+  const seen = new Set<string>()
+  for (const group of groups) {
+    for (const link of group.links) {
+      if (seen.has(link.url)) continue
+      seen.add(link.url)
+      out.push(link)
+      if (out.length >= 12) return out
+    }
+  }
+  return out
+}
 
 function summarizeTask(t: ZentaoTask) {
   return {
@@ -70,6 +125,10 @@ function summarizeBug(b: ZentaoBug) {
 }
 
 function detailTask(t: ZentaoTask) {
+  const desc = parseHtml(t.desc, 'task.desc', 1200)
+  const storySpec = parseHtml(t.storySpec, 'story.spec', 1200)
+  const storyVerify = parseHtml(t.storyVerify, 'story.verify', 800)
+
   return {
     ...summarizeTask(t),
     type: t.type,
@@ -81,13 +140,17 @@ function detailTask(t: ZentaoTask) {
     openedDate: cleanDate(t.openedDate),
     finishedBy: t.finishedBy,
     finishedDate: cleanDate(t.finishedDate),
-    desc: stripHtml(t.desc),
+    desc: desc.text,
     storyTitle: t.storyTitle,
-    storySpec: stripHtml(t.storySpec),
+    storySpec: storySpec.text,
+    storyVerify: storyVerify.text,
+    links: collectLinks([desc, storySpec, storyVerify]),
   }
 }
 
 function detailBug(b: ZentaoBug) {
+  const steps = parseHtml(b.steps, 'bug.steps', 1200)
+
   return {
     ...summarizeBug(b),
     type: b.type,
@@ -98,22 +161,23 @@ function detailBug(b: ZentaoBug) {
     resolvedDate: cleanDate(b.resolvedDate),
     os: b.os,
     browser: b.browser,
-    steps: stripHtml(b.steps),
+    steps: steps.text,
+    links: collectLinks([steps]),
   }
 }
-
-// ============ 参数 Schema 片段 ============
 
 const taskTypeProp = {
   type: 'string',
   enum: ['assignedTo', 'finishedBy', 'openedBy'],
   description: '任务维度：assignedTo（指派给我，默认）/ finishedBy（由我完成）/ openedBy（由我创建）',
 }
+
 const bugTypeProp = {
   type: 'string',
   enum: ['resolvedBy', 'assignedTo', 'openedBy'],
   description: 'Bug 维度：resolvedBy（由我解决，默认）/ assignedTo（指派给我）/ openedBy（由我创建）',
 }
+
 const idProp = { type: 'integer', description: '禅道内部数字 ID' }
 const limitProp = { type: 'integer', description: '返回条数上限，默认 20', minimum: 1, maximum: 100 }
 
@@ -125,21 +189,18 @@ function pickTaskType(t: unknown): TaskType {
     ? (t as TaskType)
     : 'assignedTo'
 }
+
 function pickBugType(t: unknown): BugType {
   return (['resolvedBy', 'assignedTo', 'openedBy'] as string[]).includes(t as string)
     ? (t as BugType)
     : 'resolvedBy'
 }
 
-// ============ 工具定义（均为只读查询）============
-
-/** 1. 我的任务 */
 const myTasksTool: LlmTool<{ type?: string; limit?: number }> = {
   name: 'zentao.my_tasks',
   description:
-    '查询当前用户在禅道里的任务列表（只读）。可按维度过滤，返回 id/标题/状态/优先级/所属项目/截止日期等。' +
-    '【适用】用户问"我的任务""有哪些开发工作""待办任务"等。' +
-    '【不适用】用户问某个具体任务的详情——请用 task_detail。',
+    '查询当前用户在禅道里的任务列表（只读）。返回 id、标题、状态、优先级、项目、截止日期等。' +
+    '适用于用户问“我的任务”“待办任务”等；如果用户问具体任务详情，请用 zentao.task_detail。',
   parameters: { type: 'object', properties: { type: taskTypeProp, limit: limitProp } },
   async execute({ type, limit }) {
     const session = useZentaoSession()
@@ -149,13 +210,11 @@ const myTasksTool: LlmTool<{ type?: string; limit?: number }> = {
   },
 }
 
-/** 2. 任务详情 */
 const taskDetailTool: LlmTool<{ id: string | number }> = {
   name: 'zentao.task_detail',
   description:
-    '查询某个任务的详情（只读）：工时、进度、描述、关联需求等。需提供任务 id。' +
-    '【适用】用户问"任务 XX 的详情""XX 号任务进度怎样"等需要深入信息时。' +
-    '【不适用】用户只问"有哪些任务"——请用 my_tasks（列表更省 token）。',
+    '查询某个禅道任务详情（只读）：工时、进度、描述、关联需求、验收标准和外部链接。' +
+    '如果详情里 links 包含外部 PRD/原型/文档链接，可继续用 webdoc.read 尝试读取链接内容。',
   parameters: { type: 'object', properties: { id: idProp }, required: ['id'] },
   async execute({ id }) {
     const session = useZentaoSession()
@@ -164,13 +223,11 @@ const taskDetailTool: LlmTool<{ id: string | number }> = {
   },
 }
 
-/** 3. 我的 Bug */
 const myBugsTool: LlmTool<{ type?: string; limit?: number }> = {
   name: 'zentao.my_bugs',
   description:
-    '查询当前用户在禅道里的 Bug 列表（只读）。可按维度过滤，返回 id/标题/状态/严重程度/优先级/所属产品等。' +
-    '【适用】用户问"我的 Bug""有哪些缺陷要修""测试提了什么问题"等。' +
-    '【不适用】用户问某个具体 Bug 的详情——请用 bug_detail。',
+    '查询当前用户在禅道里的 Bug 列表（只读）。返回 id、标题、状态、严重程度、优先级、产品等。' +
+    '适用于用户问“我的 Bug”“有哪些缺陷要修”等；如果用户问具体 Bug 详情，请用 zentao.bug_detail。',
   parameters: { type: 'object', properties: { type: bugTypeProp, limit: limitProp } },
   async execute({ type, limit }) {
     const session = useZentaoSession()
@@ -180,13 +237,11 @@ const myBugsTool: LlmTool<{ type?: string; limit?: number }> = {
   },
 }
 
-/** 4. Bug 详情 */
 const bugDetailTool: LlmTool<{ id: string | number }> = {
   name: 'zentao.bug_detail',
   description:
-    '查询某个 Bug 的详情（只读）：重现步骤、解决方案、环境等。需提供 Bug id。' +
-    '【适用】用户问"Bug XX 的详情""XX 号 Bug 怎么重现"等需要深入信息时。' +
-    '【不适用】用户只问"有哪些 Bug"——请用 my_bugs（列表更省 token）。',
+    '查询某个禅道 Bug 详情（只读）：复现步骤、解决方案、环境和外部链接。' +
+    '如果详情里 links 包含外部文档链接，可继续用 webdoc.read 尝试读取链接内容。',
   parameters: { type: 'object', properties: { id: idProp }, required: ['id'] },
   async execute({ id }) {
     const session = useZentaoSession()
@@ -195,20 +250,14 @@ const bugDetailTool: LlmTool<{ id: string | number }> = {
   },
 }
 
-/** 全部禅道工具（仅只读查看能力） */
 export const zentaoTools: LlmTool[] = [myTasksTool, taskDetailTool, myBugsTool, bugDetailTool]
 
-/** 喂给 LLM 的工具声明（剥离 execute，可直接序列化） */
 export const zentaoToolDefs: LlmToolDef[] = zentaoTools.map(({ name, description, parameters }) => ({
   name,
   description,
   parameters,
 }))
 
-/**
- * 按名执行禅道工具（LLM 返回 tool_call 后由此分发）。
- * 未配置禅道（no-key）时返回 { error } 文本而非抛出，避免中断整轮对话。
- */
 export async function callZentaoTool(name: string, params: unknown): Promise<unknown> {
   const tool = zentaoTools.find((t) => t.name === name)
   if (!tool) throw new Error(`未知禅道工具：${name}`)

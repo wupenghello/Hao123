@@ -6,6 +6,7 @@ import Icons from 'unplugin-icons/vite'
 import { kbPlugin } from './vite-plugin-kb'
 import { wbscfPlugin } from './vite-plugin-wbscf'
 import { gitPlugin } from './vite-plugin-git'
+import { webDocPlugin } from './vite-plugin-web-doc'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -48,6 +49,8 @@ export default defineConfig(({ mode }) => {
       wbscfPlugin({ root: wbscfRoot, pkgMgr: wbscfPkgMgr }),
       // wbscf-web git 仓库信息：执行 git 命令返回 JSON（仅 dev，提供 /git/* 中间件）
       gitPlugin({ root: wbscfRoot }),
+      // 外部文档只读抓取：给小吴尝试读取禅道详情里的公开文档链接（仅 dev server 中间件）
+      webDocPlugin(),
     ],
     resolve: {
       alias: {

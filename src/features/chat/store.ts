@@ -367,6 +367,9 @@ function buildCapabilitiesFromTools(): string[] {
   if (has('claude')) {
     lines.push('- Claude Code CLI：查询启动功能可用性，并可在wbscf-web代码库根目录下新开独立终端窗口启动Claude Code，与用户点击状态栏「Claude」按钮效果完全一致。')
   }
+  if (has('webdoc')) {
+    lines.push('- 公开文档链接读取：当禅道任务/Bug 详情或用户消息里包含外部文档、原型、Wiki、PRD 链接时，可尝试读取网页的静态标题、正文与链接；若页面是墨刀这类动态原型且返回内容很少，要如实说明需要导出文档、截图或纳入知识库。')
+  }
 
   return lines
 }
