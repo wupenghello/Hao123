@@ -60,6 +60,7 @@ async function assignedLines(tool: string, kind: 'task' | 'bug'): Promise<string
 /** 实际采集逻辑（不含缓存） */
 async function collect(): Promise<string> {
   const weather = useWeatherStore()
+  await weather.ensureReady()
   const session = useZentaoSession()
   const now = new Date()
   // 本地时间（非 UTC）：完整日期 + 星期 + 时段，让生成的建议贴合「今天周几、此刻」

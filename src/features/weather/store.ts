@@ -67,6 +67,8 @@ export const useWeatherStore = defineStore('weather', () => {
   })
 
   let timer: ReturnType<typeof setInterval> | null = null
+  let locatePromise: Promise<boolean> | null = null
+  let readyPromise: Promise<void> | null = null
   // 当前进行中的核心请求控制器；新请求会取消旧请求，避免快速切换城市时旧响应覆盖新数据
   let abortController: AbortController | null = null
 
@@ -200,7 +202,9 @@ export const useWeatherStore = defineStore('weather', () => {
    * 成功后获取经纬度，存为 "纬度,经度"，并用 GeoAPI 反查城市名。
    */
   function autoLocate(): Promise<boolean> {
-    return new Promise((resolve) => {
+    if (locatePromise) return locatePromise
+
+    const promise = new Promise<boolean>((resolve) => {
       if (!navigator.geolocation) {
         resolve(false)
         return
@@ -219,7 +223,7 @@ export const useWeatherStore = defineStore('weather', () => {
           // 既不显示无意义的"当前位置"，也避免陈旧城市名（如默认"北京"）误挂到 GPS 定位结果上
           const name = await weatherApi.lookupByCoord(lng, lat).catch(() => null)
           cityName.value = name || nearestCity(Number(lat), Number(lng)).name
-          fetchWeather()
+          await fetchWeather()
           resolve(true)
         },
         () => {
@@ -228,7 +232,12 @@ export const useWeatherStore = defineStore('weather', () => {
         },
         { timeout: 8000, enableHighAccuracy: false },
       )
+    }).finally(() => {
+      if (locatePromise === promise) locatePromise = null
     })
+
+    locatePromise = promise
+    return promise
   }
 
   /** 手动选择城市（使用坐标；名称取自本地城市库） */
@@ -241,15 +250,29 @@ export const useWeatherStore = defineStore('weather', () => {
   }
 
   function startAutoRefresh() {
-    if (locateMode.value === 'auto') {
-      autoLocate().then((ok) => {
-        if (!ok) fetchWeather()
-      })
-    } else {
-      fetchWeather()
-    }
+    void ensureReady()
     // 每 20 分钟刷新一次核心数据
+    if (timer) return
     timer = setInterval(fetchWeather, 20 * 60 * 1000)
+  }
+
+  async function refreshForCurrentMode() {
+    if (locateMode.value === 'auto') {
+      const ok = await autoLocate()
+      if (!ok) await fetchWeather()
+      return
+    }
+    await fetchWeather()
+  }
+
+  function ensureReady(force = false): Promise<void> {
+    if (force) return refreshForCurrentMode()
+    if (!readyPromise) {
+      readyPromise = refreshForCurrentMode().finally(() => {
+        readyPromise = null
+      })
+    }
+    return readyPromise
   }
 
   function stopAutoRefresh() {
@@ -287,6 +310,7 @@ export const useWeatherStore = defineStore('weather', () => {
     // 定位 / 选城
     autoLocate,
     setCity,
+    ensureReady,
     startAutoRefresh,
     stopAutoRefresh,
   }

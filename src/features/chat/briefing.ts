@@ -14,8 +14,9 @@
  * 状态层放模块级单例（不是 Pinia store）：晨报是全局唯一的「今日简报」，首页只有一个组件
  * 消费，无需多实例；状态用 useStorage 持久化，行为与项目其它 localStorage 键一致。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useStorage } from '@/composables/useStorage'
+import { useWeatherStore } from '@/features/weather'
 import { llm } from './llm'
 import { ASSISTANT_NAME } from './config'
 import { buildDashboardContext } from './dashboard-context'
@@ -30,6 +31,8 @@ interface BriefingState {
   date: string
   /** 生成时间戳（UI 展示「X 分钟前」） */
   generatedAt: number
+  /** 生成时使用的位置签名；城市/坐标变化时让今日缓存自动失效 */
+  locationSignature?: string
 }
 
 const briefing = useStorage<BriefingState | null>(BRIEFING_KEY, null)
@@ -42,7 +45,17 @@ function todayStr(d = new Date()): string {
 }
 
 /** 缓存的简报是否已过期（没有 / 不是今天生成的） */
-const stale = computed(() => !briefing.value || briefing.value.date !== todayStr())
+const stale = computed(() => {
+  if (!briefing.value) return true
+  if (briefing.value.date !== todayStr()) return true
+  if (!briefing.value.locationSignature) return true
+  return briefing.value.locationSignature !== currentLocationSignature()
+})
+
+function currentLocationSignature(): string {
+  const weather = useWeatherStore()
+  return [weather.locateMode, weather.cityCoord, weather.cityName].join('|')
+}
 
 /** 晨报系统提示词（与对话用的 STATIC_SYSTEM_PROMPT 独立：这是「一次性生成」场景，不走 agent 循环） */
 const BRIEFING_SYSTEM_PROMPT = [
@@ -71,7 +84,9 @@ const BRIEFING_SYSTEM_PROMPT = [
  */
 async function generate(force = false): Promise<void> {
   if (generating.value) return
-  if (!force && !stale.value) return
+  const needsGenerate = force || stale.value
+  if (!needsGenerate) return
+  if (!force && stale.value) briefing.value = null
   if (!llm.configured) return
 
   generating.value = true
@@ -88,7 +103,12 @@ async function generate(force = false): Promise<void> {
     })
     const content = raw.trim()
     if (!content) throw new Error('简报内容为空')
-    briefing.value = { content, date: todayStr(), generatedAt: Date.now() }
+    briefing.value = {
+      content,
+      date: todayStr(),
+      generatedAt: Date.now(),
+      locationSignature: currentLocationSignature(),
+    }
   } catch (e) {
     error.value = (e as Error)?.message || '简报生成失败'
   } finally {
@@ -103,6 +123,7 @@ async function generate(force = false): Promise<void> {
 export function useBriefing() {
   // 调用即确保今日简报存在（过期 / 首次才真正生成；有 generating / stale 守卫，重复调用安全）
   generate(false)
+  ensureLocationWatcher()
   return {
     briefing,
     generating,
@@ -111,4 +132,18 @@ export function useBriefing() {
     /** 手动重新生成（绕过缓存，取最新工作台数据） */
     refresh: () => generate(true),
   }
+}
+
+let watchingLocation = false
+
+function ensureLocationWatcher() {
+  if (watchingLocation) return
+  watchingLocation = true
+  const weather = useWeatherStore()
+  watch(
+    () => [weather.locateMode, weather.cityCoord, weather.cityName],
+    () => {
+      void generate(false)
+    },
+  )
 }
