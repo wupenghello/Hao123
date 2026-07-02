@@ -65,15 +65,28 @@ const sourceStats = computed(() => ({
   bug: props.items.filter((it) => it.kind === 'bug').length,
   local: props.items.filter((it) => it.kind === 'local').length,
 }))
-const corePressure = computed(() => {
-  if (props.summary.overdue || props.urgentCount >= 3) return 'CRITICAL'
-  if (props.summary.dueSoon || props.summary.stalled) return 'ELEVATED'
-  return 'STABLE'
+const corePressure = computed<'critical' | 'elevated' | 'stable'>(() => {
+  if (props.summary.overdue || props.urgentCount >= 3) return 'critical'
+  if (props.summary.dueSoon || props.summary.stalled) return 'elevated'
+  return 'stable'
+})
+const corePressureLabel = computed(() => {
+  if (corePressure.value === 'critical') return '高压态势'
+  if (corePressure.value === 'elevated') return '升温态势'
+  return '平稳态势'
 })
 const activeItem = computed(() => {
   const key = hoveredKey.value
   return key ? props.items.find((it) => it.key === key) ?? null : null
 })
+
+function signalLabel(it?: ConstellationItem | null): string {
+  if (!it) return ''
+  if (it.riskLevel === 'overdue') return '高压信号'
+  if (it.riskLevel === 'due-soon') return '近窗信号'
+  if (it.riskLevel === 'stalled') return '静默信号'
+  return it.riskLabel || '平稳信号'
+}
 
 const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
 let scene: THREE.Scene | null = null
@@ -676,10 +689,10 @@ onBeforeUnmount(() => {
       <div class="ic3d-scan" />
       <div class="ic3d-vignette" />
 
-      <div class="ic3d-core-readout" :class="`is-${corePressure.toLowerCase()}`">
-        <span>CORE</span>
+      <div class="ic3d-core-readout" :class="`is-${corePressure}`">
+        <span>焦点</span>
         <strong>{{ summary.total || urgentCount || items.length }}</strong>
-        <em>{{ corePressure }}</em>
+        <em>{{ corePressureLabel }}</em>
       </div>
 
       <!-- 指向指示器：HTML 覆盖层跟踪被 hover 节点的屏幕投影（瞄准光环 + 标题标签） -->
@@ -696,53 +709,54 @@ onBeforeUnmount(() => {
         <span class="ic3d-reticle-label">
           <i>{{ activeItem?.kindLabel }}</i>
           <b>{{ activeItem?.title }}</b>
-          <em v-if="activeItem?.riskLevel !== 'calm'">{{ activeItem?.riskLabel }}</em>
+          <em v-if="activeItem?.riskLevel !== 'calm'">{{ signalLabel(activeItem) }}</em>
         </span>
       </div>
 
       <transition name="ic3d-lock">
         <div v-if="activeItem" class="ic3d-target-card" :class="`risk-${activeItem.riskLevel}`">
-          <p>TARGET</p>
+          <p>当前焦点</p>
           <h4>{{ activeItem.title }}</h4>
           <div>
             <span>{{ activeItem.kindLabel }}</span>
+            <span>{{ signalLabel(activeItem) }}</span>
             <span>{{ activeItem.meta }}</span>
           </div>
-          <small>{{ activeItem.riskWhy || '信号稳定，暂无异常风险。' }}</small>
-          <button class="ic3d-target-open" @click.stop="activeItem && openHudItem(activeItem.key)">点击打开 →</button>
+          <small>{{ activeItem.riskWhy || '当前波动很低，可以按自己的节奏处理。' }}</small>
+          <button class="ic3d-target-open" @click.stop="activeItem && openHudItem(activeItem.key)">打开详情</button>
         </div>
       </transition>
 
-      <div v-if="remainder" class="ic3d-remainder">+{{ remainder }} DEEP SPACE SIGNALS</div>
+      <div v-if="remainder" class="ic3d-remainder">另有 {{ remainder }} 个焦点未入图</div>
     </div>
 
     <aside class="ic3d-hud">
       <div class="ic3d-hud-header">
-        <p>MISSION CONSTELLATION</p>
-        <h3>任务星域</h3>
-        <span>{{ items.length }} NODES ONLINE</span>
+        <p>今日态势</p>
+        <h3>工作星图</h3>
+        <span>{{ items.length }} 个焦点已入图</span>
       </div>
 
-      <div class="ic3d-pressure" :class="`is-${corePressure.toLowerCase()}`">
-        <span>CORE PRESSURE</span>
-        <strong>{{ corePressure }}</strong>
+      <div class="ic3d-pressure" :class="`is-${corePressure}`">
+        <span>场域状态</span>
+        <strong>{{ corePressureLabel }}</strong>
       </div>
 
       <div class="ic3d-metrics">
-        <span><b>{{ sourceStats.task }}</b> TASK</span>
-        <span><b>{{ sourceStats.bug }}</b> BUG</span>
-        <span><b>{{ sourceStats.local }}</b> LOCAL</span>
+        <span><b>{{ sourceStats.task }}</b> 主线</span>
+        <span><b>{{ sourceStats.bug }}</b> 异常</span>
+        <span><b>{{ sourceStats.local }}</b> 标记</span>
       </div>
 
       <div class="ic3d-risk-grid">
-        <span><b>{{ summary.overdue }}</b> OVERDUE</span>
-        <span><b>{{ summary.dueSoon }}</b> DUE SOON</span>
-        <span><b>{{ summary.stalled }}</b> STALLED</span>
+        <span><b>{{ summary.overdue }}</b> 高压</span>
+        <span><b>{{ summary.dueSoon }}</b> 近窗</span>
+        <span><b>{{ summary.stalled }}</b> 静默</span>
       </div>
 
       <div class="ic3d-signal-list">
         <header>
-          <span>ACTIVE ANOMALIES</span>
+          <span>优先焦点</span>
           <em>{{ hotItems.length || 0 }}</em>
         </header>
         <button
@@ -757,7 +771,7 @@ onBeforeUnmount(() => {
           <span>{{ it.kindLabel }}</span>
           <strong>{{ it.title }}</strong>
         </button>
-        <p v-if="!hotItems.length" class="ic3d-calm">NO ACTIVE ANOMALY · 星域稳定运行</p>
+        <p v-if="!hotItems.length" class="ic3d-calm">星图平稳，没有需要优先锁定的焦点</p>
       </div>
     </aside>
   </div>
@@ -765,6 +779,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ic3d-shell {
+  --ic3d-text: rgba(241, 245, 249, 0.94);
+  --ic3d-text-soft: rgba(203, 213, 225, 0.72);
+  --ic3d-text-muted: rgba(148, 163, 184, 0.68);
+  --ic3d-accent: rgba(94, 234, 212, 0.82);
+  --ic3d-line: rgba(148, 163, 184, 0.18);
+  --ic3d-panel: rgba(8, 13, 28, 0.7);
   flex: 1;
   min-height: 0;
   position: relative;
@@ -772,9 +792,11 @@ onBeforeUnmount(() => {
   isolation: isolate;
   padding: 18px;
   background: #03040d;
-  /* 与项目统一字体（见 src/style.css 的 body） */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 .ic3d-stage {
   position: absolute;
@@ -831,22 +853,23 @@ onBeforeUnmount(() => {
 }
 .ic3d-core-readout span,
 .ic3d-core-readout em {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: rgba(186, 230, 253, 0.6);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--ic3d-text-muted);
   font-style: normal;
 }
 .ic3d-core-readout strong {
   grid-row: span 2;
   font-size: 32px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 0.9;
   font-variant-numeric: tabular-nums;
-  color: #e0f2fe;
-  text-shadow: 0 0 18px rgba(125, 211, 252, 0.72);
+  color: rgba(248, 250, 252, 0.96);
+  text-shadow: 0 0 14px rgba(125, 211, 252, 0.45);
 }
-.ic3d-core-readout.is-critical strong { color: #fecdd3; text-shadow: 0 0 20px rgba(244, 63, 94, 0.82); }
-.ic3d-core-readout.is-elevated strong { color: #fde68a; text-shadow: 0 0 20px rgba(245, 158, 11, 0.72); }
+.ic3d-core-readout.is-critical strong { color: #fecdd3; text-shadow: 0 0 16px rgba(244, 63, 94, 0.58); }
+.ic3d-core-readout.is-elevated strong { color: #fde68a; text-shadow: 0 0 16px rgba(245, 158, 11, 0.5); }
 .ic3d-target-card {
   position: absolute;
   z-index: 7;
@@ -862,16 +885,17 @@ onBeforeUnmount(() => {
 }
 .ic3d-target-card p {
   margin: 0 0 6px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(125, 211, 252, 0.85);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ic3d-accent);
 }
 .ic3d-target-open {
   margin-top: 10px;
-  padding: 5px 10px;
+  padding: 6px 11px;
   border-radius: 8px;
-  font-size: 11px;
-  color: rgba(186, 230, 253, 0.9);
+  font-size: 12px;
+  color: var(--ic3d-text);
   background: rgba(125, 211, 252, 0.14);
   border: 1px solid rgba(125, 211, 252, 0.28);
   cursor: pointer;
@@ -934,21 +958,24 @@ onBeforeUnmount(() => {
 }
 .ic3d-reticle-label i {
   font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: rgba(125, 211, 252, 0.78);
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--ic3d-accent);
 }
 .ic3d-reticle-label b {
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.96);
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--ic3d-text);
 }
 .ic3d-reticle-label em {
   font-style: normal;
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.3;
   color: rgba(252, 165, 165, 0.85);
 }
 .ic3d-reticle.risk-due-soon .ic3d-reticle-label em { color: rgba(253, 230, 138, 0.9); }
@@ -962,23 +989,26 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.94);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 650;
+  color: var(--ic3d-text);
 }
 .ic3d-target-card div { display: flex; gap: 8px; margin-top: 8px; }
 .ic3d-target-card div span {
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 999px;
-  font-size: 10px;
-  color: rgba(224, 242, 254, 0.8);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ic3d-text-soft);
   background: rgba(125, 211, 252, 0.12);
 }
 .ic3d-target-card small {
   display: block;
   margin-top: 9px;
-  line-height: 1.55;
-  color: rgba(226, 232, 240, 0.66);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ic3d-text-soft);
 }
 .ic3d-target-card.risk-overdue { border-color: rgba(244, 63, 94, 0.5); box-shadow: 0 0 42px rgba(244, 63, 94, 0.26); }
 .ic3d-target-card.risk-due-soon { border-color: rgba(251, 191, 36, 0.46); }
@@ -988,9 +1018,9 @@ onBeforeUnmount(() => {
   z-index: 6;
   right: 28px;
   bottom: 28px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: rgba(125, 211, 252, 0.56);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--ic3d-text-muted);
 }
 .ic3d-hud {
   position: absolute;
@@ -1002,12 +1032,12 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden auto;
   padding: 18px;
-  border-radius: 24px;
+  border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(2, 6, 23, 0.66), rgba(15, 23, 42, 0.34)),
-    radial-gradient(circle at 0 0, rgba(14, 165, 233, 0.18), transparent 38%);
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  box-shadow: inset 0 0 42px rgba(14, 165, 233, 0.08), 0 18px 60px rgba(0, 0, 0, 0.28);
+    linear-gradient(180deg, var(--ic3d-panel), rgba(15, 23, 42, 0.42)),
+    radial-gradient(circle at 0 0, rgba(45, 212, 191, 0.1), transparent 40%);
+  border: 1px solid var(--ic3d-line);
+  box-shadow: inset 0 0 32px rgba(14, 165, 233, 0.05), 0 18px 60px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(16px) saturate(135%);
 }
 .ic3d-hud::before {
@@ -1023,44 +1053,47 @@ onBeforeUnmount(() => {
 .ic3d-signal-list header span,
 .ic3d-pressure span {
   margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: rgba(45, 212, 191, 0.78);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ic3d-accent);
 }
 .ic3d-hud-header h3 {
-  margin: 7px 0 4px;
-  font-size: 22px;
-  line-height: 1.1;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: rgba(255, 255, 255, 0.96);
+  margin: 6px 0 5px;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--ic3d-text);
 }
 .ic3d-hud-header > span {
-  font-size: 12px;
-  letter-spacing: 0.04em;
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  color: rgba(186, 230, 253, 0.56);
+  color: var(--ic3d-text-muted);
 }
 .ic3d-pressure {
   margin-top: 18px;
   padding: 14px;
-  border-radius: 16px;
-  background: rgba(34, 211, 238, 0.1);
-  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(94, 234, 212, 0.2);
 }
 .ic3d-pressure strong {
   display: block;
   margin-top: 6px;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #bae6fd;
-  text-shadow: 0 0 18px rgba(34, 211, 238, 0.5);
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--ic3d-text);
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.32);
 }
 .ic3d-pressure.is-critical { background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.38); }
-.ic3d-pressure.is-critical strong { color: #fecdd3; text-shadow: 0 0 18px rgba(244, 63, 94, 0.62); }
+.ic3d-pressure.is-critical strong { color: #fecdd3; text-shadow: 0 0 14px rgba(244, 63, 94, 0.48); }
 .ic3d-pressure.is-elevated { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.32); }
-.ic3d-pressure.is-elevated strong { color: #fde68a; text-shadow: 0 0 18px rgba(245, 158, 11, 0.54); }
+.ic3d-pressure.is-elevated strong { color: #fde68a; text-shadow: 0 0 14px rgba(245, 158, 11, 0.44); }
 .ic3d-metrics,
 .ic3d-risk-grid {
   display: grid;
@@ -1070,12 +1103,13 @@ onBeforeUnmount(() => {
 }
 .ic3d-metrics span,
 .ic3d-risk-grid span {
-  padding: 10px 8px;
-  border-radius: 14px;
+  padding: 11px 8px;
+  border-radius: 12px;
   text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: rgba(226, 232, 240, 0.52);
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--ic3d-text-muted);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -1083,10 +1117,11 @@ onBeforeUnmount(() => {
 .ic3d-risk-grid b {
   display: block;
   margin-bottom: 3px;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  color: rgba(224, 242, 254, 0.96);
+  color: var(--ic3d-text);
 }
 .ic3d-risk-grid span:first-child b { color: #fda4af; }
 .ic3d-risk-grid span:nth-child(2) b { color: #fde68a; }
@@ -1100,8 +1135,8 @@ onBeforeUnmount(() => {
 }
 .ic3d-signal-list header em {
   font-style: normal;
-  font-size: 11px;
-  color: rgba(226, 232, 240, 0.6);
+  font-size: 12px;
+  color: var(--ic3d-text-muted);
 }
 .ic3d-signal-list button {
   position: relative;
@@ -1110,8 +1145,8 @@ onBeforeUnmount(() => {
   grid-template-columns: 24px 42px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  padding: 10px 0;
-  color: rgba(226, 232, 240, 0.74);
+  padding: 11px 0;
+  color: var(--ic3d-text-soft);
   text-align: left;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   transition: color 0.16s, background 0.16s, padding 0.16s;
@@ -1138,20 +1173,21 @@ onBeforeUnmount(() => {
 .ic3d-signal-list button.is-active::before { opacity: 1; }
 .ic3d-signal-list i {
   font-style: normal;
-  font-size: 10px;
-  color: rgba(125, 211, 252, 0.58);
+  font-size: 11px;
+  color: var(--ic3d-text-muted);
 }
 .ic3d-signal-list span {
-  font-size: 10px;
-  color: rgba(125, 211, 252, 0.72);
+  font-size: 11px;
+  color: var(--ic3d-accent);
 }
 .ic3d-signal-list strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 600;
 }
 .ic3d-signal-list button.risk-overdue span,
 .ic3d-signal-list button.risk-overdue strong { color: #fecdd3; }
@@ -1160,10 +1196,11 @@ onBeforeUnmount(() => {
 .ic3d-calm {
   margin: 14px 0 0;
   padding: 12px;
-  border-radius: 14px;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: rgba(94, 234, 212, 0.66);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  letter-spacing: 0;
+  color: rgba(153, 246, 228, 0.78);
   background: rgba(45, 212, 191, 0.08);
   border: 1px solid rgba(45, 212, 191, 0.14);
 }

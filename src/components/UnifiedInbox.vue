@@ -73,7 +73,7 @@ type InboxView = 'list' | 'orbit'
 const activeView = ref<InboxView>('list')
 const viewTabs: { key: InboxView; label: string; hint: string }[] = [
   { key: 'list', label: '清单', hint: '按紧急度 / 优先级 / 截止日期合并排序的统一清单' },
-  { key: 'orbit', label: '星图', hint: '把工作项投射为 3D 风险关系图，节点越亮越急' },
+  { key: 'orbit', label: '星图', hint: '查看今日工作场的亮度与焦点，点亮点进入详情' },
 ]
 
 // ============ 统一清单（禅道任务 + 禅道 Bug + 本地待办，合并排序）============
@@ -465,7 +465,7 @@ function itemTitle(it: InboxItem): string {
   return (it.ref as LocalTask).title
 }
 function itemKindLabel(kind: InboxKind): string {
-  return kind === 'task' ? '任务' : kind === 'bug' ? 'Bug' : '本地'
+  return kind === 'task' ? '主线' : kind === 'bug' ? '异常' : '标记'
 }
 function itemMeta(it: InboxItem): string {
   if (it.kind === 'task') {
@@ -492,7 +492,7 @@ const orbitItems = computed(() =>
       kind: it.kind,
       kindLabel: itemKindLabel(it.kind),
       riskLevel,
-      riskLabel: it.risk?.label ?? (isUrgent(it) ? '紧急' : '稳定'),
+      riskLabel: it.risk?.label ?? (isUrgent(it) ? '高压' : '平稳'),
       riskWhy: it.risk?.why ?? '',
       meta: itemMeta(it),
       urgent: isUrgent(it),
