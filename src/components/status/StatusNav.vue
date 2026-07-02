@@ -10,7 +10,7 @@ import IconLoading from '~icons/mdi/loading'
  * 状态栏左侧「工作台导航」
  *
  * 紧跟在品牌（TodayOps）右侧的一排内部系统入口：
- *   - 账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP：hover 展开本地 dev 服务 + dev/test/pre；
+ *   - 账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP：hover 展开本地 dev 服务 + 环境入口；
  *   - 水星 / GitLab Tags / 发布平台 / 我的地盘-禅道 / apifox：普通直链（新标签打开）。
  *
  * 链接全部来自知识库（Obsidian「06-环境入口」「05-常用链接汇总」）；改地址只改下面
@@ -20,28 +20,38 @@ import IconLoading from '~icons/mdi/loading'
  * 标签文字转绿（状态栏运行状态指示）；hover 菜单顶部一行 localhost:端口 可点击启动 / 打开，
  * 运行中绿字、启动中转圈琥珀、未启动可点击拉起。点击未运行服务另弹 toast 反馈启动进度。
  */
-interface EnvLinks {
-  dev: string
-  test: string
-  pre: string
+type EnvKey = 'dev' | 'test' | 'pre'
+
+type EnvLinks = Partial<Record<EnvKey, string>>
+
+interface EnvGroup {
+  label?: string
+  envs: EnvLinks
 }
 
 interface NavItem {
   label: string
   /** 普通直链地址（无 envs 时用） */
   url?: string
-  /** 配了 envs 的项，hover 展开 dev/test/pre 三环境子菜单 */
+  /** 配了 envs / envGroups 的项，hover 展开环境子菜单 */
   envs?: EnvLinks
+  /** 多套环境分组（例如 ERP 的新老系统） */
+  envGroups?: EnvGroup[]
   /** wbscf-web 本地 dev 服务应用 key（account/buyer/seller/ops/erp）；配了即在 dev 前加 localhost 入口 */
   local?: string
 }
 
 /** 环境子菜单的展示顺序（dev/test/pre 纯文字，不带点） */
-const envMeta: { key: keyof EnvLinks }[] = [
+const envMeta: { key: EnvKey }[] = [
   { key: 'dev' },
   { key: 'test' },
   { key: 'pre' },
 ]
+
+interface EnvEntry {
+  key: EnvKey
+  url: string
+}
 
 /** 导航项配置（地址取自知识库）。顺序即展示顺序：前 5 项带环境子菜单，后 5 项为直链。 */
 const navItems: NavItem[] = [
@@ -61,10 +71,16 @@ const navItems: NavItem[] = [
       dev: 'http://ops-dev.wbscf.tech/#/dashboard',
       test: 'http://ops-test.wbscf.tech/#/dashboard',
       pre: 'http://ops-pre.wbscf.tech/#/dashboard' } },
-  { label: 'ERP', local: 'erp', envs: {
-      dev: 'https://erp-dev.wbscf.tech/console/#/auth/login',
-      test: 'https://erp-test.wbscf.tech/console/#/auth/login',
-      pre: 'https://erp-pre.wbscf.tech/console/#/auth/login' } },
+  { label: 'ERP', local: 'erp',
+    envGroups: [
+      { label: '新ERP', envs: {
+          dev: 'https://erp-dev.wbscf.tech/console/#/auth/login',
+          test: 'https://erp-test.wbscf.tech/console/#/auth/login',
+          pre: 'https://erp-pre.wbscf.tech/console/#/auth/login' } },
+      { label: '老ERP', envs: {
+          dev: 'https://erp-dev.wbscf.com',
+          test: 'https://erp-test.wbscf.com' } },
+    ] },
   { label: '水星', url: 'http://admin-dev.wbscf.tech/login' },
   { label: 'GitLab Tags', url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags' },
   { label: '发布平台', url: 'http://cd.esteel.tech/#/page/history' },
@@ -100,6 +116,15 @@ function localTitle(app?: string): string {
 function onLocalClick(app?: string): void {
   if (app) startOrOpen(app)
 }
+function envGroupsOf(item: NavItem): EnvGroup[] {
+  if (item.envGroups?.length) return item.envGroups
+  return item.envs ? [{ envs: item.envs }] : []
+}
+function envEntries(envs: EnvLinks): EnvEntry[] {
+  return envMeta
+    .map(({ key }) => ({ key, url: envs[key] }))
+    .filter((env): env is EnvEntry => !!env.url)
+}
 /** toast「打开」按钮：在新标签打开该服务的本地 URL */
 function openUrl(url: string): void {
   if (url) window.open(url, '_blank', 'noopener,noreferrer')
@@ -111,8 +136,8 @@ function openUrl(url: string): void {
     <span class="status-nav-divider" aria-hidden="true" />
     <ul class="status-nav-list">
       <li v-for="item in navItems" :key="item.label" class="status-nav-item">
-        <!-- 有环境子菜单：hover 展开本地服务 + dev/test/pre（标签是 hover 面，不跳转） -->
-        <template v-if="item.envs">
+        <!-- 有环境子菜单：hover 展开本地服务 + 环境入口（标签是 hover 面，不跳转） -->
+        <template v-if="item.envs || item.envGroups">
           <!-- 本地 dev 服务运行中时，标签文字转绿（状态栏运行状态指示） -->
           <span class="status-nav-label" :class="{ 'is-local-running': isRunning(item.local) }">
             {{ item.label }}
@@ -138,15 +163,19 @@ function openUrl(url: string): void {
               </button>
               <!-- 本地服务与环境的分组分隔 -->
               <div v-if="showLocal(item.local)" class="status-nav-menu-sep" aria-hidden="true" />
-              <a
-                v-for="env in envMeta"
-                :key="env.key"
-                class="status-nav-env status-nav-env-link"
-                :href="item.envs[env.key]"
-                target="_blank"
-                rel="noopener noreferrer"
-                role="menuitem"
-              >{{ env.key }}</a>
+              <template v-for="(group, groupIndex) in envGroupsOf(item)" :key="group.label ?? `envs-${groupIndex}`">
+                <div v-if="groupIndex > 0" class="status-nav-menu-sep" aria-hidden="true" />
+                <div v-if="group.label" class="status-nav-env-group">{{ group.label }}</div>
+                <a
+                  v-for="env in envEntries(group.envs)"
+                  :key="env.key"
+                  class="status-nav-env status-nav-env-link"
+                  :href="env.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  role="menuitem"
+                >{{ env.key }}</a>
+              </template>
             </div>
           </div>
         </template>
@@ -325,6 +354,15 @@ function openUrl(url: string): void {
 }
 .status-nav-local.is-booting {
   color: #fcd34d;
+}
+
+.status-nav-env-group {
+  padding: 7px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(125, 211, 252, 0.82);
+  white-space: nowrap;
 }
 
 /* 环境链接：纯文字行，hover 微提亮 */
