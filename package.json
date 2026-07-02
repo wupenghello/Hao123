@@ -1,6 +1,6 @@
 {
-  "name": "hao123",
-  "description": "极简个人工作台：聚合和风天气与禅道任务管理，纯前端、本地持久化",
+  "name": "todayops",
+  "description": "面向研发个人的 AI 工作驾驶舱：聚合工作项、知识库、本地服务与 Git 状态",
   "private": true,
   "version": "0.0.0",
   "type": "module",

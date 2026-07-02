@@ -22,7 +22,7 @@ export interface ToolActivity {
   /** 参数摘要，如「北京 · 未来 7 天」（可空） */
   detail?: string
   /** 执行状态 */
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'pending'
   /** 开始时间戳（ms） */
   startTime?: number
   /** 结束时间戳（ms） */
@@ -33,6 +33,49 @@ export interface ToolActivity {
   expanded?: boolean
   /** 执行耗时（ms），结束时计算 */
   duration?: number
+  /** 高风险工具的产品级审批信息；pending 时由 UI 渲染确认卡 */
+  approval?: ToolApproval
+}
+
+/** 高风险工具调用的产品级审批信息 */
+export interface ToolApproval {
+  /** 人类可读动作标题 */
+  title: string
+  /** 动作影响说明 */
+  description: string
+  /** 风险提示 */
+  risk: string
+  /** 待执行参数（只用于 UI 预览，不发给模型） */
+  args: Record<string, unknown>
+  /** 用户是否已经处理该审批 */
+  decision?: 'approved' | 'rejected'
+  /** 处理时间戳 */
+  decidedAt?: number
+}
+
+/** AI 质量反馈分类，用于把赞踩归因到具体能力场景 */
+export type FeedbackCategory =
+  | 'briefing'
+  | 'task-planning'
+  | 'git'
+  | 'kb'
+  | 'weather'
+  | 'local-task'
+  | 'zentao'
+  | 'vision'
+  | 'general'
+
+export interface FeedbackCategoryStats {
+  up: number
+  down: number
+  regenerations: number
+}
+
+export interface FeedbackStats {
+  up: number
+  down: number
+  regenerations: number
+  byCategory: Partial<Record<FeedbackCategory, FeedbackCategoryStats>>
 }
 
 /** 对话消息（与 DeepSeek/OpenAI chat/completions 的 message 对齐） */
@@ -53,6 +96,8 @@ export interface ChatMessage {
   ts?: number
   /** 用户反馈（仅 assistant 消息）；用于质量追踪与 prompt 迭代 */
   feedback?: 'up' | 'down'
+  /** 反馈归因分类：用于判断小吴哪类能力最不稳定 */
+  qualityCategory?: FeedbackCategory
 }
 
 /** 一轮流式响应的累积结果 */

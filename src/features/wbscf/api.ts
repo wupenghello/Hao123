@@ -45,3 +45,12 @@ export async function triggerWbscfLaunch(app: string): Promise<WbscfServicesResp
   return (await res.json()) as WbscfServicesResponse
 }
 
+/** 跳转前的重型 ready 探测：端口已 listen 后，再等首个 HTTP 响应完成。 */
+export async function fetchWbscfReady(app: string): Promise<boolean> {
+  const res = await fetch(`${BASE}/ready?app=${encodeURIComponent(app)}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`/wbscf/ready -> ${res.status}`)
+  return Boolean(((await res.json()) as { ready?: boolean }).ready)
+}
+

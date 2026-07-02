@@ -88,7 +88,6 @@ let particles: THREE.Points | null = null
 let raycaster: THREE.Raycaster | null = null
 const lastPointer = new THREE.Vector2(99, 99)
 let pointerInside = false
-const _orbitV = new THREE.Vector3()
 const _tmpV = new THREE.Vector3()
 let frame = 0
 let resizeObserver: ResizeObserver | null = null

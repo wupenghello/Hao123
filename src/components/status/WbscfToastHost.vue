@@ -23,7 +23,7 @@ const emit = defineEmits<{
 function toastDesc(t: WbscfToast): string {
   if (t.state === 'starting') return '正在启动本地 dev 服务，首次构建可能需要数十秒…'
   if (t.state === 'ready') return '已就绪，已在新的标签页打开'
-  return '启动超时，请到运行 Hao123 的终端查看 wbscf-web 报错'
+  return '启动超时，请到运行 TodayOps 的终端查看 wbscf-web 报错'
 }
 </script>
 

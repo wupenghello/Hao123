@@ -12,7 +12,21 @@
  * 让「AI 简报」与「待办清单」一眼可分。
  */
 import { computed } from 'vue'
-import { useBriefing, renderMarkdown, ASSISTANT_NAME } from '@/features/chat'
+import { useBriefing, renderMarkdown, ASSISTANT_NAME, buildBriefingActionFlowPrompt } from '@/features/chat'
+import { useInboxInsights, deadlineDays } from '@/features/insights'
+import {
+  useTaskStore,
+  useBugStore,
+  priorityBadge as ztPri,
+  severityBadge,
+  taskStatusBadge,
+  bugStatusBadge,
+  isUrgentTask,
+  isUrgentBug,
+} from '@/features/zentao'
+import type { ZentaoTask, ZentaoBug } from '@/features/zentao'
+import { useLocalTaskStore, priBadge, isUrgentLocalTask } from '@/features/local-tasks'
+import type { LocalTask } from '@/features/local-tasks'
 import { useChatStore } from '../store'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
@@ -20,9 +34,124 @@ import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const { briefing, generating, error, refresh } = useBriefing()
 const chat = useChatStore()
-/** 承接原首页「下一步建议」条的深聊入口：看完简报想细聊，拉起小吴 */
-function openChat() {
+const taskStore = useTaskStore()
+const bugStore = useBugStore()
+const localStore = useLocalTaskStore()
+const { predictions, summary } = useInboxInsights()
+
+type MorningKind = 'task' | 'bug' | 'local'
+interface MorningItem {
+  key: string
+  kind: MorningKind
+  title: string
+  source: string
+  priority: number
+  priorityLabel: string
+  status: string
+  deadline?: string
+  urgent: boolean
+  riskLabel?: string
+  riskWhy?: string
+}
+
+function cleanDeadline(deadline?: string): string | undefined {
+  if (!deadline || /^0000/.test(deadline)) return undefined
+  return String(deadline).slice(0, 10)
+}
+
+function deadlineSort(deadline?: string): number {
+  const days = deadlineDays(deadline)
+  return days == null ? 999 : days
+}
+
+function fromTask(t: ZentaoTask): MorningItem {
+  const key = `task-${t.id}`
+  const risk = predictions.value.get(key)
+  const pri = Number(t.pri) || 4
+  return {
+    key,
+    kind: 'task',
+    title: t.name,
+    source: '禅道任务',
+    priority: pri,
+    priorityLabel: ztPri(t.pri)?.label || `P${pri}`,
+    status: taskStatusBadge(t.status).label,
+    deadline: cleanDeadline(t.deadline),
+    urgent: isUrgentTask(t),
+    riskLabel: risk?.label,
+    riskWhy: risk?.why,
+  }
+}
+
+function fromBug(b: ZentaoBug): MorningItem {
+  const key = `bug-${b.id}`
+  const risk = predictions.value.get(key)
+  const pri = Number(b.severity || b.pri) || 4
+  return {
+    key,
+    kind: 'bug',
+    title: b.title,
+    source: '禅道 Bug',
+    priority: pri,
+    priorityLabel: severityBadge(b.severity)?.label || ztPri(b.pri)?.label || `P${pri}`,
+    status: bugStatusBadge(b.status).label,
+    deadline: cleanDeadline(b.deadline),
+    urgent: isUrgentBug(b),
+    riskLabel: risk?.label,
+    riskWhy: risk?.why,
+  }
+}
+
+function fromLocal(t: LocalTask): MorningItem {
+  const key = `local-${t.id}`
+  const risk = predictions.value.get(key)
+  return {
+    key,
+    kind: 'local',
+    title: t.title,
+    source: '本地待办',
+    priority: t.pri,
+    priorityLabel: priBadge(t.pri).label,
+    status: t.done ? '已完成' : '未完成',
+    deadline: cleanDeadline(t.deadline),
+    urgent: isUrgentLocalTask(t),
+    riskLabel: risk?.label,
+    riskWhy: risk?.why,
+  }
+}
+
+const morningItems = computed<MorningItem[]>(() => [
+  ...taskStore.assigned.map(fromTask),
+  ...bugStore.assigned.map(fromBug),
+  ...localStore.open.map(fromLocal),
+])
+
+function itemRank(it: MorningItem): number {
+  const riskWeight = it.riskLabel?.includes('逾期') ? 0 : it.riskLabel?.includes('今天') || it.riskLabel?.includes('明天') ? 1 : it.riskLabel ? 2 : 3
+  return riskWeight * 1000 + (it.urgent ? 0 : 100) + it.priority * 10 + deadlineSort(it.deadline)
+}
+
+const sortedItems = computed(() => [...morningItems.value].sort((a, b) => itemRank(a) - itemRank(b)))
+const firstAction = computed(() => sortedItems.value[0] ?? null)
+const riskItems = computed(() => sortedItems.value.filter((it) => it.riskLabel || it.urgent).slice(0, 3))
+const deferrableItems = computed(() =>
+  sortedItems.value
+    .filter((it) => !it.riskLabel && !it.urgent && it.priority >= 3 && deadlineSort(it.deadline) > 1)
+    .slice(0, 3),
+)
+
+const actionContext = computed(() => [
+  `今天先抓：${firstAction.value ? `${firstAction.value.source}「${firstAction.value.title}」` : '当前没有明显优先项'}`,
+  `风险项：${riskItems.value.length ? riskItems.value.map((it) => `${it.source}「${it.title}」(${it.riskLabel || '紧急'})`).join('；') : '暂无'}`,
+  `可推迟项：${deferrableItems.value.length ? deferrableItems.value.map((it) => `${it.source}「${it.title}」`).join('；') : '暂无'}`,
+  briefing.value?.content ? `晨报正文：\n${briefing.value.content}` : '',
+].filter(Boolean).join('\n'))
+
+/** 看完简报后进入行动流，而不是只打开空聊天 */
+function startActionFlow() {
+  if (!actionContext.value) return
   chat.show()
+  void chat.send(buildBriefingActionFlowPrompt(actionContext.value))
 }
 
 const html = computed(() => (briefing.value ? renderMarkdown(briefing.value.content) : ''))
@@ -72,16 +201,64 @@ const relTime = computed(() => {
         <button class="mb-retry" @click="refresh">重试</button>
       </div>
 
-      <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
-      <div v-else-if="html" class="mb-body" v-html="html" />
+      <!-- 可操作结论区：先给今天怎么动，再读自然语言简报 -->
+      <div v-if="html" class="mb-action">
+        <section class="mb-first">
+          <p class="mb-action-kicker">今天先抓什么</p>
+          <template v-if="firstAction">
+            <h3 :title="firstAction.title">{{ firstAction.title }}</h3>
+            <div class="mb-action-meta">
+              <span>{{ firstAction.source }}</span>
+              <span>{{ firstAction.priorityLabel }}</span>
+              <span>{{ firstAction.status }}</span>
+              <span v-if="firstAction.deadline">截止 {{ firstAction.deadline }}</span>
+            </div>
+            <p v-if="firstAction.riskWhy" class="mb-action-why">{{ firstAction.riskWhy }}</p>
+          </template>
+          <template v-else>
+            <h3>没有明显优先项</h3>
+            <p class="mb-action-why">当前清单比较平稳，可以按自己的节奏推进。</p>
+          </template>
+        </section>
 
-      <!-- 深聊入口（承接原首页「下一步建议」条：看完简报想细聊，拉起小吴） -->
-      <footer v-if="html" class="mb-foot">
-        <button class="mb-ask" :title="`问${ASSISTANT_NAME}`" @click="openChat">
+        <div class="mb-action-cols">
+          <section class="mb-action-block">
+            <div class="mb-action-block-head">
+              <span>风险项</span>
+              <b>{{ summary.total }}</b>
+            </div>
+            <ul v-if="riskItems.length" class="mb-mini-list">
+              <li v-for="it in riskItems" :key="it.key">
+                <span class="mb-mini-title" :title="it.title">{{ it.title }}</span>
+                <span class="mb-mini-tag">{{ it.riskLabel || '紧急' }}</span>
+              </li>
+            </ul>
+            <p v-else class="mb-empty-line">暂无逾期、临期或停滞项。</p>
+          </section>
+
+          <section class="mb-action-block">
+            <div class="mb-action-block-head">
+              <span>可推迟项</span>
+              <b>{{ deferrableItems.length }}</b>
+            </div>
+            <ul v-if="deferrableItems.length" class="mb-mini-list">
+              <li v-for="it in deferrableItems" :key="it.key">
+                <span class="mb-mini-title" :title="it.title">{{ it.title }}</span>
+                <span class="mb-mini-tag is-soft">{{ it.priorityLabel }}</span>
+              </li>
+            </ul>
+            <p v-else class="mb-empty-line">暂时没有明显可推迟项。</p>
+          </section>
+        </div>
+
+        <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
           <IconSpark class="w-3 h-3" />
-          <span>想细聊？问 {{ ASSISTANT_NAME }} →</span>
+          <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
         </button>
-      </footer>
+      </div>
+
+      <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
+      <div v-if="html" class="mb-body" v-html="html" />
     </section>
   </Transition>
 </template>
@@ -154,6 +331,146 @@ const relTime = computed(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* 可操作结论区：今天先抓什么 / 风险项 / 可推迟项 / 一键排期 */
+.mb-action {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid rgba(129, 140, 248, 0.12);
+  background:
+    linear-gradient(120deg, rgba(129, 140, 248, 0.08), rgba(45, 212, 191, 0.035)),
+    rgba(2, 6, 23, 0.14);
+}
+.mb-first {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(165, 180, 252, 0.13);
+  background: rgba(2, 6, 23, 0.22);
+}
+.mb-action-kicker {
+  margin: 0 0 5px;
+  font-family: var(--hud-font-data);
+  font-size: 9px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: rgba(165, 180, 252, 0.68);
+}
+.mb-first h3 {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.35;
+  font-weight: 680;
+  color: rgba(255, 255, 255, 0.94);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mb-action-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+.mb-action-meta span {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  color: rgba(226, 232, 240, 0.64);
+  background: rgba(255, 255, 255, 0.055);
+}
+.mb-action-why {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.58);
+}
+.mb-action-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 9px;
+}
+.mb-action-block {
+  padding: 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.09);
+  background: rgba(255, 255, 255, 0.025);
+}
+.mb-action-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.76);
+}
+.mb-action-block-head b {
+  font-family: var(--hud-font-data);
+  font-size: 11px;
+  color: rgba(199, 210, 254, 0.82);
+}
+.mb-mini-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mb-mini-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.mb-mini-list li + li {
+  margin-top: 6px;
+}
+.mb-mini-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.66);
+}
+.mb-mini-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.12);
+}
+.mb-mini-tag.is-soft {
+  color: rgba(191, 219, 254, 0.75);
+  background: rgba(59, 130, 246, 0.1);
+}
+.mb-empty-line {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.mb-plan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(224, 231, 255, 0.92);
+  background: rgba(129, 140, 248, 0.14);
+  border: 1px solid rgba(165, 180, 252, 0.16);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+.mb-plan:hover {
+  color: #fff;
+  background: rgba(129, 140, 248, 0.24);
+  border-color: rgba(165, 180, 252, 0.32);
 }
 
 /* 正文（v-html 渲染的 markdown，用 :deep 穿透 scoped 边界） */

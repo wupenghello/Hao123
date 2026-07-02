@@ -9,7 +9,7 @@
  *       GET /wbscf/launch?app=<app>  返回一个「拉起 + 等就绪 + 跳转」的中转 HTML 页
  *                                    （已在运行则不重复拉、直接等跳转），供 window.open 打开。
  *   - 拉起用配置的包管理器（VITE_WBSCF_PKG_MGR，默认 pnpm）执行 `run <script>`，
- *     cwd=wbscf-web 根；stdio 继承到 Hao123 dev 终端，方便看 Vite 启动横幅与报错；
+ *     cwd=wbscf-web 根；stdio 继承到 TodayOps dev 终端，方便看 Vite 启动横幅与报错；
  *   - 「是否在运行」用 HTTP 探测 localhost:port（任意响应即视为就绪），既覆盖本插件拉起
  *     的服务，也覆盖用户在别处手动启动的服务——保证「启动了就不重复拉、直接打开」。
  *
@@ -21,6 +21,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import net from 'node:net'
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import type { ServerResponse } from 'node:http'
@@ -38,6 +39,11 @@ interface WbscfPluginOptions {
 interface ProcState {
   proc: ChildProcess | null
   pid: number | null
+}
+
+interface LaunchPlan {
+  command: string
+  args: string[]
 }
 
 /** 各 app 的拉起进程（dev server 单例，模块级即可） */
@@ -84,12 +90,29 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
   const pkgMgr = (options.pkgMgr?.trim() || 'pnpm').toLowerCase()
 
   /**
-   * HTTP 探测 localhost:port 是否已就绪（任意响应即视为在运行，含 404）。
-   * 用「fetch resolve 即视为就绪」而非「端口可连」：Vite dev server 在 listen() 后、
-   * 首请求时才 optimizeDeps/transform——请求会阻塞到编译完成才返回响应。故 fetch resolve
-   * 本身就保证应用已可服务，不会出现「端口已绑但页面半成品」的提前变绿。
+   * 就绪探测分两层：
+   *   - port probe 很轻，只判断端口是否已 listen；用于 /wbscf/services 高频状态刷新，避免每 4s
+   *     对 5 个 Vite 子应用各发一次首页 HTTP 请求，触发 optimizeDeps/transform 而拖慢启动。
+   *   - HTTP ready probe 只在中转页/LLM 真要跳转前使用，确保首屏编译完成后再 replace。
    */
-  async function probe(url: string, timeoutMs = 1000): Promise<boolean> {
+  function probePort(port: number, timeoutMs = 350): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = net.connect({ host: '127.0.0.1', port })
+      let done = false
+      const finish = (ok: boolean) => {
+        if (done) return
+        done = true
+        socket.destroy()
+        resolve(ok)
+      }
+      socket.setTimeout(timeoutMs)
+      socket.once('connect', () => finish(true))
+      socket.once('timeout', () => finish(false))
+      socket.once('error', () => finish(false))
+    })
+  }
+
+  async function probeHttp(url: string, timeoutMs = 1000): Promise<boolean> {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     try {
@@ -102,21 +125,25 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
     }
   }
 
-  /**
-   * 探测结果短缓存（review #13）：/wbscf/services 被多路轮询（composable 4s、中转页 1.5s、
-   * LLM 1.5s），同一端口在 ~600ms 内的探测结果复用，避免并发请求各自 5 端口全量探测。
-   * 只缓存「已就绪」结果 0 失效（立即可复用）、「未就绪」短缓存 600ms（启动期端口会很快翻绿，
-   * 不宜长缓存 false）。键=app，值={ running, at }。
-   */
-  const probeCache = new Map<string, { running: boolean; at: number }>()
+  /** 探测结果短缓存：状态刷新走端口探测，跳转前走 HTTP ready 探测；两套缓存互不污染。 */
+  const portProbeCache = new Map<string, { running: boolean; at: number }>()
+  const readyProbeCache = new Map<string, { ready: boolean; at: number }>()
   const PROBE_CACHE_FRESH_MS = 600
-  async function cachedProbe(app: string, url: string): Promise<boolean> {
-    const hit = probeCache.get(app)
+  async function cachedPortProbe(app: string, port: number): Promise<boolean> {
+    const hit = portProbeCache.get(app)
     const fresh = hit && Date.now() - hit.at < (hit.running ? 4000 : PROBE_CACHE_FRESH_MS)
     if (fresh) return hit!.running
-    const running = await probe(url)
-    probeCache.set(app, { running, at: Date.now() })
+    const running = await probePort(port)
+    portProbeCache.set(app, { running, at: Date.now() })
     return running
+  }
+  async function cachedReadyProbe(app: string, url: string): Promise<boolean> {
+    const hit = readyProbeCache.get(app)
+    const fresh = hit && Date.now() - hit.at < (hit.ready ? 4000 : PROBE_CACHE_FRESH_MS)
+    if (fresh) return hit!.ready
+    const ready = await probeHttp(url, 8000)
+    readyProbeCache.set(app, { ready, at: Date.now() })
+    return ready
   }
 
   /** 读 wbscf-web/package.json 的 scripts（按 mtime 缓存） */
@@ -140,12 +167,18 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
     return { enabled, scripts: enabled ? getScripts() : new Set<string>() }
   }
 
+  function launchPlan(svc: WbscfServiceDef): LaunchPlan {
+    if (pkgMgr === 'pnpm') return { command: pkgMgr, args: ['--filter', svc.pkg, 'run', 'dev'] }
+    if (pkgMgr === 'yarn') return { command: pkgMgr, args: ['workspace', svc.pkg, 'dev'] }
+    return { command: pkgMgr, args: ['run', svc.script] }
+  }
+
   async function buildStatus(): Promise<WbscfServicesResponse> {
     const { enabled, scripts } = snapshot()
     const services: WbscfServiceStatus[] = await Promise.all(
       wbscfServices.map(async (svc) => {
         const ours = isOurs(svc.app)
-        const running = enabled ? await cachedProbe(svc.app, svc.url) : false
+        const running = enabled ? await cachedPortProbe(svc.app, svc.port) : false
         return {
           app: svc.app,
           label: svc.label,
@@ -161,12 +194,31 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
     return { enabled, root, services }
   }
 
+  /**
+   * 预热 workspace 包的 CLI shim：pnpm 首次执行某个 filter 时会生成/校验 node_modules/.bin，
+   * 提前在 TodayOps dev server 启动后空闲期做掉，用户点击时少等一段同步准备时间。
+   */
+  function warmPnpmFilters(): void {
+    if (pkgMgr !== 'pnpm' || !snapshot().enabled) return
+    for (const svc of wbscfServices) {
+      const r = spawn(pkgMgr, ['--filter', svc.pkg, 'exec', 'vite', '--version'], {
+        cwd: root,
+        shell: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      r.on('error', () => {})
+      r.on('exit', () => {})
+    }
+  }
+
   /** 拉起服务（已由本插件拉起则不重复拉） */
   function spawnService(app: string): void {
     if (isOurs(app)) return
     const svc = wbscfServices.find((s) => s.app === app)
     if (!svc) return
-    const proc = spawn(pkgMgr, ['run', svc.script], {
+    const plan = launchPlan(svc)
+    const proc = spawn(plan.command, plan.args, {
       cwd: root,
       shell: true,
       stdio: 'inherit',
@@ -195,13 +247,13 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
     if (!svc) return
     const { enabled, scripts } = snapshot()
     if (!enabled || !scripts.has(svc.script)) return
-    if (await cachedProbe(app, svc.url)) return // 外部已在运行，直接打开、不重复拉
+    if (await cachedPortProbe(app, svc.port)) return // 外部已在运行，直接打开、不重复拉
     spawnService(app)
   }
 
   /** 「拉起 + 等端口就绪 + 跳转」的中转页（点击即打开，不会被弹窗拦截） */
   function launcherHtml(svc: WbscfServiceDef): string {
-    const cfg = JSON.stringify({ app: svc.app, label: svc.label, url: svc.url, port: svc.port })
+    const cfg = JSON.stringify({ app: svc.app, label: svc.label, url: svc.url, port: svc.port, readyUrl: `/wbscf/ready?app=${svc.app}` })
     return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -228,18 +280,19 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
   <div class="ring"></div>
   <h1>正在启动 <b>${svc.label}</b> 本地服务…</h1>
   <div class="url">端口 ${svc.port} · <code>${svc.url}</code></div>
-  <div class="hint" id="hint">首次构建可能需要数十秒，请稍候（启动日志见运行 Hao123 的终端）</div>
+  <div class="hint" id="hint">首次构建可能需要数十秒，请稍候（启动日志见运行 TodayOps 的终端）</div>
 </div>
 <script>
 var CFG=${cfg};
 var start=Date.now();
 var stopped=false;
+var pending=false;
 var xhr=function(){
-  if(stopped)return;
-  fetch("/wbscf/services").then(function(r){return r.json()}).then(function(d){
-    var s=(d.services||[]).filter(function(x){return x.app===CFG.app})[0];
-    if(s&&s.running){done();location.replace(CFG.url);return;}
-  }).catch(function(){});
+  if(stopped||pending)return;
+  pending=true;
+  fetch(CFG.readyUrl).then(function(r){return r.json()}).then(function(d){
+    if(d.ready){done();location.replace(CFG.url);return;}
+  }).catch(function(){}).finally(function(){pending=false;});
 };
 var done=function(){stopped=true;};
 // 硬墙钟超时检查：不依赖 fetch 是否返回（连接挂起不响应时也能到点报错），
@@ -251,7 +304,7 @@ var watchdog=setInterval(function(){
     clearInterval(watchdog);
     document.getElementById("wrap").classList.add("err");
     document.getElementById("hint").innerHTML=
-      "启动超时，请到运行 Hao123 的终端查看 wbscf-web 的报错；"+
+      "启动超时，请到运行 TodayOps 的终端查看 wbscf-web 的报错；"+
       '<a href="'+CFG.url+'">点此手动打开</a> 或重试。';
   }
 },1000);
@@ -314,6 +367,8 @@ setInterval(function(){if(!stopped)xhr();},1500);
   return {
     name: 'wbscf-dev-services',
     configureServer(server) {
+      const warmTimer = setTimeout(warmPnpmFilters, 1200)
+
       server.middlewares.use((req, res, next) => {
         const reqUrl = req.url ?? ''
         // 处理 wbscf 和 claude 两类接口，其他请求放行
@@ -325,6 +380,17 @@ setInterval(function(){if(!stopped)xhr();},1500);
 
           if (pathname === '/wbscf/services' && req.method === 'GET') {
             sendJson(res, 200, await buildStatus())
+            return
+          }
+          if (pathname === '/wbscf/ready' && req.method === 'GET') {
+            const svc = wbscfServices.find((s) => s.app === app)
+            if (!svc) {
+              sendJson(res, 400, { error: 'unknown app' })
+              return
+            }
+            const ready = await cachedReadyProbe(svc.app, svc.url)
+            if (ready) portProbeCache.set(svc.app, { running: true, at: Date.now() })
+            sendJson(res, 200, { app: svc.app, ready })
             return
           }
           if (pathname === '/wbscf/launch' && req.method === 'GET') {
@@ -368,16 +434,17 @@ setInterval(function(){if(!stopped)xhr();},1500);
         })
       })
 
-      // Hao123 dev server 退出时连带收掉拉起的子进程树，避免孤儿 dev server。
+      // TodayOps dev server 退出时连带收掉拉起的子进程树，避免孤儿 dev server。
       // 'exit' 不覆盖 SIGKILL/崩溃；补 SIGINT/SIGTERM 让 Ctrl+C / 信号终止也能清理
       // （处理后主动 exit，交给 Vite 其余收尾）。handler 幂等 + 一次性，防 server 重启叠加。
       let cleaned = false
       const cleanup = () => {
         if (cleaned) return
         cleaned = true
+        clearTimeout(warmTimer)
         for (const [, st] of states) killTree(st)
         states.clear()
-        // Claude 是独立终端窗口，用户自己管理，Hao123 退出不强制关闭
+        // Claude 是独立终端窗口，用户自己管理，TodayOps 退出不强制关闭
       }
       process.on('exit', cleanup)
       process.once('SIGINT', () => { cleanup(); process.exit(0) })

@@ -24,6 +24,8 @@ export interface WbscfServiceDef {
   label: string
   /** package.json scripts 中的脚本名 */
   script: string
+  /** workspace 包名（用于 pnpm 直达子应用，少绕一层根 scripts） */
+  pkg: string
   /** dev 端口 */
   port: number
   /** VITE_BASE 路径（用于拼本地访问地址） */
@@ -33,7 +35,7 @@ export interface WbscfServiceDef {
 }
 
 function def(app: string, label: string, script: string, port: number, base: string): WbscfServiceDef {
-  return { app, label, script, port, base, url: `http://localhost:${port}${base}` }
+  return { app, label, script, pkg: `@wbscf/${app}`, port, base, url: `http://localhost:${port}${base}` }
 }
 
 /** wbscf-web 各子应用的 dev 服务注册表（顺序与状态栏导航前 5 项一致） */

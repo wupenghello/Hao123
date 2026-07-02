@@ -16,7 +16,7 @@ useChatHotkeys()
     <!-- 顶部状态栏：左栏品牌 + 右栏天气/时间（中栏留空） -->
     <StatusBar>
       <template #left>
-        <span class="status-brand">Hao123</span>
+        <span class="status-brand">TodayOps</span>
         <!-- Claude Code 启动按钮：在 wbscf 项目根目录下新开终端拉起 Claude CLI -->
         <ClaudeButton />
         <!-- 工作台导航：内部系统入口（账号/买卖家/运营/ERP 带 dev/test/pre 子菜单，内部自带分隔线） -->
