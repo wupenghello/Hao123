@@ -38,7 +38,8 @@ interface ImportMetaEnv {
 
 /** 知识库虚拟模块（由 vite-plugin-kb.ts 在 dev/构建时注入本地文档原文） */
 declare module 'virtual:kb-docs' {
-  export const docs: { doc: string; title: string; content: string }[]
+  import type { RawDoc } from '@/features/kb/types'
+  export const docs: RawDoc[]
 }
 
 interface ImportMeta {

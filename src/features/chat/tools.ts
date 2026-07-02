@@ -70,7 +70,7 @@ export async function callTool(
   const realName = fromWireName(name)
   if (realName.startsWith('weather.')) return callWeatherTool(realName, args)
   if (realName.startsWith('zentao.')) return callZentaoTool(realName, args)
-  if (realName.startsWith('kb.')) return callKbTool(realName, args)
+  if (realName.startsWith('kb.')) return callKbTool(realName, args, signal)
   if (realName.startsWith('local.')) return callLocalTaskTool(realName, args)
   if (realName.startsWith('wbscf.')) return callWbscfTool(realName, args, signal)
   if (realName.startsWith('git.')) return callGitTool(realName, args, signal)
@@ -91,6 +91,7 @@ const TOOL_LABELS: Record<string, string> = {
   'zentao__my_bugs': '查询我的 Bug',
   'zentao__bug_detail': '查询 Bug 详情',
   'kb__search': '检索知识库',
+  'kb__health': '检查知识库健康',
   'local__list': '查看本地待办',
   'local__create': '新建本地待办',
   'local__update': '修改本地待办',

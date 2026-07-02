@@ -44,9 +44,139 @@ const MAX_ROUNDS = 5
  * 若存完整结果（kb.search 一次可达数十 KB），多次工具调用会把 localStorage 撑爆。
  */
 const RESULT_PREVIEW_MAX = 800
+const KB_VISION_MAX_IMAGES = 3
+const KB_VISION_MAX_BYTES = 5 * 1024 * 1024
+
 function previewResultJson(result: unknown): string {
   const json = JSON.stringify(result)
   return json.length > RESULT_PREVIEW_MAX ? json.slice(0, RESULT_PREVIEW_MAX) + '\n…（已截断，完整结果已带入上下文）' : json
+}
+
+interface KbVisionHit {
+  doc?: string
+  docTitle?: string
+  section?: string
+  sourceType?: string
+  assetUrl?: string
+  mimeType?: string
+  confidence?: 'high' | 'medium' | 'low'
+  score?: number
+  matchedTerms?: string[]
+  highlights?: string[]
+  content?: string
+  citation?: { label?: string; path?: string }
+  metadata?: { path?: string; mimeType?: string }
+}
+
+function isKbSearchTool(wireName: string): boolean {
+  return wireName === 'kb__search'
+}
+
+function absolutizeAssetUrl(url: string): string {
+  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url
+  return new URL(url, window.location.origin).toString()
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('图片读取失败'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function assetToDataUrl(url: string, signal: AbortSignal): Promise<string | null> {
+  const res = await fetch(absolutizeAssetUrl(url), { signal })
+  if (!res.ok) return null
+  const blob = await res.blob()
+  if (!blob.type.startsWith('image/') || blob.size > KB_VISION_MAX_BYTES) return null
+  return blobToDataUrl(blob)
+}
+
+async function kbVisionContextFromResult(wireName: string, result: unknown, signal: AbortSignal): Promise<ChatMessage | null> {
+  if (!isKbSearchTool(wireName)) return null
+  const hits = Array.isArray((result as { results?: unknown[] })?.results)
+    ? (result as { results: KbVisionHit[] }).results
+    : []
+  const imageHits = hits
+    .filter((h) => h?.sourceType === 'image' && h.assetUrl)
+    .slice(0, KB_VISION_MAX_IMAGES)
+  if (!imageHits.length) return null
+
+  const images: string[] = []
+  const labels: string[] = []
+  for (const hit of imageHits) {
+    if (!hit.assetUrl) continue
+    try {
+      const dataUrl = await assetToDataUrl(hit.assetUrl, signal)
+      if (!dataUrl) continue
+      images.push(dataUrl)
+      labels.push(hit.citation?.label || hit.metadata?.path || hit.docTitle || hit.doc || '知识库图片')
+    } catch {
+      // 单张图片失败不影响其它图片或工具结果
+    }
+  }
+  if (!images.length) return null
+
+  return {
+    role: 'user',
+    content: [
+      '以下图片来自刚才的知识库检索结果，请直接查看图片内容来回答用户上一问。',
+      '不要因为知识库缺少 OCR/摘要就要求用户重新上传；如果图片内容足够清楚，请基于图片本身说明。',
+      `图片来源：${labels.join('；')}`,
+    ].join('\n'),
+    images,
+  }
+}
+
+function hasWireTool(wireName: string): boolean {
+  return openAiTools.some((t) => t.function.name === wireName)
+}
+
+function kbHitsFromResult(result: unknown): KbVisionHit[] {
+  return Array.isArray((result as { results?: unknown[] })?.results)
+    ? (result as { results: KbVisionHit[] }).results
+    : []
+}
+
+function isConfidentKbHit(hit: KbVisionHit): boolean {
+  return hit.confidence === 'high' || hit.confidence === 'medium'
+}
+
+async function ambientKbContextFromUser(text: string, signal: AbortSignal): Promise<ChatMessage | null> {
+  const query = text.trim()
+  if (!query || !kbEnabled || !hasWireTool('kb__search')) return null
+
+  let result: unknown
+  try {
+    result = await callTool('kb__search', { query, top_k: 4 }, signal)
+  } catch {
+    return null
+  }
+
+  const hits = kbHitsFromResult(result).filter(isConfidentKbHit).slice(0, 4)
+  if (!hits.length) return null
+
+  const imageContext = await kbVisionContextFromResult('kb__search', { results: hits }, signal)
+  const sources = hits.map((h, i) => {
+    const source = h.citation?.label || h.metadata?.path || h.docTitle || h.doc || `结果 ${i + 1}`
+    const confidence = h.confidence || 'unknown'
+    const highlights = h.highlights?.length ? `\n  摘要：${h.highlights.join(' / ')}` : ''
+    const content = h.content ? `\n  内容：${h.content.slice(0, 600)}` : ''
+    return `${i + 1}. ${source}（${confidence}，score=${h.score ?? 'n/a'}）${highlights}${content}`
+  })
+
+  return {
+    role: 'user',
+    content: [
+      '（系统自动补充的 RAG 候选证据）',
+      '下面是用用户原话进行知识库检索后得到的高置信候选。请只在它们确实相关时使用；如果使用，请标明来源。若它们与用户问题无关，可以忽略。',
+      ...sources,
+      imageContext ? imageContext.content : '',
+    ].filter(Boolean).join('\n'),
+    images: imageContext?.images,
+  }
 }
 
 type ApprovalPolicy = Omit<ToolApproval, 'args'>
@@ -223,7 +353,7 @@ function buildCapabilitiesFromTools(): string[] {
   }
   // 知识库按真实配置门控（未配置来源时不暴露 kb.search）
   if (kbEnabled) {
-    lines.push('- 项目知识库：开发/测试/预发/生产各环境域名、部署流程、个人笔记、常见问答等内部文档。')
+    lines.push('- 项目 / 个人 RAG 知识库：检索开发/测试/预发/生产各环境域名、部署流程、个人笔记、人名事实、常见问答等内部文档，并可查看知识库健康状态、来源引用与解析警告。')
   }
   if (has('local')) {
     lines.push('- 本地待办（可增删改查）：查看 / 新建 / 修改 / 完成 / 删除用户手动创建的待办任务，可带图片与文件附件。')
@@ -250,7 +380,7 @@ const STATIC_SYSTEM_PROMPT = [
   '',
   '# 工作方式',
   '- 涉及天气或禅道数据时，必须先调用对应工具拿到真实数据再回答，绝不凭空编造数字或结论。',
-  '- 涉及项目内部信息（环境域名、部署流程、内部约定、笔记、FAQ）时，先调用 kb.search 检索知识库再回答，绝不凭记忆编造地址或流程。',
+  '- 涉及项目内部信息或个人知识库事实时，优先基于 kb.search 或系统自动补充的 RAG 候选证据回答，绝不凭记忆编造；回答中尽量标明来源文档/章节。若检索证据低置信或为空，要如实说明知识库未覆盖。若知识库命中图片且系统随后补充了图片上下文，你可以直接看图回答，不要再要求用户手动上传同一张图。',
   '- 用户说「记一下」「提醒我」「加个待办：…」等要落一条待办时，用 local.create 创建本地待办；查看/完成/修改同理调用对应工具。删除任务（local.delete）前先向用户确认。',
   '- Git 查询类请求（状态、日志、diff、blame、搜索、贡献者、配置）可以直接调用工具；任何会改变仓库状态的 Git 操作（checkout / pull / push / add / commit / branch 等）必须先用 git.status 看清当前分支、同步状态与未提交变更，再用一句话复述将执行的动作和影响，获得用户明确确认后再执行。',
   '- 用户只是讨论方案、让你评估风险、生成提交信息或解释 diff 时，不等于授权执行 Git 写操作；分支名、远端、文件列表、提交信息、force/amend 意图不明确时先追问。涉及删除、强制、覆盖历史或脏工作区下 pull/checkout 的风险动作，必须额外提醒风险并二次确认。',
@@ -258,6 +388,10 @@ const STATIC_SYSTEM_PROMPT = [
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',
   '- 用户可能发送图片（截图 / 照片）。你能看图：分析报错截图、识别白板或照片里的文字（必要时据此用 local.create 落成待办）。回答时先简述你从图里看到的关键信息，再给判断或行动。',
   '- 当用户消息要求进入「接手模式」或包含结构化工作项上下文时，不要只泛泛回答；必须先解释为什么优先处理，再给今天的处理步骤，最后列出可继续接手的动作选项。任何写操作仍需先确认。',
+  '',
+  '# 知识库调用时机',
+  '判断原则：当问题的答案更可能存在于用户自己的资料、团队内部文档、历史记录、文件内容或知识库图片中，而不是通用世界知识或其它实时工具时，优先查知识库或使用系统自动补充的 RAG 候选证据。若候选证据与问题相关，就基于证据回答并标明来源；若不相关或置信不足，就忽略它，不要强行引用。',
+  '组合场景：Bug/任务定位、发布部署、环境配置、文件内容解释、个人笔记事实等问题，经常需要把禅道/Git/图片理解与知识库证据合并判断。',
   '',
   '# 组合规划（你的核心价值）',
   '你有天气 / 禅道任务 / 禅道 Bug / 知识库 / 本地待办等多类工具。面对开放性、规划类问题，不要只调一个工具就草草作答——要把相关工具放在一起掂量，先收集全貌再综合给建议。多个互相独立的查询，尽量在同一轮并行发起（一次多个 tool_calls），减少往返、加快回答。',
@@ -461,6 +595,10 @@ export const useChatStore = defineStore('chat', () => {
     // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
     // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
     const toolsForThisTurn = openAiTools
+    const hiddenContexts: ChatMessage[] = []
+    const latestUser = [...messages.value].reverse().find((m) => m.role === 'user')
+    const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
+    if (ambientKbContext) hiddenContexts.push(ambientKbContext)
 
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -469,7 +607,7 @@ export const useChatStore = defineStore('chat', () => {
         const assistant = messages.value[idx]
 
         const { toolCalls } = await llm.chatStream({
-          messages: buildApiMessages(messages.value.slice(0, -1)),
+          messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts]),
           signal,
           tools: toolsForThisTurn,
           // temperature: 0.3 兼顾工具调用准确性与回答自然度
@@ -509,6 +647,7 @@ export const useChatStore = defineStore('chat', () => {
 
         // 并行执行所有工具调用
         const activities = assistant.activities!
+        const visionContexts: Array<ChatMessage | null> = []
         const results = await Promise.all(
           toolCalls.map(async (call, i) => {
             const activity = activities[i] as ToolActivity
@@ -532,10 +671,12 @@ export const useChatStore = defineStore('chat', () => {
                 activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
               }
               activity.result = previewResultJson(result)
+              visionContexts[i] = await kbVisionContextFromResult(call.function.name, result, signal)
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
               activity.status = 'error'
               activity.result = previewResultJson(result)
+              visionContexts[i] = null
             }
             // 记录结束时间和耗时
             activity.endTime = Date.now()
@@ -555,6 +696,7 @@ export const useChatStore = defineStore('chat', () => {
             content: results[i],
           })
         }
+        hiddenContexts.push(...visionContexts.filter((m): m is ChatMessage => !!m))
         // 继续下一轮，让模型基于工具结果作答
       }
       // 循环结束（用尽 MAX_ROUNDS）时若最后一条是 tool 消息，说明模型仍想调工具但已无轮次，

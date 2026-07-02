@@ -12,12 +12,11 @@
  * 精确术语够用；若日后需要语义检索，换底层实现即可，上层工具接口不变。
  */
 import { getKbChunks } from './loader'
-import type { KbChunk } from './types'
+import { fetchRagSearch } from './api'
+import type { KbSearchHit } from './types'
 
-/** 检索命中的片段（含打分，供排序用；返回给上层时去掉 score） */
-export interface KbHit extends KbChunk {
-  score: number
-}
+/** 检索命中的片段（RAG API 与静态回退共用） */
+export type KbHit = KbSearchHit
 
 /**
  * 把文本切成 token：英文/数字词 + 中文相邻双字。
@@ -64,30 +63,70 @@ function countOccurrences(haystack: string, needle: string): number {
  * @param signal 外部中止信号，透传给远程 fetch（首次加载尚未完成时可中止）
  */
 export async function searchKb(query: string, topK = 3, signal?: AbortSignal): Promise<KbHit[]> {
-  const chunks = await getKbChunks(signal)
-
-  const qTokens = tokenize(query)
   const qLower = query.toLowerCase().trim()
+  if (!qLower) return []
+
+  // dev 下优先走完整 RAG 服务；生产静态包、远程 manifest 或服务异常时回退到浏览器内检索。
+  try {
+    const rag = await fetchRagSearch(qLower, topK, signal)
+    if (rag.enabled && Array.isArray(rag.results)) return rag.results
+  } catch {
+    // ignore and use static fallback
+  }
+
+  const chunks = await getKbChunks(signal)
+  const qTokens = tokenize(query)
   if (!qTokens.length && !qLower) return []
 
   const scored = chunks.map((c) => {
-    const titleText = `${c.docTitle} ${c.section}`.toLowerCase()
+    const metaText = [
+      ...(c.metadata?.aliases ?? []),
+      ...(c.metadata?.tags ?? []),
+      c.metadata?.owner || '',
+    ].join(' ')
+    const titleText = `${c.docTitle} ${c.section} ${metaText}`.toLowerCase()
     const bodyText = c.content.toLowerCase()
     let score = 0
+    const matchedTerms: string[] = []
 
     // query 整体子串命中（鼓励完整短语）
-    if (qLower && (titleText.includes(qLower) || bodyText.includes(qLower))) score += 5
+    if (qLower && (titleText.includes(qLower) || bodyText.includes(qLower))) {
+      score += 5
+      matchedTerms.push(qLower)
+    }
 
     // 各 token 命中：标题加权 3，正文 1
     for (const t of qTokens) {
-      if (titleText.includes(t)) score += 3
-      score += countOccurrences(bodyText, t)
+      const titleHit = titleText.includes(t)
+      const bodyHits = countOccurrences(bodyText, t)
+      if (titleHit) score += 3
+      score += bodyHits
+      if (titleHit || bodyHits > 0) matchedTerms.push(t)
     }
-    return { ...c, score }
+    if (matchedTerms.length >= 2) score += 16
+    if (matchedTerms.length >= 2 && c.content.length <= 240) score += 4
+    return {
+      ...c,
+      score,
+      confidence: score >= 10 ? 'high' : score >= 4 ? 'medium' : 'low',
+      matchedTerms: Array.from(new Set(matchedTerms)).slice(0, 8),
+      highlights: buildHighlights(c.content, qTokens),
+    } satisfies KbHit
   })
 
   return scored
     .filter((c) => c.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)
+}
+
+function buildHighlights(content: string, tokens: string[]): string[] {
+  const lines = content.split('\n').map((line) => line.trim()).filter(Boolean)
+  const out: string[] = []
+  for (const line of lines) {
+    const lower = line.toLowerCase()
+    if (tokens.some((t) => lower.includes(t))) out.push(line.slice(0, 180))
+    if (out.length >= 3) break
+  }
+  return out
 }

@@ -18,13 +18,21 @@ const REMOTE_TIMEOUT = 8000
 /** 校验远程 manifest 形状：必须是数组，且每项含 doc/title/content 字符串 */
 function toValidDocs(data: unknown): RawDoc[] {
   if (!Array.isArray(data)) return []
-  return data.filter(
-    (d): d is RawDoc =>
-      !!d &&
-      typeof (d as RawDoc).doc === 'string' &&
-      typeof (d as RawDoc).title === 'string' &&
-      typeof (d as RawDoc).content === 'string',
-  )
+  return data
+    .filter(
+      (d): d is RawDoc =>
+        !!d &&
+        typeof (d as RawDoc).doc === 'string' &&
+        typeof (d as RawDoc).title === 'string' &&
+        typeof (d as RawDoc).content === 'string',
+    )
+    .map((d) => ({
+      doc: d.doc,
+      title: d.title,
+      content: d.content,
+      sourceType: d.sourceType,
+      metadata: d.metadata,
+    }))
 }
 
 /**

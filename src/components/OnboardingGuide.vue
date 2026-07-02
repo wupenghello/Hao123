@@ -121,7 +121,7 @@ const capabilities = computed<Capability[]>(() => [
     title: '知识库',
     status: kbEnabled ? '已配置' : '未配置',
     desc: kbEnabled
-      ? `${ASSISTANT_NAME} 可以检索项目文档、环境地址、流程和个人笔记。`
+      ? `${ASSISTANT_NAME} 可以通过 RAG 检索项目文档、环境地址、流程、个人笔记，并返回来源引用。`
       : '配置 VITE_KB_SOURCE 后，小吴可检索内部文档。',
     ready: kbEnabled,
     tone: kbEnabled ? 'ok' : 'warn',

@@ -19,7 +19,7 @@ let chunksPromise: Promise<KbChunk[]> | null = null
 export function getKbChunks(signal?: AbortSignal): Promise<KbChunk[]> {
   if (chunksPromise) return chunksPromise
   chunksPromise = loadKbDocs(signal)
-    .then((docs) => docs.flatMap((d) => chunkDoc(d.content, d.doc, d.title)))
+    .then((docs) => docs.flatMap((d) => chunkDoc(d.content, d.doc, d.title, d.sourceType, d.metadata)))
     .catch((e) => {
       // 加载失败：清掉失败的 Promise，下次检索可重试，而非永久卡住
       chunksPromise = null

@@ -17,7 +17,7 @@ export interface LlmToolDef {
 
 /** 完整工具：声明 + 执行器 */
 export interface LlmTool<P = Record<string, unknown>, R = unknown> extends LlmToolDef {
-  execute(params: P): Promise<R>
+  execute(params: P, signal?: AbortSignal): Promise<R>
 }
 
 /** 一轮流式对话的入参 */
