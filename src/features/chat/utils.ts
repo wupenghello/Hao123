@@ -138,7 +138,7 @@ export function cleanupEmptyAssistant(messages: ChatMessage[]): void {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
     if (m.role === 'user') break
-    if (m.role === 'assistant' && !m.content && !m.tool_calls?.length) {
+    if (m.role === 'assistant' && !m.content && !m.tool_calls?.length && !m.ui?.length) {
       messages.splice(i, 1)
       break
     }

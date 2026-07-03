@@ -16,6 +16,7 @@ import { useWelcomeGuide } from '../welcome-guide'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
+import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
@@ -399,17 +400,20 @@ function formatJsonPreview(jsonStr: string): string {
 }
 
 /**
- * Markdown 渲染缓存：按消息对象 + content 记忆渲染结果。
- * 流式时组件每个 token 都会重渲染，若直接在模板里 v-html="renderMarkdown(m.content)"，
- * 会让**所有历史消息**每个 token 都重新解析一次（O(n²)）。这里命中缓存即 O(1) 返回，
- * 仅在 content 真正变化时（正在流式的那条）才重新解析。
+ * Markdown 渲染缓存：历史消息按 content 命中；流式中的消息限频解析。
+ * 这样既避免结束时从纯文本跳到富文本，也不会每个 token 都跑一次 markdown-it。
  */
-const mdCache = new WeakMap<ChatMessage, { content: string; html: string }>()
-function renderMd(m: ChatMessage): string {
+const STREAM_MD_RENDER_INTERVAL = 80
+const mdCache = new WeakMap<ChatMessage, { content: string; html: string; renderedAt: number }>()
+function renderMd(m: ChatMessage, streaming = false): string {
   const cached = mdCache.get(m)
   if (cached && cached.content === m.content) return cached.html
+  const now = Date.now()
+  if (streaming && cached && now - cached.renderedAt < STREAM_MD_RENDER_INTERVAL) {
+    return cached.html
+  }
   const html = renderMarkdown(m.content)
-  mdCache.set(m, { content: m.content, html })
+  mdCache.set(m, { content: m.content, html, renderedAt: now })
   return html
 }
 
@@ -447,7 +451,7 @@ function isStreamingAt(i: number): boolean {
 const awaitingFirstToken = computed(() => {
   if (!store.streaming) return false
   const last = store.messages[store.messages.length - 1]
-  return last?.role === 'assistant' && !last.content && !last.activities?.length
+  return last?.role === 'assistant' && !last.content && !last.activities?.length && !last.ui?.length
 })
 
 const suggestionIcon = (kind: string) =>
@@ -488,6 +492,8 @@ watch(
       store.messages.length +
       '|' +
       (last ? last.content.length : 0) +
+      '|' +
+      (last?.ui?.length ?? 0) +
       '|' +
       (last?.activities?.map((a) => a.status).join('') ?? '')
     )
@@ -683,7 +689,7 @@ onUnmounted(() => {
                 </div>
 
                 <!-- 助手 -->
-                <div v-else-if="m.role === 'assistant' && (m.content || m.activities?.length)" class="flex gap-2.5">
+                <div v-else-if="m.role === 'assistant' && (m.content || m.activities?.length || m.ui?.length)" class="flex gap-2.5">
                   <div class="flex flex-col items-center gap-1">
                     <div class="cmd-avatar-sm shrink-0 mt-0.5">
                       <IconRobot class="w-4 h-4" />
@@ -798,10 +804,17 @@ onUnmounted(() => {
                       </div>
                     </div>
 
-                    <!-- 正文：流式中的那条用纯文本（避免每 token 重解析 markdown）；其余用记忆化渲染 -->
+                    <div v-if="m.ui?.length" class="cmd-ui-stack">
+                      <GenerativeUiBlock
+                        v-for="block in m.ui"
+                        :key="block.id"
+                        :block="block"
+                      />
+                    </div>
+
+                    <!-- 正文：流式中也走 Markdown 渲染，避免结束时从纯文本跳变到富文本 -->
                     <div v-if="m.content" class="cmd-bubble-ai cmd-md group">
-                      <span v-if="isStreamingAt(i)" class="cmd-md-raw">{{ m.content }}</span>
-                      <span v-else v-html="renderMd(m)" class="md-content" />
+                      <span v-html="renderMd(m, isStreamingAt(i))" class="md-content" />
                       <span v-if="isStreamingAt(i)" class="cmd-caret" />
 
                       <div
@@ -1272,6 +1285,11 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   word-break: break-word;
   border-left: 3px solid rgba(94, 234, 212, 0.6);
+}
+.cmd-ui-stack {
+  display: grid;
+  gap: 8px;
+  max-width: min(100%, 620px);
 }
 
 .cmd-caret {

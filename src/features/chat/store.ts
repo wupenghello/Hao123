@@ -26,6 +26,11 @@ import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
 import {
+  summarizeUiRenderResult,
+  uiBlocksFromRenderResult,
+  uiBlocksFromToolResult,
+} from './generative-ui'
+import {
   daypart,
   formatDate,
   formatTime,
@@ -33,7 +38,7 @@ import {
   cleanupEmptyAssistant,
   MAX_HISTORY_TOKENS,
 } from './utils'
-import type { ChatMessage, ToolActivity, ToolApproval } from './types'
+import type { ChatMessage, ChatUiBlock, ToolActivity, ToolApproval } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
 
 /** agent 循环最大轮数，防止工具调用失控 */
@@ -51,6 +56,11 @@ const KB_VISION_MAX_BYTES = 5 * 1024 * 1024
 function previewResultJson(result: unknown): string {
   const json = JSON.stringify(result)
   return json.length > RESULT_PREVIEW_MAX ? json.slice(0, RESULT_PREVIEW_MAX) + '\n…（已截断，完整结果已带入上下文）' : json
+}
+
+function appendUiBlocks(message: ChatMessage, blocks: ChatUiBlock[]): void {
+  if (!blocks.length) return
+  message.ui = [...(message.ui ?? []), ...blocks]
 }
 
 interface KbVisionHit {
@@ -421,6 +431,9 @@ function buildCapabilitiesFromTools(): string[] {
   if (has('webdoc')) {
     lines.push('- 公开文档链接读取：当禅道任务/Bug 详情或用户消息里包含外部文档、Wiki、PRD 链接时，可尝试读取网页的静态标题、正文与链接；墨刀原型链接优先使用专门的 modao.read。')
   }
+  if (has('ui')) {
+    lines.push('- 生成式 UI：可在聊天窗口渲染白名单 Vue 卡片（天气、清单、表格、指标、状态、时间线、来源等），用于替代长段 Markdown 表格或纯文字堆叠。')
+  }
 
   return lines
 }
@@ -441,6 +454,7 @@ const STATIC_SYSTEM_PROMPT = [
   '- 用户问「项目迭代」「迭代原型」「墨刀里有什么」等时，直接调用 modao.read，不要追问链接；只有用户明确给了另一条墨刀链接时才把该链接传给工具。普通需求基于项目、页面树、targetScreen 和 rendered 文案总结。若用户明确要求看 UI 截图预览、视觉稿、页面布局、按钮位置或截图内容，调用 modao.read 时设置 includeScreenshot=true，系统会把截图作为图片上下文补给你；这时可以基于图片本身回答。',
   '- 用户没指明地点/日期时，用下方「当前上下文」里的默认城市与当前日期补全，直接执行，不要反问。',
   '- 工具返回的数据若为空或报错，如实说明，并给出下一步建议，不要假装有数据。',
+  '- 天气、禅道列表、Bug、本地待办、Git 状态、本地服务、知识库检索等工具结果会由前端自动生成 UI 卡片；这类场景不要再额外调用 ui.render，只需用短文本补充结论。只有没有现成工具卡片、且确实需要自定义清单/表格/步骤/指标时，才调用 ui.render。不要输出 Vue/JSX/HTML 代码。',
   '- 用户可能发送图片（截图 / 照片）。你能看图：分析报错截图、识别白板或照片里的文字（必要时据此用 local.create 落成待办）。回答时先简述你从图里看到的关键信息，再给判断或行动。',
   '- 当用户消息要求进入「接手模式」或包含结构化工作项上下文时，不要只泛泛回答；必须先解释为什么优先处理，再给今天的处理步骤，最后列出可继续接手的动作选项。任何写操作仍需先确认。',
   '',
@@ -458,7 +472,7 @@ const STATIC_SYSTEM_PROMPT = [
   '',
   '# 回答风格',
   '- 简体中文，口吻自然亲切、简洁不啰嗦，像一位靠谱的同事。',
-  '- 善用 Markdown：要点用列表、关键数据用 **加粗**、多维对比用表格，让信息一眼能抓住重点。',
+  '- 善用生成式 UI 与 Markdown：已有 UI 卡片时，文字只补结论、取舍理由和下一步，避免重复罗列卡片内容。',
   '- 数据型回答先给结论/概览，再列细节；天气可适当加一句贴心提示（如带伞、添衣）。',
   '- 不要暴露工具名、接口、字段等技术细节，用户只关心结果。',
 ].join('\n')
@@ -546,7 +560,7 @@ export const useChatStore = defineStore('chat', () => {
 
   const configured = computed(() => llm.configured)
   const hasMessages = computed(() =>
-    messages.value.some((m) => m.role === 'user' || m.role === 'assistant'),
+    messages.value.some((m) => m.role === 'user' || m.role === 'assistant' || !!m.ui?.length),
   )
   const feedbackCategoryRows = computed(() =>
     FEEDBACK_CATEGORIES
@@ -650,6 +664,8 @@ export const useChatStore = defineStore('chat', () => {
     // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
     // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
     const toolsForThisTurn = openAiTools
+    const toolsWithoutUiRender = toolsForThisTurn.filter((t) => t.function.name !== 'ui__render')
+    let autoUiGenerated = false
     const hiddenContexts: ChatMessage[] = [...extraHiddenContexts]
     const latestUser = [...messages.value].reverse().find((m) => m.role === 'user')
     const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
@@ -664,7 +680,7 @@ export const useChatStore = defineStore('chat', () => {
         const { toolCalls } = await llm.chatStream({
           messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts]),
           signal,
-          tools: toolsForThisTurn,
+          tools: autoUiGenerated ? toolsWithoutUiRender : toolsForThisTurn,
           // temperature: 0.3 兼顾工具调用准确性与回答自然度
           temperature: 0.3,
           // 限制单次输出长度，降低延迟和成本；工具调用轮通常很短，最终回答也够用
@@ -725,9 +741,19 @@ export const useChatStore = defineStore('chat', () => {
                 result = await callTool(call.function.name, args, signal)
                 activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
               }
+              const rawResult = result
+              const renderedBlocks = uiBlocksFromRenderResult(rawResult)
+              if (renderedBlocks.length) {
+                appendUiBlocks(assistant, renderedBlocks)
+                result = summarizeUiRenderResult(rawResult)
+              } else {
+                const autoBlocks = uiBlocksFromToolResult(call.function.name, rawResult)
+                appendUiBlocks(assistant, autoBlocks)
+                if (autoBlocks.length) autoUiGenerated = true
+              }
               const messageResult = omitRenderedScreenshot(result)
               activity.result = previewResultJson(messageResult)
-              visionContexts[i] = await visionContextFromToolResult(call.function.name, result, signal)
+              visionContexts[i] = await visionContextFromToolResult(call.function.name, rawResult, signal)
               result = messageResult
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
@@ -892,7 +918,15 @@ export const useChatStore = defineStore('chat', () => {
     try {
       result = await callTool(toolCall.function.name, args, retryController.signal)
       activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
-      const visionContext = await visionContextFromToolResult(toolCall.function.name, result, retryController.signal)
+      const rawResult = result
+      const renderedBlocks = uiBlocksFromRenderResult(rawResult)
+      if (renderedBlocks.length) {
+        appendUiBlocks(msg, renderedBlocks)
+        result = summarizeUiRenderResult(rawResult)
+      } else {
+        appendUiBlocks(msg, uiBlocksFromToolResult(toolCall.function.name, rawResult))
+      }
+      const visionContext = await visionContextFromToolResult(toolCall.function.name, rawResult, retryController.signal)
       result = omitRenderedScreenshot(result)
       activity.result = previewResultJson(result)
       activity.endTime = Date.now()
@@ -983,7 +1017,15 @@ export const useChatStore = defineStore('chat', () => {
     try {
       result = await callTool(toolCall.function.name, args, approvalController.signal)
       activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
-      visionContext = await visionContextFromToolResult(toolCall.function.name, result, approvalController.signal)
+      const rawResult = result
+      const renderedBlocks = uiBlocksFromRenderResult(rawResult)
+      if (renderedBlocks.length) {
+        appendUiBlocks(msg, renderedBlocks)
+        result = summarizeUiRenderResult(rawResult)
+      } else {
+        appendUiBlocks(msg, uiBlocksFromToolResult(toolCall.function.name, rawResult))
+      }
+      visionContext = await visionContextFromToolResult(toolCall.function.name, rawResult, approvalController.signal)
       result = omitRenderedScreenshot(result)
       activity.result = previewResultJson(result)
     } catch (e) {

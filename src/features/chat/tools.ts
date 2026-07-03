@@ -16,6 +16,7 @@ import { gitToolDefs, callGitTool } from '@/features/git'
 import { claudeToolDefs, callClaudeTool, claudeEnabled } from '@/features/claude'
 import { webDocToolDefs, callWebDocTool, webDocEnabled } from '@/features/web-doc'
 import { modaoToolDefs, callModaoTool, modaoEnabled } from '@/features/modao'
+import { uiToolDefs, callUiTool } from './generative-ui'
 import type { LlmToolDef } from './llm/types'
 
 /** OpenAI 兼容的工具声明形态 */
@@ -58,6 +59,7 @@ export const openAiTools: OpenAiTool[] = [
   ...(claudeEnabled ? toOpenAi(claudeToolDefs) : []),
   ...(modaoEnabled ? toOpenAi(modaoToolDefs) : []),
   ...(webDocEnabled ? toOpenAi(webDocToolDefs) : []),
+  ...toOpenAi(uiToolDefs),
 ]
 
 /**
@@ -81,6 +83,7 @@ export async function callTool(
   if (realName.startsWith('claude.')) return callClaudeTool(realName, args, signal)
   if (realName.startsWith('modao.')) return callModaoTool(realName, args, signal)
   if (realName.startsWith('webdoc.')) return callWebDocTool(realName, args, signal)
+  if (realName.startsWith('ui.')) return callUiTool(realName, args)
   throw new Error(`未知工具：${realName}`)
 }
 
@@ -124,6 +127,7 @@ const TOOL_LABELS: Record<string, string> = {
   'modao__status': '查询墨刀读取状态',
   'modao__read': '读取墨刀原型',
   'webdoc__read': '读取公开文档链接',
+  'ui__render': '渲染界面卡片',
 }
 
 /** 取工具的人类可读标签；未知工具回退为还原后的原始名 */

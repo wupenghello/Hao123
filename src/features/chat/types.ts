@@ -78,6 +78,25 @@ export interface FeedbackStats {
   byCategory: Partial<Record<FeedbackCategory, FeedbackCategoryStats>>
 }
 
+export type ChatUiKind =
+  | 'summary'
+  | 'metrics'
+  | 'item-list'
+  | 'data-table'
+  | 'timeline'
+  | 'weather-current'
+  | 'weather-forecast'
+  | 'status-grid'
+  | 'source-list'
+
+export interface ChatUiBlock {
+  id: string
+  kind: ChatUiKind
+  title: string
+  subtitle?: string
+  props: Record<string, unknown>
+}
+
 /** 对话消息（与 DeepSeek/OpenAI chat/completions 的 message 对齐） */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -92,6 +111,8 @@ export interface ChatMessage {
   tool_call_id?: string
   /** 仅 UI 展示用：本条 assistant 触发的工具活动（不发给模型） */
   activities?: ToolActivity[]
+  /** UI-only 生成式界面块；不发给模型，只由前端白名单组件渲染 */
+  ui?: ChatUiBlock[]
   /** 仅 UI 展示用：消息创建时间戳（不发给模型） */
   ts?: number
   /** 用户反馈（仅 assistant 消息）；用于质量追踪与 prompt 迭代 */
