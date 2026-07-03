@@ -17,6 +17,8 @@
 import { ref, computed, watch } from 'vue'
 import { useStorage } from '@/composables/useStorage'
 import { useWeatherStore } from '@/features/weather'
+import { useTaskStore, useBugStore } from '@/features/zentao'
+import { useLocalTaskStore } from '@/features/local-tasks'
 import { llm } from './llm'
 import { ASSISTANT_NAME } from './config'
 import { buildDashboardContext } from './dashboard-context'
@@ -33,6 +35,12 @@ interface BriefingState {
   generatedAt: number
   /** 生成时使用的位置签名；城市/坐标变化时让今日缓存自动失效 */
   locationSignature?: string
+  /**
+   * 生成时所用的工作项数据签名。
+   * 由三类「指派给我」的工作项（禅道任务 / Bug / 本地待办）各自按 `${id}:${status}` 排序拼接而成，
+   * 任意一环里出现新增项、移除项、状态变更都会改变签名 → stale 自动失效重新生成。
+   */
+  dataSignature?: string
 }
 
 const briefing = useStorage<BriefingState | null>(BRIEFING_KEY, null)
@@ -44,12 +52,30 @@ function todayStr(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** 缓存的简报是否已过期（没有 / 不是今天生成的） */
+/**
+ * 计算工作台工作项的「数据签名」：三类「指派给我」来源各自按 `${id}:${status}` 排序后拼接。
+ * 任意一环里出现新增项、移除项、状态变更都会改变返回值，从而让简报缓存失效。
+ *
+ * 只做轻量判断（id + status），不引入 hash；列表通常 < 30 条，排序 + 拼接开销可忽略，
+ * 且能让 LLM 看到的「当日工作全貌」与缓存简报一致。
+ */
+function currentDataSignature(): string {
+  const taskStore = useTaskStore()
+  const bugStore = useBugStore()
+  const localStore = useLocalTaskStore()
+  const t = taskStore.assigned.map((t) => `${t.id}:${t.status}`).sort().join(',')
+  const b = bugStore.assigned.map((b) => `${b.id}:${b.status}`).sort().join(',')
+  const l = localStore.open.map((t) => `${t.id}:${t.done ? 'done' : 'open'}`).sort().join(',')
+  return `${t}|${b}|${l}`
+}
+
+/** 缓存的简报是否已过期（没有 / 不是今天生成的 / 位置变了 / 工作项数据变了） */
 const stale = computed(() => {
   if (!briefing.value) return true
   if (briefing.value.date !== todayStr()) return true
-  if (!briefing.value.locationSignature) return true
-  return briefing.value.locationSignature !== currentLocationSignature()
+  if (!briefing.value.locationSignature || !briefing.value.dataSignature) return true
+  if (briefing.value.locationSignature !== currentLocationSignature()) return true
+  return briefing.value.dataSignature !== currentDataSignature()
 })
 
 function currentLocationSignature(): string {
@@ -108,22 +134,33 @@ async function generate(force = false): Promise<void> {
       date: todayStr(),
       generatedAt: Date.now(),
       locationSignature: currentLocationSignature(),
+      dataSignature: currentDataSignature(),
     }
   } catch (e) {
     error.value = (e as Error)?.message || '简报生成失败'
   } finally {
     generating.value = false
+    // 兜底：generate 期间若有数据变更被 generating guard 跳过，完成时签名已不一致 → 再触发一次。
+    // 不会无限循环：generate 里先置 generating=true，本次 finally 跑完后才会进入下一次 async 流程；
+    // 下一次正常写 briefing 后签名匹配，stale 变 false，不再触发。
+    if (!force && stale.value) void generate(false)
   }
 }
 
 /**
  * 首页晨报 composable。
  * 调用即按需触发：今日已生成则复用缓存，否则生成（与 useWelcomeGuide 的「调用即生成」一致）。
+ *
+ * 订阅两类变化的 watcher：
+ *  - 城市/位置变化（今天换城市出差了，简报里的天气和节奏提示应重新生成）
+ *  - 工作项数据变化（新来的指派任务 / Bug、本地待办新增或状态变更）→ 让「早上生成过、下午来了新活」
+ *    的场景下简报随之刷新，避免让用户看到与现状不符的「没有任务 / 没有 Bug」。
  */
 export function useBriefing() {
   // 调用即确保今日简报存在（过期 / 首次才真正生成；有 generating / stale 守卫，重复调用安全）
   generate(false)
   ensureLocationWatcher()
+  ensureDataWatcher()
   return {
     briefing,
     generating,
@@ -142,6 +179,25 @@ function ensureLocationWatcher() {
   const weather = useWeatherStore()
   watch(
     () => [weather.locateMode, weather.cityCoord, weather.cityName],
+    () => {
+      void generate(false)
+    },
+  )
+}
+
+let watchingData = false
+
+/**
+ * 监听三类「指派给我」工作项的 id+status 签名。
+ * 签名变化时触发 ensure 路径：有缓存且仍命中签名则直接复用；否则按 stale 自动重新生成。
+ * 仅靠 stale computed 无法自己跑，必须由 watcher 主动调用 generate(false) 才会有 LLM 请求——
+ * 组件挂载时生成一次，此后由数据变化驱动，而不是一天只生成死一次。
+ */
+function ensureDataWatcher() {
+  if (watchingData) return
+  watchingData = true
+  watch(
+    () => currentDataSignature(),
     () => {
       void generate(false)
     },
