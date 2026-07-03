@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
@@ -6,9 +7,20 @@ import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
 import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
+import {
+  StorageHealthToastHost,
+  startStorageHealthMonitor,
+  stopStorageHealthMonitor,
+  useStorageHealth,
+} from '@/features/storage-health'
 
 // 全局召唤快捷键：Alt+K / Cmd+K 打开命令面板，Esc 关闭
 useChatHotkeys()
+
+const storageHealth = useStorageHealth()
+
+onMounted(() => startStorageHealthMonitor())
+onUnmounted(() => stopStorageHealthMonitor())
 </script>
 
 <template>
@@ -38,6 +50,9 @@ useChatHotkeys()
 
     <!-- 全局命令面板（Spotlight 式，Teleport 到 body，Alt+K 召唤） -->
     <ChatCommandPalette />
+
+    <!-- localStorage 容量监控提示：接近上限时自动清理可再生缓存并提醒用户 -->
+    <StorageHealthToastHost :notices="storageHealth.notices.value" @close="storageHealth.dismiss" />
   </div>
 </template>
 

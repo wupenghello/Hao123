@@ -20,6 +20,7 @@
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
+import { setLocalStorageItem } from '@/features/storage-health'
 import { useWeatherStore } from '@/features/weather'
 import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/rendered-screenshot'
 import { ASSISTANT_NAME } from './config'
@@ -543,7 +544,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     (val) => {
       const slim = val.map((m) => (m.images?.length ? { ...m, images: undefined } : m))
-      localStorage.setItem('hao123-chat-history', JSON.stringify(slim))
+      setLocalStorageItem('hao123-chat-history', JSON.stringify(slim))
     },
     { deep: true },
   )

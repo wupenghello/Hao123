@@ -18,6 +18,7 @@ import { useWeatherStore } from '@/features/weather'
 import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
+import { setLocalStorageItem } from '@/features/storage-health'
 import UnifiedInbox from '@/components/UnifiedInbox.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 
@@ -88,7 +89,7 @@ onMounted(() => {
 })
 
 function finishOnboarding() {
-  localStorage.setItem('hao123-onboarding-done', '1')
+  setLocalStorageItem('hao123-onboarding-done', '1')
   showOnboarding.value = false
   // 复位「首次访问」标记，否则按钮 v-if="isFirstVisit && !showOnboarding" 会在关闭引导后立刻重现
   // （isFirstVisit 仅在 onMounted 读 localStorage 赋值，不重置则要等下次整页刷新才消失）

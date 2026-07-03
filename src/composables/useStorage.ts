@@ -1,4 +1,5 @@
 import { ref, watch, type Ref } from 'vue'
+import { setLocalStorageItem } from '@/features/storage-health'
 
 /**
  * 响应式 localStorage 封装
@@ -24,7 +25,7 @@ export function useStorage<T>(key: string, defaultValue: T): Ref<T> {
   watch(
     data,
     (val) => {
-      localStorage.setItem(key, JSON.stringify(val))
+      setLocalStorageItem(key, JSON.stringify(val))
     },
     { deep: true }
   )
