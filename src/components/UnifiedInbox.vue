@@ -555,12 +555,114 @@ function onDelete(id: string) {
 // ============ 已完成折叠 ============
 const showDone = ref(false)
 
+const COMPLETION_ANIMATION_MS = 520
+const ALL_CLEAR_TOAST_MS = 3200
+const ALL_CLEAR_STORAGE_KEY = 'hao123-local-clear-celebrated-date'
+const completingIds = ref<Set<string>>(new Set())
+const allClearToast = ref(false)
+const completionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let allClearTimer: ReturnType<typeof setTimeout> | null = null
+let completionAudio: AudioContext | null = null
+
+function hasCompleting(id: string): boolean {
+  return completingIds.value.has(id)
+}
+
+function setCompleting(id: string, active: boolean): void {
+  const next = new Set(completingIds.value)
+  active ? next.add(id) : next.delete(id)
+  completingIds.value = next
+}
+
+function todayKey(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function celebratedToday(): boolean {
+  try {
+    return localStorage.getItem(ALL_CLEAR_STORAGE_KEY) === todayKey()
+  } catch {
+    return false
+  }
+}
+
+function showAllClearToast(): void {
+  if (celebratedToday()) return
+  try {
+    localStorage.setItem(ALL_CLEAR_STORAGE_KEY, todayKey())
+  } catch {}
+
+  allClearToast.value = true
+  if (allClearTimer) clearTimeout(allClearTimer)
+  allClearTimer = setTimeout(() => {
+    allClearToast.value = false
+    allClearTimer = null
+  }, ALL_CLEAR_TOAST_MS)
+}
+
+function getCompletionAudio(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const AudioCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AudioCtor) return null
+  completionAudio ??= new AudioCtor()
+  return completionAudio
+}
+
+function playCompletionChime(kind: 'single' | 'clear' = 'single'): void {
+  const ctx = getCompletionAudio()
+  if (!ctx) return
+  void ctx.resume().catch(() => {})
+
+  const now = ctx.currentTime
+  const master = ctx.createGain()
+  master.gain.setValueAtTime(0.0001, now)
+  master.gain.exponentialRampToValueAtTime(kind === 'clear' ? 0.055 : 0.032, now + 0.018)
+  master.gain.exponentialRampToValueAtTime(0.0001, now + (kind === 'clear' ? 0.34 : 0.22))
+  master.connect(ctx.destination)
+
+  const notes = kind === 'clear' ? [659.25, 880] : [659.25]
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(freq, now + i * 0.09)
+    osc.connect(master)
+    osc.start(now + i * 0.09)
+    osc.stop(now + i * 0.09 + 0.18)
+    osc.onended = () => osc.disconnect()
+  })
+
+  window.setTimeout(() => master.disconnect(), 480)
+}
+
+function completeLocalTask(task: LocalTask): void {
+  if (task.done || hasCompleting(task.id)) return
+  const willClearAfterThis =
+    !celebratedToday() &&
+    localStore.open.every((t) => t.id === task.id || hasCompleting(t.id))
+  setCompleting(task.id, true)
+  playCompletionChime(willClearAfterThis ? 'clear' : 'single')
+
+  const timer = setTimeout(() => {
+    completionTimers.delete(task.id)
+    setCompleting(task.id, false)
+    const current = localStore.tasks.find((t) => t.id === task.id)
+    if (!current || current.done) return
+    localStore.toggle(task.id)
+    if (localStore.open.length === 0) showAllClearToast()
+  }, COMPLETION_ANIMATION_MS)
+  completionTimers.set(task.id, timer)
+}
+
 // ============ 生命周期：按需加载禅道指派项 ============
 onMounted(() => {
   if (taskStore.configured) taskStore.loadAssigned()
   if (bugStore.configured) bugStore.loadAssigned()
 })
 onUnmounted(() => {
+  for (const timer of completionTimers.values()) clearTimeout(timer)
+  completionTimers.clear()
+  if (allClearTimer) clearTimeout(allClearTimer)
   taskStore.stop()
   bugStore.stop()
 })
@@ -615,6 +717,16 @@ onUnmounted(() => {
         </button>
       </div>
     </header>
+
+    <Transition name="zt-clear-toast">
+      <div v-if="allClearToast" class="zt-clear-toast" role="status" aria-live="polite">
+        <span class="zt-clear-icon"><IconSpark class="w-4 h-4" /></span>
+        <div class="min-w-0">
+          <p class="zt-clear-title">今日清零</p>
+          <p class="zt-clear-desc">本地待办全部收尾，收工感 +1</p>
+        </div>
+      </div>
+    </Transition>
 
     <!-- 小吴已就绪：只要清单非空就常驻；有风险给出概况 + 点题，清闲时一句平稳收尾（无对话框，AI 先动） -->
     <div
@@ -807,7 +919,12 @@ onUnmounted(() => {
           :key="it.key"
           v-show="g.isCluster ? groupOpen(g.key) : true"
           class="zt-row"
-          :class="{ 'is-urgent': isUrgent(it), 'is-clickable': it.kind !== 'local', 'in-thread': g.isCluster }"
+          :class="{
+            'is-urgent': isUrgent(it),
+            'is-clickable': it.kind !== 'local',
+            'in-thread': g.isCluster,
+            'is-completing': it.kind === 'local' && hasCompleting((it.ref as LocalTask).id),
+          }"
           @click="onRowClick(it)"
         >
           <span v-if="g.isCluster" class="zt-thread-mark" :style="{ '--thread': threadColor(g.label) }" />
@@ -875,7 +992,8 @@ onUnmounted(() => {
           <button
             class="zt-check"
             title="标记完成"
-            @click.stop="localStore.toggle((it.ref as LocalTask).id)"
+            :disabled="hasCompleting((it.ref as LocalTask).id)"
+            @click.stop="completeLocalTask(it.ref as LocalTask)"
           >
             <IconCircle class="w-[18px] h-[18px]" />
           </button>
@@ -988,6 +1106,57 @@ onUnmounted(() => {
     repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.03) 0 1px, transparent 1px 32px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 90px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(18px) saturate(130%);
+}
+.zt-clear-toast {
+  position: absolute;
+  z-index: 20;
+  top: 58px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: min(320px, calc(100% - 32px));
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(94, 234, 212, 0.32);
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.24), rgba(56, 189, 248, 0.12)),
+    rgba(2, 6, 23, 0.88);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32), 0 0 26px rgba(45, 212, 191, 0.16);
+  backdrop-filter: blur(14px) saturate(130%);
+}
+.zt-clear-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: #ccfbf1;
+  background: rgba(45, 212, 191, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(153, 246, 228, 0.18);
+}
+.zt-clear-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(240, 253, 250, 0.95);
+}
+.zt-clear-desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: rgba(204, 251, 241, 0.62);
+}
+.zt-clear-toast-enter-active,
+.zt-clear-toast-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.zt-clear-toast-enter-from,
+.zt-clear-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
 }
 .zt-panel.is-orbit-view {
   border-color: rgba(125, 211, 252, 0.12);
@@ -1107,6 +1276,51 @@ onUnmounted(() => {
 }
 .zt-row.is-done:hover {
   opacity: 1;
+}
+.zt-row.is-completing {
+  pointer-events: none;
+  animation: zt-complete-row 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  background:
+    linear-gradient(90deg, rgba(45, 212, 191, 0.16), rgba(45, 212, 191, 0.03)),
+    rgba(125, 211, 252, 0.05);
+  box-shadow: inset 2px 0 0 rgba(45, 212, 191, 0.72), 0 0 24px rgba(45, 212, 191, 0.1);
+}
+.zt-row.is-completing .zt-title,
+.zt-row.is-completing .zt-note {
+  position: relative;
+  color: rgba(204, 251, 241, 0.72);
+}
+.zt-row.is-completing .zt-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 54%;
+  width: 100%;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(153, 246, 228, 0), rgba(153, 246, 228, 0.92), rgba(153, 246, 228, 0.35));
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: zt-complete-strike 0.34s ease-out forwards;
+}
+.zt-row.is-completing .zt-check {
+  color: #99f6e4;
+  background: rgba(45, 212, 191, 0.18);
+  box-shadow: 0 0 0 5px rgba(45, 212, 191, 0.1);
+  animation: zt-complete-check 0.42s ease-out;
+}
+@keyframes zt-complete-row {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  42% { opacity: 1; transform: translateY(-1px) scale(1.006); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.985); }
+}
+@keyframes zt-complete-strike {
+  to { transform: scaleX(1); }
+}
+@keyframes zt-complete-check {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.18); }
+  100% { transform: scale(1); }
 }
 
 /* 需求线分组头（可折叠） */
@@ -1566,6 +1780,9 @@ onUnmounted(() => {
   color: #5eead4;
   background: rgba(45, 212, 191, 0.12);
 }
+.zt-check:disabled {
+  cursor: default;
+}
 .zt-title {
   line-height: 1.3;
 }
@@ -1708,5 +1925,18 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .zt-pulse.is-active,
   .zt-pulse.is-urgent { animation: none; }
+  .zt-row.is-completing,
+  .zt-row.is-completing .zt-check,
+  .zt-row.is-completing .zt-title::after {
+    animation: none;
+  }
+  .zt-row.is-completing {
+    opacity: 0.55;
+    transform: none;
+  }
+  .zt-clear-toast-enter-active,
+  .zt-clear-toast-leave-active {
+    transition: none;
+  }
 }
 </style>

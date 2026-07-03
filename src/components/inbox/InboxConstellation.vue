@@ -106,8 +106,15 @@ let frame = 0
 let resizeObserver: ResizeObserver | null = null
 const nodeSprites = new Map<string, THREE.Sprite>()
 const nodeCores = new Map<string, THREE.Mesh>()
-/** 任务 / Bug 拥有轨道（一项一轨道）；本地项无轨道，散落分布 */
-const nodeOrbits = new Map<string, { ring: THREE.LineLoop; angle: number; speed: number; radiusX: number; radiusY: number }>()
+/** 所有工作项都有轨道（一项一轨道）；轨道视觉由来源色区分。 */
+interface OrbitVisual {
+  ring: THREE.LineLoop
+  angle: number
+  speed: number
+  radiusX: number
+  radiusY: number
+}
+const nodeOrbits = new Map<string, OrbitVisual>()
 const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; drifts: boolean }>()
 
 // 程序生成的贴图（星点、星体光晕、星云背景），卸载时统一释放
@@ -226,13 +233,10 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
   return tex
 }
 
-function colorOf(kind: ConstellationKind, risk: ConstellationRisk): THREE.Color {
-  if (risk === 'overdue') return new THREE.Color('#ff3b6b')
-  if (risk === 'due-soon') return new THREE.Color('#ffd166')
-  if (risk === 'stalled') return new THREE.Color('#a78bfa')
+function sourceColorOf(kind: ConstellationKind): THREE.Color {
+  if (kind === 'task') return new THREE.Color('#38bdf8')
   if (kind === 'bug') return new THREE.Color('#fb7185')
-  if (kind === 'local') return new THREE.Color('#2dd4bf')
-  return new THREE.Color('#38bdf8')
+  return new THREE.Color('#2dd4bf')
 }
 
 function disposeMaterial(material: THREE.Material | THREE.Material[]) {
@@ -391,7 +395,7 @@ function createCore() {
   root.add(coreOuter)
 }
 
-/** 构建一条工作项的专属轨道环（椭圆，独立倾角） */
+/** 构建工作项的连续轨道环。 */
 function makeOrbitRing(
   radiusX: number,
   radiusY: number,
@@ -407,14 +411,15 @@ function makeOrbitRing(
     transparent: true,
     opacity: 0.42,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
   })
-  const line = new THREE.LineLoop(geometry, material)
-  line.rotation.x = tiltX
-  line.rotation.z = tiltZ
-  return line
+  const ring = new THREE.LineLoop(geometry, material)
+  ring.rotation.x = tiltX
+  ring.rotation.z = tiltZ
+  return ring
 }
 
-/** 轨道上 angle 对应的世界位置（与 ring 几何同参照系） */
+/** 轨道上 angle 对应的世界位置，与轨道环共用同一套几何参照。 */
 function writeOrbitPosition(
   o: { radiusX: number; radiusY: number; ring: THREE.LineLoop; angle: number },
   target: THREE.Vector3,
@@ -433,17 +438,16 @@ function rebuildNodes() {
   nodeOrbits.clear()
   nodeBase.clear()
 
-  const orbitingItems = props.items.filter((it) => it.kind === 'task' || it.kind === 'bug')
-  const driftingItems = props.items.filter((it) => it.kind === 'local')
+  const orbitingItems = props.items
 
-  // 任务 / Bug：每个工作项一条专属轨道，节点沿轨道运行
+  // 所有工作项：每个工作项一条专属轨道，节点沿轨道运行
   // 半径动态拟合：不管几个轨道项都落在 [rMin, rMax] 内，避免最外圈跑出视口
   const N = orbitingItems.length
   const rMin = 3.4
   const rMax = 7.6
   const spacing = N > 1 ? (rMax - rMin) / (N - 1) : 0
   orbitingItems.forEach((it, index) => {
-    const color = colorOf(it.kind, it.riskLevel)
+    const color = sourceColorOf(it.kind)
     const radiusX = N === 1 ? (rMin + rMax) / 2 : rMin + index * spacing
     const radiusY = radiusX * (0.32 + Math.random() * 0.16)
     const tiltX = 1.05 + Math.random() * 0.35
@@ -472,27 +476,6 @@ function rebuildNodes() {
     nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, drifts: false })
   })
 
-  // 本地项：无轨道，放在外缘漂浮带
-  driftingItems.forEach((it, index) => {
-    const color = colorOf(it.kind, it.riskLevel)
-    const a = Math.random() * Math.PI * 2
-    const radius = 6.8 + Math.random() * 1.6
-    const height = (Math.random() - 0.5) * 2.2
-    const pos = new THREE.Vector3(Math.cos(a) * radius, height, Math.sin(a) * radius * 0.5)
-    const riskBoost = it.riskLevel === 'overdue' ? 0.5 : it.riskLevel === 'due-soon' ? 0.28 : it.riskLevel === 'stalled' ? 0.2 : 0
-    const scale = 0.95 + riskBoost + (it.urgent ? 0.18 : 0)
-    const sprite = makeNodeSprite(it.key, index + N, color, scale, it.riskLevel)
-    sprite.position.copy(pos)
-    nodesGroup!.add(sprite)
-    nodeSprites.set(it.key, sprite)
-
-    const coreMesh = makeNodeCore(color, riskBoost)
-    coreMesh.position.copy(pos)
-    nodesGroup!.add(coreMesh)
-    nodeCores.set(it.key, coreMesh)
-
-    nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, drifts: true })
-  })
 }
 
 function makeNodeSprite(key: string, index: number, color: THREE.Color, scale: number, risk: ConstellationRisk): THREE.Sprite {
@@ -743,9 +726,9 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="ic3d-metrics">
-        <span><b>{{ sourceStats.task }}</b> 主线</span>
-        <span><b>{{ sourceStats.bug }}</b> 异常</span>
-        <span><b>{{ sourceStats.local }}</b> 标记</span>
+        <span class="is-task"><b>{{ sourceStats.task }}</b> 主线</span>
+        <span class="is-bug"><b>{{ sourceStats.bug }}</b> 异常</span>
+        <span class="is-local"><b>{{ sourceStats.local }}</b> 标记</span>
       </div>
 
       <div class="ic3d-risk-grid">
@@ -1122,6 +1105,33 @@ onBeforeUnmount(() => {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ic3d-text);
+}
+.ic3d-metrics span.is-task {
+  color: rgba(186, 230, 253, 0.78);
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.24);
+}
+.ic3d-metrics span.is-task b {
+  color: #7dd3fc;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.42);
+}
+.ic3d-metrics span.is-bug {
+  color: rgba(254, 205, 211, 0.78);
+  background: rgba(251, 113, 133, 0.08);
+  border-color: rgba(251, 113, 133, 0.24);
+}
+.ic3d-metrics span.is-bug b {
+  color: #fda4af;
+  text-shadow: 0 0 12px rgba(251, 113, 133, 0.42);
+}
+.ic3d-metrics span.is-local {
+  color: rgba(204, 251, 241, 0.78);
+  background: rgba(45, 212, 191, 0.08);
+  border-color: rgba(45, 212, 191, 0.24);
+}
+.ic3d-metrics span.is-local b {
+  color: #5eead4;
+  text-shadow: 0 0 12px rgba(45, 212, 191, 0.42);
 }
 .ic3d-risk-grid span:first-child b { color: #fda4af; }
 .ic3d-risk-grid span:nth-child(2) b { color: #fde68a; }
