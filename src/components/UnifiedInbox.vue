@@ -746,6 +746,7 @@ onUnmounted(() => {
       </template>
       <span v-else class="zt-insight-head">一切平稳，没有需要紧急处理的，按自己的节奏来。</span>
       <button
+        v-if="activeView === 'list'"
         class="zt-trust-toggle"
         :class="{ 'is-open': trustOpen }"
         title="查看数据来源、判断规则和不可用项"
@@ -766,8 +767,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- 信任面板：显式解释排序依据，避免 AI 判断像黑箱 -->
-    <section v-if="trustOpen && total > 0" class="zt-trust" aria-label="为什么这么排">
+    <!-- 信任面板：显式解释排序依据，避免 AI 判断像黑箱（仅清单视图显示） -->
+    <section v-if="activeView === 'list' && trustOpen && total > 0" class="zt-trust" aria-label="为什么这么排">
       <header class="zt-trust-head">
         <div>
           <p class="zt-trust-kicker">排序透明度</p>
