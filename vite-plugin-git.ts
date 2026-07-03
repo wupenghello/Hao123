@@ -324,23 +324,26 @@ interface RemoteTagInfo {
   names: Set<string>
   hashes: Map<string, string>
 }
-let remoteTagCache: { info: RemoteTagInfo; ts: number } | null = null
-let remoteTagInFlight: Promise<RemoteTagInfo> | null = null
+// 按远端名隔离：不同远端的 tag 集合互不污染（key = 远端名，如 'origin'）
+const remoteTagCaches = new Map<string, { info: RemoteTagInfo; ts: number }>()
+const remoteTagInFlights = new Map<string, Promise<RemoteTagInfo>>()
 
 function emptyRemoteTagInfo(): RemoteTagInfo {
   return { names: new Set(), hashes: new Map() }
 }
 
 /** 远端已存在的 tag 名与对象 hash（失败 / 离线返回空集，所有 tag 视为未推送） */
-async function getRemoteTags(cwd: string): Promise<RemoteTagInfo> {
+async function getRemoteTags(cwd: string, remote: string): Promise<RemoteTagInfo> {
   const now = Date.now()
-  if (remoteTagCache && now - remoteTagCache.ts < REMOTE_TAG_TTL_MS) {
-    return remoteTagCache.info
+  const cached = remoteTagCaches.get(remote)
+  if (cached && now - cached.ts < REMOTE_TAG_TTL_MS) {
+    return cached.info
   }
-  if (remoteTagInFlight) return remoteTagInFlight
-  remoteTagInFlight = (async () => {
+  const inFlight = remoteTagInFlights.get(remote)
+  if (inFlight) return inFlight
+  const p = (async () => {
     try {
-      const r = await git(cwd, ['ls-remote', '--tags', 'origin'], 12_000)
+      const r = await git(cwd, ['ls-remote', '--tags', remote], 12_000)
       const names = new Set<string>()
       const hashes = new Map<string, string>()
       if (r.status === 0) {
@@ -357,19 +360,24 @@ async function getRemoteTags(cwd: string): Promise<RemoteTagInfo> {
         }
       }
       const info = { names, hashes }
-      remoteTagCache = { info, ts: Date.now() }
+      remoteTagCaches.set(remote, { info, ts: Date.now() })
       return info
     } catch {
-      if (!remoteTagCache) remoteTagCache = { info: emptyRemoteTagInfo(), ts: Date.now() }
-      return remoteTagCache.info
+      const fallback = remoteTagCaches.get(remote) || {
+        info: emptyRemoteTagInfo(),
+        ts: Date.now(),
+      }
+      if (!remoteTagCaches.has(remote)) remoteTagCaches.set(remote, fallback)
+      return fallback.info
     } finally {
-      remoteTagInFlight = null
+      remoteTagInFlights.delete(remote)
     }
   })()
-  return remoteTagInFlight
+  remoteTagInFlights.set(remote, p)
+  return p
 }
 
-async function getTags(cwd: string): Promise<GitTag[]> {
+async function getTags(cwd: string, remote: string): Promise<GitTag[]> {
   const SEP = '|||'
   const r = await git(cwd, [
     'tag',
@@ -379,9 +387,10 @@ async function getTags(cwd: string): Promise<GitTag[]> {
   if (r.status !== 0) return []
 
   // 与 ls-remote 并行无依赖，但需等待结果回填 onRemote / remoteOutdated
-  const remoteTags = await getRemoteTags(cwd)
+  // 远端名由调用方传入，与 doFetchTags 解析出的远端保持一致，避免徽章与同步目标错位
+  const remoteTags = await getRemoteTags(cwd, remote)
 
-  return r.stdout
+  const localTags: GitTag[] = r.stdout
     .trim()
     .split('\n')
     .filter((l) => l.trim())
@@ -402,6 +411,28 @@ async function getTags(cwd: string): Promise<GitTag[]> {
         remoteOutdated: !!remoteHash && !!hash && !remoteHash.startsWith(hash),
       }
     })
+
+  // 合并远端独有、本地尚未 fetch 的 tag（ls-remote 已拿到名字与 hash）：
+  // 否则同事推的远端新 tag 在本地 `git tag` 列表里看不到，仪表盘与线上不一致。
+  // 排序：与本地最近 tag 的 hash 前缀无关，按名字升序兜底，统一附在本地列表之后。
+  const localNames = new Set(localTags.map((t) => t.name))
+  const remoteOnly: GitTag[] = []
+  for (const [name, hash] of remoteTags.hashes) {
+    if (localNames.has(name)) continue
+    remoteOnly.push({
+      name,
+      hash: hash.slice(0, 12),
+      message: '',
+      date: '',
+      annotated: false,
+      onRemote: true,
+      remoteHash: hash.slice(0, 12),
+      localMissing: true,
+    })
+  }
+  remoteOnly.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+
+  return [...localTags, ...remoteOnly]
 }
 
 async function getStashes(cwd: string): Promise<GitStash[]> {
@@ -755,6 +786,16 @@ async function doAction(
       }
 
       // ─── 标签 ─────────────────────────────────
+      case 'tag-fetch': {
+        // 拉取远端全部标签到本地：`git fetch --force --tags --prune-tags <remote>`。
+        // --force：远端与本地同名 tag 指向不同对象时用远端覆盖本地（同步语义），
+        //   不加会被 `would clobber existing tag` 拒绝；
+        // --prune-tags：远端已删除的标签在本地一并清理，保持与线上一致。
+        const remote = params.remote || 'origin'
+        assertSafeRef(remote, '远端名')
+        r = await git(cwd, ['fetch', '--force', remote, '--tags', '--prune-tags'], 60_000)
+        break
+      }
       case 'tag-create': {
         const name = params.name
         if (!name) return { success: false, message: '', error: '未指定标签名' }
@@ -857,7 +898,7 @@ async function doAction(
           r = local
           break
         }
-        const remoteTags = await getRemoteTags(cwd)
+        const remoteTags = await getRemoteTags(cwd, remote)
         const missing = local.stdout
           .split('\n')
           .map((name) => name.trim())
@@ -926,8 +967,9 @@ let overviewInFlight: Promise<GitOverviewResponse> | null = null
 
 function invalidateOverview(): void {
   overviewCache = null
-  // 写操作（push tag / delete tag 等）可能改变远端 tag 集合，一并清掉
-  remoteTagCache = null
+  // 写操作（push tag / delete tag 等）可能改变远端 tag 集合，一并清掉全部远端缓存
+  remoteTagCaches.clear()
+  remoteTagInFlights.clear()
 }
 
 export function gitPlugin(options: GitPluginOptions): Plugin {
@@ -950,17 +992,18 @@ export function gitPlugin(options: GitPluginOptions): Plugin {
         stashes: [],
       }
     }
-    // 9 条命令互相独立，并行执行（异步 spawn 不阻塞事件循环）
-    const [branch, remotes, status, sync, commits, branches, remoteBranches, tags, stashes] =
+    // 远端需先解析出名，供 getTagBadge 远端与 doFetchTags 对齐；其余 8 条命令互相独立，并行执行
+    const remotes = await getRemotes(root)
+    const tagRemote = remotes[0]?.name || 'origin'
+    const [branch, status, sync, commits, branches, remoteBranches, tags, stashes] =
       await Promise.all([
         getCurrentBranch(root),
-        getRemotes(root),
         getFileStatus(root),
         getSyncStatus(root),
         getCommits(root, 'HEAD', 20),
         getLocalBranches(root),
         getRemoteBranches(root),
-        getTags(root),
+        getTags(root, tagRemote),
         getStashes(root),
       ])
     return {

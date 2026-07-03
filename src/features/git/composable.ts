@@ -243,8 +243,11 @@ async function doAction(
       actionStatus.value = 'error'
       actionMessage.value = result.error || result.message || `${action} 失败`
     }
-    // 操作后延迟刷新（让 git 状态稳定）
-    setTimeout(() => void refresh(), ACTION_REFRESH_MS)
+    // 操作后刷新：tag 类操作是原子 ref 写入、不涉 index，后端返回即已落盘，
+    // 立即刷新让用户看到结果（编辑 / 删除 / 创建标签不再有「卡住没反应」错觉）；
+    // 其他操作（commit / stage 等）延迟一点等 git index 落盘稳定。
+    const delay = action.startsWith('tag-') ? 0 : ACTION_REFRESH_MS
+    setTimeout(() => void refresh(), delay)
     return result
   } catch (e) {
     const msg = (e as Error)?.message || `${action} 失败`
@@ -337,6 +340,15 @@ async function doStashDrop(index?: string): Promise<GitActionResponse> {
 }
 
 // ─── 标签 ───────────────────────────────────────────
+
+/**
+ * 同步远端全部标签到本地（`git fetch --tags --prune-tags`）：
+ * 把远端新增的 tag 拉下来、远端已删除的 tag 在本地清理，使列表与线上一致。
+ */
+async function doFetchTags(): Promise<GitActionResponse> {
+  const remote = remotes.value[0]?.name || 'origin'
+  return doAction('tag-fetch', { remote })
+}
 
 async function doCreateTag(
   name: string,
@@ -514,6 +526,7 @@ export function useGitDashboard() {
     doCreateBranch,
     doDeleteBranch,
     doCreateTag,
+    doFetchTags,
     doUpdateTag,
     doDeleteTag,
     doDeleteRemoteTag,

@@ -67,6 +67,12 @@ export interface GitTag {
   remoteHash?: string
   /** 远端同名 tag 存在，但对象 hash 与本地不同 */
   remoteOutdated?: boolean
+  /**
+   * 远端存在、本地尚未 fetch 下来的标签（来自 `git ls-remote --tags`）。
+   * 这种 tag 的 hash 是远端对象 hash，message / date 拿不到（本地无 ref），
+   * 不支持编辑 / 检出 / 展开详情，需先「同步远端标签」拉到本地。
+   */
+  localMissing?: boolean
 }
 
 /** tag 详情（编辑时读取完整附注说明） */
@@ -171,6 +177,7 @@ export type GitAction =
   | 'cherry-pick'
   | 'revert'
   // 标签
+  | 'tag-fetch'
   | 'tag-create'
   | 'tag-update'
   | 'tag-push'

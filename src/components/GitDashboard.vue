@@ -7,7 +7,8 @@
  *   - 分支：本地 / 远端（搜索 / 切换 / 创建 / 删除 / 合并 / 检出远端）
  *   - 提交：commit 日志（revert / cherry-pick / 展开详情）+ 搜索 + reflog 操作历史
  *   - 变更：暂存 / 取消暂存 / 放弃修改 / blame / 提交（conventional 前缀 + 复用）
- *   - 标签 / Stash：tag 与 stash 管理
+ *   - Stash：暂存管理（Stash 变更 / 应用 / 弹出 / 丢弃）
+ *   - 标签：tag 创建 / 编辑 / 推送 / 同步远端 / 删除
  *
  * 由状态栏 GitWidget 点击打开。HUD 玻璃面板风格。
  * 小吴（AI）在工作台是 ambient 的：健康判断 / 冲突 / diff 都可带上下文交给小吴（LLM 已配置时）。
@@ -74,14 +75,15 @@ const actionBannerClass = computed(() => {
 
 // ─── 标签页 ────────────────────────────────────────
 
-type TabKey = 'overview' | 'branches' | 'commits' | 'changes' | 'tags'
+type TabKey = 'overview' | 'branches' | 'commits' | 'changes' | 'stash' | 'tags'
 const activeTab = ref<TabKey>('overview')
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'branches', label: '分支' },
   { key: 'commits', label: '提交' },
   { key: 'changes', label: '变更' },
-  { key: 'tags', label: '标签 / Stash' },
+  { key: 'stash', label: 'Stash' },
+  { key: 'tags', label: '标签' },
 ]
 
 function goToTab(key: TabKey) {
@@ -275,6 +277,8 @@ const expandedTag = ref('')
 const tagDetailLoading = ref(false)
 const tagCommits = ref<GitCommit[]>([])
 const tagPrevName = ref('')
+/** 展开时从 %(contents) 拉取的完整多行 message（保留原始换行格式） */
+const tagFullMessage = ref('')
 
 /** 未推送到远端的标签数（驱动状态条 + 推送预览） */
 const unpushedTagCount = computed(
@@ -284,17 +288,34 @@ const unpushedTagCount = computed(
 const outdatedTagCount = computed(
   () => dash.tags.value.filter((t) => t.remoteOutdated).length,
 )
+/** 远端独有、本地尚未 fetch 的标签数（驱动「同步远端标签」徽标） */
+const remoteOnlyTagCount = computed(
+  () => dash.tags.value.filter((t) => t.localMissing).length,
+)
+
+/**
+ * 排序后「首个本地（非 localMissing）版本标签」的名字，用于 latest 徽标。
+ * 不能再用 displayedTags 的 idx===0——版本排序时远端独有的高版本 tag 会排在最前，
+ * 把真正的最新本地版本挤到 idx 1。匹配名字而非下标，排序方式无关。
+ */
+const latestLocalVersionTagName = computed(() => {
+  const t = displayedTags.value.find((t) => !t.localMissing && isVersionTag(t.name))
+  return t ? t.name : ''
+})
 
 /** 版本号样式的标签名（用于 latest 徽标，避免给 debug-xxx 误打） */
 function isVersionTag(name: string): boolean {
   return /^v?\d+\.\d+/i.test(name)
 }
 
-/** tags 按日期倒序，第 idx 个的「上一个更旧的 tag」就是 idx+1 */
+/** tags 按日期倒序，第 idx 个的「上一个更旧的 tag」就是 idx+1。
+ *  仅本地 tag（localMissing 排除）参与，远端独有的 tag 本地无 ref，
+ *  传入 git log 会失败。 */
 function previousTagOf(t: GitTag): GitTag | null {
-  const idx = dash.tags.value.findIndex((x) => x.name === t.name)
-  if (idx < 0 || idx >= dash.tags.value.length - 1) return null
-  return dash.tags.value[idx + 1]
+  const list = dash.tags.value.filter((x) => !x.localMissing)
+  const idx = list.findIndex((x) => x.name === t.name)
+  if (idx < 0 || idx >= list.length - 1) return null
+  return list[idx + 1]
 }
 
 async function toggleTagDetail(t: GitTag) {
@@ -303,6 +324,7 @@ async function toggleTagDetail(t: GitTag) {
     expandedTag.value = ''
     tagCommits.value = []
     tagPrevName.value = ''
+    tagFullMessage.value = ''
     return
   }
   // 展开新 tag 时关掉可能正开着的 diff，避免两块内容堆叠
@@ -312,12 +334,19 @@ async function toggleTagDetail(t: GitTag) {
   tagPrevName.value = previousTagOf(t)?.name || ''
   tagDetailLoading.value = true
   tagCommits.value = []
+  tagFullMessage.value = ''
+  // 提交列表与完整 message（保留换行的 %(contents)，列表项只有 subject 首行）并行加载
+  const commitsP = dash
+    .getTagCommits(t.name, tagPrevName.value || undefined)
+    .catch(() => [] as GitCommit[])
+  const detailP = dash.getTagDetail(t.name).catch(() => null)
   try {
-    const commits = await dash.getTagCommits(t.name, tagPrevName.value || undefined)
+    const [commits, detail] = await Promise.all([commitsP, detailP])
     // 防竞态：用户可能已切到别的 tag，仅当仍在展开此 tag 时回填
-    if (expandedTag.value === t.name) tagCommits.value = commits
-  } catch {
-    if (expandedTag.value === t.name) tagCommits.value = []
+    if (expandedTag.value === t.name) {
+      tagCommits.value = commits
+      tagFullMessage.value = detail?.message || ''
+    }
   } finally {
     if (expandedTag.value === t.name) tagDetailLoading.value = false
   }
@@ -1064,11 +1093,12 @@ function confirmDeleteBranch(name: string) {
 // ─── 便捷确认：标签 / Stash ────────────────────────
 
 function confirmDeleteTag(name: string) {
+  const onRemote = dash.tags.value.find((t) => t.name === name)?.onRemote
   requestConfirm({
-    message: `删除标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？${
-      dash.tags.value.find((t) => t.name === name)?.onRemote
-        ? '<br><span class="text-white/45 text-[12px]">仅删除本地标签，远端不受影响（如需删远端用 <span class="gd-mono">git push origin --delete</span>）。</span>'
-        : ''
+    message: `删除本地标签 <span class="gd-mono text-rose-300">${esc(name)}</span>？${
+      onRemote
+        ? '<br><span class="text-white/45 text-[12px]">仅从本机删除此标签；远端同名标签不受影响。如需一并删除远端，请展开标签后点「删远端」。</span>'
+        : '<br><span class="text-white/45 text-[12px]">仅从本机删除此标签；远端不受影响。</span>'
     }`,
     confirmLabel: '删除',
     danger: true,
@@ -1108,11 +1138,11 @@ function confirmUpdateRemoteTag(name: string) {
 function confirmCheckoutTag(name: string) {
   const dirty = !dash.status.value.clean
   const warning = dirty
-    ? `<br><span class="text-amber-300/90 text-[12px]">⚠ 工作区有 ${dash.status.value.totalChanges} 个未提交变更，检出可能被 git 拒绝或带入目标。建议先提交或 Stash。</span>`
-    : `<br><span class="text-white/45 text-[12px]">检出标签会进入分离头指针（detached HEAD）状态，适合查看 / 构建 / 回滚排查；若要在此处继续开发，请另建分支 <span class="gd-mono">git checkout -b &lt;新分支&gt; ${esc(name)}</span>。</span>`
+    ? `<br><span class="text-amber-300/90 text-[12px]">⚠ 工作区有 ${dash.status.value.totalChanges} 个未提交变更，建议先提交或 Stash，否则可能被 git 拒绝。</span>`
+    : `<br><span class="text-white/45 text-[12px]">这会把工作区切回 <span class="gd-mono text-violet-300">${esc(name)}</span> 指向的提交，可查看 / 构建该发版时刻的代码。此时不在任何分支上；若要在此版本上继续开发，请去「分支」页基于此提交新建分支。</span>`
   requestConfirm({
-    message: `检出标签 <span class="gd-mono text-violet-300">${esc(name)}</span>？${warning}`,
-    confirmLabel: '确认检出',
+    message: `查看此版本的代码？${gitPrecheckHtml()}${warning}`,
+    confirmLabel: '切回此版本',
     onConfirm: async () => {
       await dash.doCheckout(name)
       diffCache.clear()
@@ -1196,6 +1226,29 @@ function confirmPushTags() {
     confirmLabel: '推送标签',
     onConfirm: async () => {
       await dash.doPushTags()
+    },
+  })
+}
+
+/**
+ * 同步远端标签到本地：`git fetch --force --tags --prune-tags`。
+ * 远端独有 / 已删除的标签会一并落到本地，使列表与线上一致；
+ * 远端与本地指向不同的同名标签会用远端覆盖本地（对齐线上）。
+ */
+function confirmFetchTags() {
+  const missing = remoteOnlyTagCount.value
+  const dirty = outdatedTagCount.value
+  const preview = missing > 0
+    ? `<br><span class="text-white/45 text-[12px]">远端有 <span class="text-sky-300 font-medium">${missing}</span> 个本地没有的标签会被拉取。</span>`
+    : `<br><span class="text-white/45 text-[12px]">将拉取远端全部标签，并清理远端已删除的本地标签。</span>`
+  const overwrite = dirty > 0
+    ? `<br><span class="text-rose-300/90 text-[12px]">⚠ 另有 ${dirty} 个本地标签与远端指向不同，将被远端版本覆盖以对齐线上。</span>`
+    : ''
+  requestConfirm({
+    message: `从远端同步标签到本地？${gitPrecheckHtml()}${preview}${overwrite}`,
+    confirmLabel: '同步标签',
+    onConfirm: async () => {
+      await dash.doFetchTags()
     },
   })
 }
@@ -1380,7 +1433,7 @@ function onBackdropClick() {
           leave-to-class="opacity-0 translate-y-2 scale-[0.98]"
         >
           <div
-            class="gd-card relative z-10 w-[94vw] max-w-[960px] min-h-[70vh] max-h-[90vh] flex flex-col overflow-hidden"
+            class="gd-card relative z-10 w-[94vw] max-w-[960px] h-[90vh] flex flex-col overflow-hidden"
             @click.stop
           >
             <!-- HUD 四角装饰 -->
@@ -2135,8 +2188,23 @@ function onBackdropClick() {
                         style="background: rgba(244,63,94,0.14); color: rgb(253,164,175); border-color: rgba(244,63,94,0.24)"
                         :title="`${outdatedTagCount} 个远端标签需要更新`"
                       >待更新 {{ outdatedTagCount }}</span>
+                      <span
+                        v-if="remoteOnlyTagCount > 0"
+                        class="gd-badge-sm"
+                        style="background: rgba(56,189,248,0.14); color: rgb(125,211,252); border-color: rgba(56,189,248,0.24)"
+                        :title="`${remoteOnlyTagCount} 个标签只在远端、本地尚未拉取`"
+                      >仅远端 {{ remoteOnlyTagCount }}</span>
                     </div>
                     <div class="flex items-center gap-1.5">
+                      <button
+                        class="gd-action text-[11px]"
+                        :class="{ 'gd-action-pulse': remoteOnlyTagCount > 0 }"
+                        @click="confirmFetchTags"
+                        title="从远端拉取全部标签并清理远端已删除的本地标签"
+                      >
+                        <IconDownload class="w-3 h-3" />
+                        <span>同步远端标签</span>
+                      </button>
                       <button class="gd-action text-[11px]" @click="confirmPushTags" title="只推送远端不存在的本地标签">
                         <IconUpload class="w-3 h-3" />
                         <span>推送全部</span>
@@ -2229,14 +2297,25 @@ function onBackdropClick() {
                   <!-- 搜索 / 排序 / 批量工具栏（仅有标签时显示）-->
                   <div v-if="dash.tags.value.length" class="gd-tag-toolbar mb-2">
                     <div class="relative flex-1 min-w-0 max-w-[260px]">
-                      <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                      <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30 pointer-events-none" />
                       <input
                         v-model="tagSearch"
                         type="text"
                         placeholder="搜索标签名或说明…"
                         class="gd-input gd-input-sm"
+                        :class="{ 'gd-input-clearable': tagSearch }"
                         @keydown.esc="tagSearch = ''"
                       />
+                      <button
+                        v-if="tagSearch"
+                        type="button"
+                        class="gd-input-clear"
+                        title="清除搜索"
+                        aria-label="清除搜索"
+                        @click="tagSearch = ''"
+                      >
+                        <IconClose class="w-3 h-3" />
+                      </button>
                     </div>
                     <div class="gd-seg-group flex-shrink-0 ml-auto">
                       <button
@@ -2284,19 +2363,26 @@ function onBackdropClick() {
                         </div>
                         <div
                           v-if="!isTagRowHidden(t.name)"
-                          class="gd-list-row group cursor-pointer"
-                          @click="toggleTagDetail(t)"
+                          class="gd-list-row group"
+                          :class="t.localMissing ? '' : 'cursor-pointer'"
+                          @click="t.localMissing ? null : toggleTagDetail(t)"
                         >
                           <IconTag class="w-3.5 h-3.5 flex-shrink-0 text-violet-400/60" />
                           <span
-                            v-if="idx === 0 && !tagSearch.trim() && isVersionTag(t.name)"
+                            v-if="!tagSearch.trim() && t.name === latestLocalVersionTagName"
                             class="gd-badge-sm"
                             style="background: rgba(45,212,191,0.14); color: rgb(94,234,212); border-color: rgba(45,212,191,0.24)"
                             title="最新版本标签"
                           >latest</span>
                         <span class="gd-mono text-violet-300/80 flex-shrink-0">{{ t.name }}</span>
                         <span
-                          v-if="!t.onRemote"
+                          v-if="t.localMissing"
+                          class="gd-badge-sm"
+                          style="background: rgba(56,189,248,0.14); color: rgb(125,211,252); border-color: rgba(56,189,248,0.24)"
+                          title="只在远端存在，本地尚未拉取；点击右上「同步远端标签」可拉下来"
+                        >仅远端</span>
+                        <span
+                          v-else-if="!t.onRemote"
                           class="gd-badge-sm"
                           style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
                           title="本地已创建，远端还没有此标签"
@@ -2308,9 +2394,19 @@ function onBackdropClick() {
                           :title="`远端还是旧标签对象${t.remoteHash ? `（${t.remoteHash}）` : ''}`"
                         >待更新</span>
                         <span class="gd-hash flex-shrink-0">{{ t.hash }}</span>
-                        <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.message || '(轻量标签)' }}</span>
+                        <span class="flex-1 truncate text-white/50 text-[12px]">{{ t.localMissing ? '(本地未拉取)' : (t.message || '(轻量标签)') }}</span>
                         <span class="text-white/30 text-[11px] flex-shrink-0">{{ fmtDate(t.date) }}</span>
-                        <div class="gd-row-actions">
+                        <div v-if="t.localMissing" class="gd-row-actions">
+                          <button
+                            class="gd-mini-btn"
+                            title="从远端拉取全部标签"
+                            :aria-label="`同步远端标签以拉取 ${t.name}`"
+                            @click.stop="confirmFetchTags"
+                          >
+                            <IconDownload class="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div v-else class="gd-row-actions">
                           <button
                             class="gd-mini-btn"
                             title="编辑此标签"
@@ -2339,22 +2435,23 @@ function onBackdropClick() {
                           </button>
                           <button
                             class="gd-mini-btn"
-                            title="检出此标签（detached HEAD，用于回滚排查）"
-                            :aria-label="`检出标签 ${t.name}`"
+                            title="查看该版本代码（把工作区切回此标签指向的提交）"
+                            :aria-label="`查看 ${t.name} 版本的代码`"
                             @click.stop="confirmCheckoutTag(t.name)"
                           >
                             <IconSwitch class="w-3 h-3" />
                           </button>
                           <button
                             class="gd-mini-btn danger"
-                            title="删除此标签"
-                            :aria-label="`删除标签 ${t.name}`"
+                            title="删除本地标签"
+                            :aria-label="`删除本地标签 ${t.name}`"
                             @click.stop="confirmDeleteTag(t.name)"
                           >
                             <IconTrash class="w-3 h-3" />
                           </button>
                         </div>
                         <IconChevronRight
+                          v-if="!t.localMissing"
                           class="w-3.5 h-3.5 text-white/20 flex-shrink-0 transition-transform"
                           :class="{ 'rotate-90 text-teal-400/60': expandedTag === t.name }"
                         />
@@ -2478,7 +2575,11 @@ function onBackdropClick() {
                                 style="background: rgba(251,191,36,0.14); color: rgb(251,191,36); border-color: rgba(251,191,36,0.22)"
                               >仅本地</span>
                             </div>
-                            <p v-if="t.message" class="mt-2 text-[13px] text-white/72 leading-relaxed">{{ t.message }}</p>
+                            <p
+                              v-if="expandedTag === t.name && tagFullMessage"
+                              class="gd-tag-message mt-2 text-[13px] text-white/72 leading-relaxed"
+                            >{{ tagFullMessage }}</p>
+                            <p v-else-if="t.message" class="mt-2 text-[13px] text-white/72 leading-relaxed">{{ t.message }}</p>
                           </div>
 
                           <div class="gd-tag-commits">
@@ -2560,16 +2661,16 @@ function onBackdropClick() {
                             </button>
                             <button
                               class="gd-confirm-btn ok ghost"
-                              :title="`复制 git checkout ${t.name}`"
+                              :title="`复制 git checkout ${t.name} 到终端用`"
                               @click="copyCheckoutCmd(t.name)"
                             >
                               <IconCopy class="w-3 h-3" />
-                              {{ copiedTag === t.name ? '已复制' : '复制命令' }}
+                              {{ copiedTag === t.name ? '已复制' : '复制 git checkout' }}
                             </button>
                             <button
                               v-if="t.onRemote"
                               class="gd-confirm-btn danger ml-auto"
-                              title="删除远端标签（影响所有协作者与 CI/CD）"
+                              title="从远端删除此标签（影响所有协作者与 CI/CD）"
                               @click="confirmDeleteRemoteTag(t.name)"
                             >
                               <IconTrash class="w-3 h-3" />
@@ -2588,8 +2689,10 @@ function onBackdropClick() {
                     暂无标签 · 打一个发版标签试试
                   </div>
                 </div>
+              </div>
 
-                <!-- Stashes -->
+              <!-- ─── Stash ─── -->
+              <div v-else-if="activeTab === 'stash'" class="space-y-5 p-5">
                 <div>
                   <div class="gd-section-title justify-between">
                     <div class="flex items-center gap-1.5">
@@ -2635,7 +2738,9 @@ function onBackdropClick() {
                       </button>
                     </div>
                   </div>
-                  <div v-else class="py-4 text-center text-white/25 text-[12px]">暂无 stash</div>
+                  <div v-else class="py-8 text-center text-white/30 text-[12px]">
+                    暂无 stash · 用「Stash 变更」把当前未提交改动暂存起来
+                  </div>
                 </div>
               </div>
             </div>
@@ -2731,9 +2836,11 @@ function onBackdropClick() {
   border: 1px solid rgba(45, 212, 191, 0.2);
 }
 .gd-badge-sm {
-  font-size: 10px; padding: 0 5px; border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; line-height: 1; height: 16px; padding: 0 5px; border-radius: 3px;
   background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
 }
 .gd-mono { font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; }
 .gd-hash {
@@ -2757,6 +2864,17 @@ function onBackdropClick() {
 .gd-action:disabled { opacity: 0.4; cursor: not-allowed; }
 .gd-action.is-loading { color: rgba(45, 212, 191, 0.7); }
 .gd-action.is-loading :first-child { animation: gd-spin 1s linear infinite; }
+/* 远端有本地缺失的 tag 时，给同步按钮一个温和的呼吸提示 */
+.gd-action.gd-action-pulse {
+  background: rgba(56, 189, 248, 0.12);
+  color: rgb(125, 211, 252);
+  border-color: rgba(56, 189, 248, 0.3);
+  animation: gd-action-pulse 2.4s ease-in-out infinite;
+}
+@keyframes gd-action-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12); }
+}
 
 .gd-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -2907,7 +3025,7 @@ function onBackdropClick() {
 }
 .gd-list-row {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; font-size: 13px;
+  padding: 7px 12px; font-size: 13px; line-height: 1.4;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   transition: background 0.12s;
 }
@@ -2969,6 +3087,12 @@ function onBackdropClick() {
 }
 .gd-tag-meta { line-height: 1.5; }
 .gd-tag-commits { display: flex; flex-direction: column; gap: 4px; }
+/* 标签详情的完整发版说明：保留原始换行 / 缩进，长行自然折行 */
+.gd-tag-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
 .gd-tag-commit-list {
   max-height: 320px; overflow-y: auto;
   scrollbar-width: thin;
@@ -3026,8 +3150,6 @@ function onBackdropClick() {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
-.gd-input-sm { padding: 5px 10px 5px 30px; font-size: 12px; }
-
 /* 文字链接按钮（清除搜索等） */
 .gd-link-btn {
   color: rgb(94, 234, 212); cursor: pointer; font-size: 12px;
@@ -3045,6 +3167,27 @@ function onBackdropClick() {
 }
 .gd-input::placeholder { color: rgba(255, 255, 255, 0.25); }
 .gd-input:focus { border-color: rgba(45, 212, 191, 0.35); }
+/* 紧凑型输入（带左侧搜索图标的标签搜索框等）：必须置于 .gd-input 之后以生效 */
+.gd-input-sm {
+  padding: 4px 10px 4px 28px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+/* 有内容时右侧给清除按钮留位 */
+.gd-input-sm.gd-input-clearable { padding-right: 26px; }
+/* 输入框内嵌的清除按钮 */
+.gd-input-clear {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  color: rgba(255, 255, 255, 0.35);
+  background: transparent; border: none; cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.gd-input-clear:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+}
 select.gd-input { cursor: pointer; }
 /* <option> 在 Windows 下不继承 <select> 的背景，只继承白字 → 白字白底看不清；显式配深色 */
 .gd-input option {
@@ -3157,7 +3300,8 @@ select.gd-input { cursor: pointer; }
   .gd-accent,
   .gd-card::after,
   .gd-spin,
-  .gd-action.is-loading :first-child { animation: none !important; }
+  .gd-action.is-loading :first-child,
+  .gd-action-pulse { animation: none !important; }
   .gd-card::after { background: none; }
   .gd-action,
   .gd-mini-btn,
