@@ -124,6 +124,7 @@ function confirmMerge(source: string, options: { noCommit: boolean }) {
     onConfirm: async () => {
       await dash.doMerge(source, { noCommit: options.noCommit })
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -208,6 +209,7 @@ async function submitCreateTag() {
   })
   showCreateTag.value = false
   clearNewTagForm()
+  await refreshExpandedTagDetail()
 }
 
 async function startEditTag(t: GitTag) {
@@ -266,6 +268,7 @@ function submitEditTag() {
         }
         if (expandedTag.value === oldName) expandedTag.value = name
         cancelEditTag()
+        await refreshExpandedTagDetail()
       }
     },
   })
@@ -332,24 +335,55 @@ async function toggleTagDetail(t: GitTag) {
   diffContent.value = ''
   expandedTag.value = t.name
   tagPrevName.value = previousTagOf(t)?.name || ''
+  await loadExpandedTagDetail(t.name)
+}
+
+/**
+ * 加载指定 tag 的详情（提交列表 + 完整发版说明）。
+ * tagPrevName 必须已基于最新的 dash.tags 算出，负责方可在展开 / 同步 / 编辑时复用。
+ */
+async function loadExpandedTagDetail(name: string) {
   tagDetailLoading.value = true
   tagCommits.value = []
   tagFullMessage.value = ''
   // 提交列表与完整 message（保留换行的 %(contents)，列表项只有 subject 首行）并行加载
   const commitsP = dash
-    .getTagCommits(t.name, tagPrevName.value || undefined)
+    .getTagCommits(name, tagPrevName.value || undefined)
     .catch(() => [] as GitCommit[])
-  const detailP = dash.getTagDetail(t.name).catch(() => null)
+  const detailP = dash.getTagDetail(name).catch(() => null)
   try {
     const [commits, detail] = await Promise.all([commitsP, detailP])
     // 防竞态：用户可能已切到别的 tag，仅当仍在展开此 tag 时回填
-    if (expandedTag.value === t.name) {
+    if (expandedTag.value === name) {
       tagCommits.value = commits
       tagFullMessage.value = detail?.message || ''
     }
   } finally {
-    if (expandedTag.value === t.name) tagDetailLoading.value = false
+    if (expandedTag.value === name) tagDetailLoading.value = false
   }
+}
+
+/**
+ * 标签写操作（同步远端 / 创建 / 删除 / 编辑）成功后调用：强制刷新 overview 以拿到
+ * 最新的 tag 集合与 onRemote 徽标，然后重新拉取当前展开 tag 的详情。
+ * 没有 tag 展开时迅速返回，不增加开销。
+ */
+async function refreshExpandedTagDetail() {
+  const name = expandedTag.value
+  if (!name) return
+  // 使 dash.tags 重新排序（同步后 prevTag 关系可能变化，如远端新增 / prune 了中间 tag）
+  await dash.refresh()
+  const t = dash.tags.value.find((x) => x.name === name)
+  if (!t) {
+    // 该 tag 已不存在（被 delete/prune），收起展开态
+    expandedTag.value = ''
+    tagCommits.value = []
+    tagPrevName.value = ''
+    tagFullMessage.value = ''
+    return
+  }
+  tagPrevName.value = previousTagOf(t)?.name || ''
+  await loadExpandedTagDetail(name)
 }
 
 // ─── 标签搜索 / 排序 / 批量选择 ─────────────────────
@@ -547,6 +581,7 @@ function submitReset() {
     onConfirm: async () => {
       await dash.doReset(mode, target)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -563,11 +598,13 @@ async function viewDiff(key: string, fetcher: () => Promise<string>) {
   if (diffTarget.value === key) {
     diffTarget.value = ''
     diffContent.value = ''
+    diffFetcher = null
     return
   }
   // 打开 diff 时关掉 blame，避免同文件两块内容堆叠
   blameTarget.value = ''
   blameLines.value = []
+  diffFetcher = fetcher
   const cached = diffCache.get(key)
   if (cached !== undefined) {
     diffTarget.value = key
@@ -582,6 +619,35 @@ async function viewDiff(key: string, fetcher: () => Promise<string>) {
     diffContent.value = d
   } catch (e) {
     diffContent.value = `// 加载 diff 失败: ${(e as Error)?.message || e}`
+  } finally {
+    diffLoading.value = false
+  }
+}
+
+// 当前打开的 diff 的 fetcher，与 diffTarget 同步。reloadVisibleDiff 用它原地刷新；
+// 不开 diff 时为 null。
+let diffFetcher: (() => Promise<string>) | null = null
+
+/**
+ * 操作（commit / stage / discard / pull / checkout / revert …）改变了工作区或索引后，
+ * 当前打开的 diff 面板内容可能已过期。用打开时记录的 fetcher 原地重新拉一次，
+ * 调用方需已在 onConfirm 内先 await 完操作；没有 diff 打开时秒回。
+ *
+ * 其它 diff 大多通过 v-for 行渲染，文件离开当前状态列表时 v-if 自动隐藏、不存在过期问题。
+ * 唯有「操作后文件仍留在同状态里（如 pull 后某文件仍是 modified）」会持续显示旧 diff。
+ */
+async function reloadVisibleDiff() {
+  const key = diffTarget.value
+  if (!key || !diffFetcher) return
+  diffCache.delete(key)
+  diffLoading.value = true
+  diffTarget.value = key
+  try {
+    const d = await diffFetcher()
+    diffCache.set(key, d)
+    diffContent.value = d
+  } catch (e) {
+    diffContent.value = `// 刷新 diff 失败: ${(e as Error)?.message || e}`
   } finally {
     diffLoading.value = false
   }
@@ -685,6 +751,7 @@ async function stageSelected() {
   if (files.length) {
     await dash.doStageFiles(files.join(','))
     diffCache.clear()
+    void reloadVisibleDiff()
   }
 }
 
@@ -696,6 +763,7 @@ async function unstageSelected() {
   if (files.length) {
     await dash.doUnstageFiles(files.join(','))
     diffCache.clear()
+    void reloadVisibleDiff()
   }
 }
 
@@ -731,6 +799,7 @@ async function doCommit() {
     commitMessage.value = ''
     commitPrefix.value = ''
     diffCache.clear()
+    await reloadVisibleDiff()
   }
 }
 
@@ -746,6 +815,7 @@ async function doCommitAll() {
         commitMessage.value = ''
         commitPrefix.value = ''
         diffCache.clear()
+        await reloadVisibleDiff()
       }
     },
   })
@@ -1058,6 +1128,7 @@ function confirmSwitchBranch(name: string) {
     onConfirm: async () => {
       await dash.doCheckout(name)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1070,6 +1141,7 @@ function confirmCheckoutRemote(remoteName: string) {
     onConfirm: async () => {
       await dash.doCheckout(short)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1105,6 +1177,7 @@ function confirmDeleteTag(name: string) {
     onConfirm: async () => {
       await dash.doDeleteTag(name)
       if (expandedTag.value === name) expandedTag.value = ''
+      await refreshExpandedTagDetail()
     },
   })
 }
@@ -1146,6 +1219,7 @@ function confirmCheckoutTag(name: string) {
     onConfirm: async () => {
       await dash.doCheckout(name)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1168,6 +1242,7 @@ function confirmStashApply(index: string) {
     onConfirm: async () => {
       await dash.doStashApply(index)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1180,6 +1255,7 @@ function confirmStashPop(index = 'stash@{0}') {
     onConfirm: async () => {
       await dash.doStashPop()
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1195,6 +1271,7 @@ async function confirmPull() {
     onConfirm: async () => {
       await dash.doPull()
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1249,6 +1326,7 @@ function confirmFetchTags() {
     confirmLabel: '同步标签',
     onConfirm: async () => {
       await dash.doFetchTags()
+      await refreshExpandedTagDetail()
     },
   })
 }
@@ -1267,6 +1345,7 @@ function confirmDiscard(path: string, untracked: boolean) {
       diffCache.clear()
       blameTarget.value = ''
       blameLines.value = []
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1280,6 +1359,7 @@ function confirmRevert(c: GitCommit) {
     onConfirm: async () => {
       await dash.doRevert(c.fullHash)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
@@ -1291,6 +1371,7 @@ function confirmCherryPick(c: GitCommit) {
     onConfirm: async () => {
       await dash.doCherryPick(c.fullHash)
       diffCache.clear()
+      void reloadVisibleDiff()
     },
   })
 }
