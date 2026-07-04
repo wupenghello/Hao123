@@ -22,7 +22,7 @@
  *  - connectivity    —— 网络可达性（healthy/checking/unreachable），琥珀条 / Launcher 色点
  */
 import { reactive, readonly, computed } from 'vue'
-import { llmConfig } from './config'
+import { getActiveConfig, getClientAuthBody } from '@/features/model-config'
 
 /** 连通性根因（决定文案与修法指引） */
 export type ConnectivityReason =
@@ -79,15 +79,16 @@ export function classifyError(e: unknown): ConnectivityReason | null {
 
 /** 根因 → 用户文案（含行动指引） */
 function messageForReason(reason: ConnectivityReason): string {
+  const provider = getActiveConfig().provider || '当前模型服务'
   switch (reason) {
     case 'offline':
       return '网络已断开，恢复后会自动重连'
     case 'proxy':
       return '无法连接 TodayOps 开发服务器，请确认 npm run dev 正在运行'
     case 'provider':
-      return '小吴的大脑（DeepSeek）暂时没响应，正在自动重试'
+      return `小吴的大脑（${provider}）暂时没响应，正在自动重试`
     case 'auth':
-      return 'LLM 认证失败，请在 .env 设置 VITE_DEEPSEEK_API_KEY 后重启 dev'
+      return 'LLM 认证失败，API Key 已过期或无效，请在模型配置面板中更新 Key'
     default:
       return '暂时连不上小吴，正在自动重试'
   }
@@ -159,7 +160,8 @@ let probeInFlight: Promise<boolean> | null = null
  * @returns true=已恢复 false=仍不可达
  */
 export async function probe(): Promise<boolean> {
-  if (!llmConfig.configured) return false
+  const cfg = getActiveConfig()
+  if (!cfg.configured) return false
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     markUnreachable('offline')
     return false
@@ -173,14 +175,15 @@ export async function probe(): Promise<boolean> {
     const timeout = setTimeout(() => controller.abort(), 5_000)
     try {
       // 最小 ping：max_tokens:1，几乎不烧 token，但能验证 proxy + provider + auth 全链路
-      const res = await fetch(llmConfig.endpoint, {
+      const res = await fetch(cfg.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: llmConfig.model,
+          model: cfg.model,
           messages: [{ role: 'user', content: '1' }],
           max_tokens: 1,
           stream: false,
+          ...getClientAuthBody(),
         }),
         signal: controller.signal,
       })

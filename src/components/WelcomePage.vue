@@ -136,35 +136,60 @@ function finishOnboarding() {
         class="welcome-onboard-btn fixed bottom-6 right-6 z-40"
         @click="showOnboarding = true"
       >
-        <span>🚀 快速设置</span>
+        <span class="welcome-onboard-led" aria-hidden="true" />
+        <span>快速设置</span>
       </button>
     </Transition>
   </div>
 </template>
 
 <style scoped>
-/* 左右舱布局：左侧是固定情报柱，右侧是自适应工作星图 / 清单 */
 .welcome-shell {
+  --home-tone: #22d3ee;
+  --home-tone-2: #a78bfa;
+  --home-success: #34d399;
+  --home-warning: #fbbf24;
+  --home-danger: #fb7185;
+  --home-border: rgba(148, 163, 184, 0.16);
+  --home-text: rgba(248, 250, 252, 0.92);
+  --home-muted: rgba(226, 232, 240, 0.52);
   position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
   padding: 18px;
+  color: var(--home-text);
 }
 .welcome-shell::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   content: '';
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--home-tone) 13%, transparent), transparent 32%),
+    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--home-tone-2) 10%, transparent), transparent 34%);
+}
+.welcome-shell::after {
   position: absolute;
   inset: 18px;
   pointer-events: none;
-  border: 1px solid rgba(125, 211, 252, 0.08);
-  opacity: 0.7;
+  content: '';
+  border: 1px solid color-mix(in srgb, var(--home-tone) 12%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.5), transparent 62%);
+  opacity: 0.9;
 }
 .welcome-grid {
   position: relative;
+  z-index: 1;
+  display: grid;
   width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-columns: minmax(292px, 23vw) minmax(0, 1fr);
+  grid-template-columns: minmax(304px, 24vw) minmax(0, 1fr);
   gap: 16px;
 }
 .welcome-left,
@@ -177,6 +202,13 @@ function finishOnboarding() {
   gap: 12px;
   overflow-y: auto;
   padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+}
+.welcome-left::-webkit-scrollbar { width: 6px; }
+.welcome-left::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
 }
 .welcome-right {
   display: flex;
@@ -189,43 +221,56 @@ function finishOnboarding() {
 .welcome-status-card {
   position: relative;
   overflow: hidden;
-  padding: 16px;
-  border-radius: 0 18px 18px 0;
-  border: 1px solid var(--hud-line);
-  border-left: 2px solid rgba(94, 234, 212, 0.74);
+  padding: 17px;
+  border: 1px solid color-mix(in srgb, var(--home-tone) 18%, var(--home-border));
+  border-radius: 12px;
   background:
-    linear-gradient(180deg, rgba(2, 6, 23, 0.74), rgba(15, 23, 42, 0.42)),
-    linear-gradient(90deg, rgba(45, 212, 191, 0.1), transparent 48%),
-    repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.035) 0 1px, transparent 1px 32px);
-  box-shadow: var(--hud-glow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--home-tone) 16%, transparent), transparent 64px),
+    linear-gradient(135deg, color-mix(in srgb, var(--home-tone) 8%, transparent), transparent 40%),
+    rgba(2, 6, 23, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.055),
+    0 18px 54px rgba(0,0,0,0.22);
   backdrop-filter: blur(18px) saturate(130%);
 }
-.welcome-status-card::after {
-  content: '';
+.welcome-status-card::before {
   position: absolute;
-  inset: auto -20% -55% 28%;
-  height: 110px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.14), rgba(45, 212, 191, 0.16), transparent);
-  filter: blur(22px);
-  opacity: 0.7;
+  inset: 0 auto 0 0;
+  width: 3px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--home-tone), transparent);
+  opacity: 0.76;
+}
+.welcome-status-card::after {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.042) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.032) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(120deg, rgba(0,0,0,0.46), transparent 64%);
+}
+.welcome-status-card > * {
+  position: relative;
+  z-index: 1;
 }
 .welcome-status-kicker {
   margin: 0 0 8px;
-  font-family: var(--hud-font-data);
-  font-size: 10px;
-  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--home-tone) 78%, white 5%);
+  font: 850 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(94, 234, 212, 0.78);
 }
 .welcome-status-title {
   margin: 0;
+  color: rgba(248, 250, 252, 0.96);
   font-size: 21px;
-  line-height: 1.1;
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  color: rgba(240, 249, 255, 0.96);
-  text-shadow: 0 0 20px rgba(125, 211, 252, 0.18);
+  font-weight: 850;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 20px color-mix(in srgb, var(--home-tone) 18%, transparent);
 }
 .welcome-status-summary {
   position: relative;
@@ -234,65 +279,71 @@ function finishOnboarding() {
   align-items: center;
   gap: 8px;
   margin: 14px 0 0;
+  color: rgba(226, 232, 240, 0.64);
   font-size: 12.5px;
   line-height: 1.55;
-  color: rgba(226, 232, 240, 0.64);
 }
 .welcome-briefing {
   flex-shrink: 0;
 }
-
-/* 紧急点：状态条里有紧急项时脉冲提示 */
 .welcome-urgent-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: #fb7185;
   flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--home-danger);
   animation: urgent-pulse 2s ease-in-out infinite;
 }
 @keyframes urgent-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45); opacity: 1; }
   70% { box-shadow: 0 0 0 7px rgba(251, 113, 133, 0); }
-  100% { opacity: 1; box-shadow: 0 0 0 0 rgba(251, 113, 133, 0); }
 }
-
-/* 首次设置按钮 */
 .welcome-onboard-btn {
-  padding: 8px 16px;
-  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--home-tone) 34%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 0, rgba(255,255,255,0.2), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--home-tone) 16%, rgba(2,6,23,0.84)), rgba(2,6,23,0.72));
+  color: rgba(236, 254, 255, 0.92);
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(45, 212, 191, 0.15);
-  border: 1px solid rgba(94, 234, 212, 0.3);
-  backdrop-filter: blur(8px);
-  transition: all 0.18s;
+  font-weight: 800;
+  box-shadow:
+    0 14px 36px color-mix(in srgb, var(--home-tone) 14%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+  backdrop-filter: blur(12px) saturate(130%);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.welcome-onboard-btn:hover {
-  background: rgba(45, 212, 191, 0.25);
-  border-color: rgba(94, 234, 212, 0.5);
+.welcome-onboard-btn:hover,
+.welcome-onboard-btn:focus-visible {
   transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--home-tone) 52%, transparent);
+  background:
+    radial-gradient(circle at 30% 0, rgba(255,255,255,0.25), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--home-tone) 22%, rgba(2,6,23,0.84)), rgba(2,6,23,0.76));
+  outline: 0;
 }
-
-.guide-fade-enter-active {
-  transition: opacity 0.4s ease, transform 0.4s ease;
+.welcome-onboard-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--home-tone);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--home-tone) 62%, transparent);
 }
-.guide-fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.guide-fade-enter-from {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-.guide-fade-leave-to {
-  opacity: 0;
-}
-
+.guide-fade-enter-active { transition: opacity 0.4s ease, transform 0.4s ease; }
+.guide-fade-leave-active { transition: opacity 0.25s ease; }
+.guide-fade-enter-from { opacity: 0; transform: translateY(-6px); }
+.guide-fade-leave-to { opacity: 0; }
 @media (max-width: 980px) {
   .welcome-shell {
     overflow-y: auto;
     padding: 16px;
   }
+  .welcome-shell::after { inset: 16px; }
   .welcome-grid {
     height: auto;
     min-height: 100%;
@@ -302,12 +353,13 @@ function finishOnboarding() {
     overflow: visible;
     padding-right: 0;
   }
-  .welcome-right {
-    min-height: 640px;
-  }
+  .welcome-right { min-height: 640px; }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .welcome-urgent-dot { animation: none; }
+  .welcome-onboard-btn,
+  .guide-fade-enter-active,
+  .guide-fade-leave-active { transition: none; }
+  .welcome-onboard-btn:hover { transform: none; }
 }
 </style>

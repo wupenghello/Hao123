@@ -20,6 +20,20 @@ export interface OpenAiCompatConfig {
   endpoint: string
   /** 是否已配置（基于非敏感开关，非密钥本身；缺省 false） */
   configured?: boolean
+  /**
+   * 客户端侧注入的认证字段（由 llm/index.ts 代理层拼入）。
+   * 存在时直接展开到请求 body 中，供 vite 代理插件读取并剥离。
+   * 不在 OpenAiCompatConfig 的类型契约中——调用方不应感知此字段。
+   */
+  _clientAuth?: Record<string, unknown>
+}
+
+/** 构造请求 body 的辅助：把 _clientAuth 展开到 body 顶层 */
+function buildRequestBody(
+  cfg: OpenAiCompatConfig,
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...fields, ...(cfg._clientAuth ?? {}) }
 }
 
 /** 把发给模型的消息裁成 API 接受的字段（剔除 UI-only 的 activities/ts） */
@@ -160,7 +174,7 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
       const res = await fetchWithRetry(
         cfg.provider,
         cfg.endpoint,
-        {
+        buildRequestBody(cfg, {
           model: cfg.model,
           messages: messages.map(toApiMessage),
           ...(tools?.length ? { tools } : {}),
@@ -170,7 +184,7 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
           ...(frequencyPenalty != null ? { frequency_penalty: frequencyPenalty } : {}),
           ...(toolChoice != null ? { tool_choice: toolChoice } : {}),
           stream: true,
-        },
+        }),
         headers,
         signal,
       )
@@ -207,7 +221,7 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
       const res = await fetchWithRetry(
         cfg.provider,
         cfg.endpoint,
-        {
+        buildRequestBody(cfg, {
           model: cfg.model,
           messages: messages.map(toApiMessage),
           stream: false,
@@ -215,7 +229,7 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
           ...(maxTokens != null ? { max_tokens: maxTokens } : {}),
           ...(topP != null ? { top_p: topP } : {}),
           ...(responseFormat != null ? { response_format: responseFormat } : {}),
-        },
+        }),
         headers,
         signal,
       )

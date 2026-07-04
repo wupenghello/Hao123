@@ -7,6 +7,7 @@ import { kbPlugin } from './vite-plugin-kb'
 import { wbscfPlugin } from './vite-plugin-wbscf'
 import { gitPlugin } from './vite-plugin-git'
 import { webDocPlugin } from './vite-plugin-web-doc'
+import { deepseekFallbackPlugin } from './vite-plugin-deepseek-fallback'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -20,9 +21,6 @@ export default defineConfig(({ mode }) => {
   // 禅道服务器地址（形如 http://zentao.example.com 或带子路径 http://host/zentao）。
   // 走 /zentao 代理转发，规避浏览器跨域与 Set-Cookie 丢失问题。
   const zentaoTarget = env.VITE_ZENTAO_BASE || 'http://localhost'
-
-  // DeepSeek（OpenAI 兼容）API 地址；走 /deepseek 代理转发，规避浏览器跨域。
-  const deepseekTarget = env.VITE_DEEPSEEK_BASE || 'https://api.deepseek.com'
 
   // 知识库来源（VITE_KB_SOURCE）：本地文件夹路径或 http manifest URL。
   // 本地路径由根目录 vite-plugin-kb.ts 在 dev/构建时读取并注入虚拟模块；
@@ -52,6 +50,9 @@ export default defineConfig(({ mode }) => {
       gitPlugin({ root: wbscfRoot }),
       // 外部文档只读抓取：给小吴尝试读取禅道详情里的公开文档链接（仅 dev server 中间件）
       webDocPlugin({ modaoUrl }),
+      // LLM API 代理：dev 时拦截 /deepseek/chat/completions，
+      // 从请求 body 提取客户端 API Key 后转发到上游
+      deepseekFallbackPlugin(),
     ],
     resolve: {
       alias: {
@@ -78,21 +79,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/zentao/, ''),
         },
-        // DeepSeek（OpenAI 兼容）：LLM 对话 / 工具调用
-        // 代理层注入 API Key，客户端不再携带，防止密钥暴露在前端包中
-        '/deepseek': {
-          target: deepseekTarget,
-          changeOrigin: true,
-          configure: (proxy) => {
-            const apiKey = env.VITE_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY || ''
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) {
-                proxyReq.setHeader('Authorization', `Bearer ${apiKey}`)
-              }
-            })
-          },
-          rewrite: (path) => path.replace(/^\/deepseek/, ''),
-        },
+        // LLM API 代理已由 deepseekFallbackPlugin 接管（从请求 body 提取客户端 API Key）
       },
     },
   }

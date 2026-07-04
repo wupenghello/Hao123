@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useWbscfServices, wbscfServices } from '@/features/wbscf'
-import WbscfToastHost from './WbscfToastHost.vue'
 import GitWidget from './GitWidget.vue'
+import ModelWidget from './ModelWidget.vue'
 import ModaoWidget from './ModaoWidget.vue'
 import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
@@ -19,7 +19,7 @@ import IconLoading from '~icons/mdi/loading'
  *
  * 本地 dev 服务接入（wbscf-web）：状态来自 dev server 的 /wbscf/services。运行中时
  * 标签文字转绿（状态栏运行状态指示）；hover 菜单顶部一行 localhost:端口 可点击启动 / 打开，
- * 运行中绿字、启动中转圈琥珀、未启动可点击拉起。点击未运行服务另弹 toast 反馈启动进度。
+ * 运行中绿字、启动中转圈琥珀、未启动可点击拉起。点击未运行服务另弹全局提示反馈启动进度。
  */
 type EnvKey = 'dev' | 'test' | 'pre'
 
@@ -89,7 +89,7 @@ const navItems: NavItem[] = [
   { label: 'apifox', url: 'https://app.apifox.com/project/7718065' },
 ]
 
-const { toasts, startOrOpen, closeToast, statusOf } = useWbscfServices()
+const { startOrOpen, statusOf } = useWbscfServices()
 
 /** localhost 入口是否展示：仅当 dev 服务可用（脚本存在于 wbscf-web/package.json）时 */
 function showLocal(app?: string): boolean {
@@ -125,10 +125,6 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   return envMeta
     .map(({ key }) => ({ key, url: envs[key] }))
     .filter((env): env is EnvEntry => !!env.url)
-}
-/** toast「打开」按钮：在新标签打开该服务的本地 URL */
-function openUrl(url: string): void {
-  if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
 </script>
 
@@ -196,11 +192,11 @@ function openUrl(url: string): void {
       <li class="status-nav-item status-nav-git-item">
         <GitWidget />
       </li>
+      <li class="status-nav-item status-nav-model-item">
+        <ModelWidget />
+      </li>
     </ul>
   </nav>
-
-  <!-- 启动进度 toast：抽到独立组件 WbscfToastHost（Teleport 到 body、固定右下角） -->
-  <WbscfToastHost :toasts="toasts" @close="closeToast" @open="openUrl" />
 </template>
 
 <style scoped>

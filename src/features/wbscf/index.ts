@@ -13,12 +13,11 @@
  *   config.ts      静态注册表：app → { label, script, port, base, url }（前后端共用）
  *   types.ts       WbscfServiceStatus / WbscfServicesResponse 契约
  *   api.ts         浏览器侧 fetch 封装（fetchWbscfServices）+ 中转页地址 wbscfLaunchUrl
- *   composable.ts  useWbscfServices：响应式状态 + 轮询 + 点击打开 + 启动 toast 反馈
+ *   composable.ts  useWbscfServices：响应式状态 + 轮询 + 点击打开 + 全局启动反馈
  *   llm-tools.ts   LLM 工具层 wbscfToolDefs / callWbscfTool（只读查询服务状态，喂给小吴）
  */
 export * from './types'
 export * from './config'
 export * from './api'
 export { useWbscfServices } from './composable'
-export type { WbscfToast } from './composable'
 export * from './llm-tools'

@@ -639,10 +639,10 @@ onUnmounted(() => {
     <Transition name="cmd-fade">
       <div
         v-if="store.open"
-        class="fixed inset-0 z-[60] flex justify-center px-4 pt-[8vh] pb-[6vh]"
+        class="cmd-shell"
       >
         <!-- 遮罩 -->
-        <div class="absolute inset-0 bg-slate-950/55 backdrop-blur-[3px]" @click="store.close()" />
+        <div class="cmd-backdrop" @click="store.close()" />
 
         <!-- 命令面板卡片 -->
         <Transition name="cmd-pop" appear>
@@ -662,6 +662,36 @@ onUnmounted(() => {
             <div class="cmd-corners" aria-hidden="true" />
             <div class="cmd-accent" />
 
+            <header class="cmd-header relative z-10">
+              <div class="cmd-brand-mark">
+                <IconRobot class="w-5 h-5" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="cmd-eyebrow">Assistant Operations</p>
+                <h2 class="cmd-title">{{ ASSISTANT_NAME }} 对话中枢</h2>
+                <p class="cmd-subtitle">把天气、禅道、待办和知识库串成一次工作流。</p>
+              </div>
+              <div class="cmd-header-actions">
+                <span class="cmd-live-pill" :class="{ 'is-ready': store.configured }">
+                  <IconSpark class="w-3.5 h-3.5" />
+                  {{ store.configured ? '线路就绪' : '等待配置' }}
+                </span>
+                <button
+                  v-if="store.hasMessages"
+                  class="cmd-header-btn"
+                  :disabled="store.streaming"
+                  title="清空对话"
+                  @click="store.clear()"
+                >
+                  <IconBroom class="w-3.5 h-3.5" />
+                  清空
+                </button>
+                <button class="cmd-iconbtn" title="关闭（Esc）" @click="store.close()">
+                  <IconClose class="w-4 h-4" />
+                </button>
+              </div>
+            </header>
+
             <!-- 对话流 / 空态 -->
             <Transition name="content-fade" mode="out-in">
               <div
@@ -673,7 +703,7 @@ onUnmounted(() => {
                 <div v-if="!store.configured" class="flex flex-col items-center gap-2 py-10 text-center text-white/55">
                   <IconAlert class="w-8 h-8 text-amber-300/70" />
                   <p class="text-sm text-white/75">尚未接入 LLM</p>
-                  <p class="text-xs text-white/40 max-w-[18rem]">在项目 .env 中配置 VITE_DEEPSEEK_API_KEY 并重启开发服务后即可对话</p>
+                  <p class="text-xs text-white/40 max-w-[18rem]">点击状态栏「未配置」打开模型配置面板，填写 API Key 后即可对话</p>
                 </div>
 
                 <!-- 消息列表 -->
@@ -1046,25 +1076,18 @@ onUnmounted(() => {
               >
                 <IconSend class="w-4 h-4" />
               </button>
-              <button class="cmd-iconbtn shrink-0" title="关闭（Esc）" @click="store.close()">
-                <IconClose class="w-4 h-4" />
-              </button>
             </div>
 
             <!-- 底部状态条 -->
-            <div class="relative z-10 flex items-center gap-3 px-4 h-9 border-t border-white/8 shrink-0 text-[11px] text-white/30">
-              <div class="flex items-center gap-1">
-                <IconSpark class="w-3 h-3 text-teal-300/60" />
+            <div class="cmd-footer relative z-10">
+              <div class="cmd-footer-left">
+                <IconSpark class="w-3 h-3" />
                 <span>{{ ASSISTANT_NAME }} · 天气 / 禅道 / 待办</span>
+                <span v-if="store.feedbackStats.up + store.feedbackStats.down > 0" class="cmd-feedback-counts">
+                  <span><IconThumbUpFill class="w-2.5 h-2.5" />{{ store.feedbackStats.up }}</span>
+                  <span><IconThumbDownFill class="w-2.5 h-2.5" />{{ store.feedbackStats.down }}</span>
+                </span>
               </div>
-              <span v-if="store.feedbackStats.up + store.feedbackStats.down > 0" class="flex items-center gap-1.5 text-white/25">
-                <span class="flex items-center gap-0.5">
-                  <IconThumbUpFill class="w-2.5 h-2.5 text-emerald-400/50" />{{ store.feedbackStats.up }}
-                </span>
-                <span class="flex items-center gap-0.5">
-                  <IconThumbDownFill class="w-2.5 h-2.5 text-rose-400/50" />{{ store.feedbackStats.down }}
-                </span>
-              </span>
               <span v-if="store.feedbackCategoryRows.length" class="cmd-quality-summary">
                 <span>质量关注</span>
                 <span
@@ -1076,18 +1099,10 @@ onUnmounted(() => {
                   {{ row.label }} {{ row.down + row.regenerations }}
                 </span>
               </span>
-              <span class="ml-auto flex items-center gap-2.5">
+              <span class="cmd-shortcuts">
                 <span><kbd class="cmd-kbd">Enter</kbd> 发送</span>
                 <span><kbd class="cmd-kbd">Alt+Enter</kbd> 换行</span>
                 <span><kbd class="cmd-kbd">Esc</kbd> 关闭</span>
-                <button
-                  v-if="store.hasMessages"
-                  class="flex items-center gap-1 hover:text-white/70 transition-colors"
-                  :disabled="store.streaming"
-                  @click="store.clear()"
-                >
-                  <IconBroom class="w-3 h-3" />清空
-                </button>
               </span>
             </div>
 
@@ -1133,852 +1148,597 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ============ HUD 玻璃卡（呼应 DetailModal）============ */
-.cmd-card {
-  border-radius: 18px;
-  background:
-    linear-gradient(160deg, rgba(30, 58, 95, 0.95) 0%, rgba(15, 23, 42, 0.97) 55%, rgba(13, 64, 64, 0.95) 100%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 28px);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  box-shadow:
-    0 32px 80px -16px rgba(0, 0, 0, 0.7),
-    0 0 0 1px rgba(45, 212, 191, 0.16),
-    0 0 40px -6px rgba(45, 212, 191, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+.cmd-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  padding: 6vh 16px;
 }
-
+.cmd-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(34, 211, 238, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 86%, rgba(167, 139, 250, 0.14), transparent 32%),
+    rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+.cmd-card {
+  --cmd-tone: #22d3ee;
+  --cmd-tone-2: #a78bfa;
+  --cmd-panel: rgba(6, 13, 28, 0.78);
+  --cmd-border: rgba(148, 163, 184, 0.16);
+  --cmd-text: rgba(248, 250, 252, 0.92);
+  --cmd-muted: rgba(226, 232, 240, 0.52);
+  border: 1px solid color-mix(in srgb, var(--cmd-tone) 20%, rgba(148, 163, 184, 0.24));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 14% 0, color-mix(in srgb, var(--cmd-tone) 14%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--cmd-tone) 8%, transparent), transparent 30%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98));
+  color: var(--cmd-text);
+  box-shadow:
+    0 34px 110px rgba(0, 0, 0, 0.66),
+    0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 0 70px color-mix(in srgb, var(--cmd-tone) 12%, transparent);
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+}
+.cmd-card::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.55), transparent 58%);
+}
+.cmd-card::after {
+  position: absolute;
+  inset: auto 20px 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cmd-tone) 52%, transparent), transparent);
+  opacity: 0.75;
+}
 .cmd-corners {
   position: absolute;
   inset: 0;
   z-index: 5;
   pointer-events: none;
-  border-radius: 18px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .cmd-corners::before,
 .cmd-corners::after {
-  content: '';
   position: absolute;
-  width: 16px;
-  height: 16px;
-  border-color: rgba(94, 234, 212, 0.5);
+  width: 18px;
+  height: 18px;
+  border-color: color-mix(in srgb, var(--cmd-tone) 58%, transparent);
   border-style: solid;
-  filter: drop-shadow(0 0 4px rgba(94, 234, 212, 0.45));
+  content: '';
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--cmd-tone) 38%, transparent));
 }
 .cmd-corners::before {
-  top: 8px;
-  left: 8px;
+  top: 9px;
+  left: 9px;
   border-width: 2px 0 0 2px;
   border-top-left-radius: 6px;
 }
 .cmd-corners::after {
-  bottom: 8px;
-  right: 8px;
+  right: 9px;
+  bottom: 9px;
   border-width: 0 2px 2px 0;
   border-bottom-right-radius: 6px;
 }
-
 .cmd-accent {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
   z-index: 6;
-  background: linear-gradient(90deg, #38bdf8, #2dd4bf, #38bdf8);
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--cmd-tone), var(--cmd-tone-2), var(--cmd-tone));
   background-size: 200% 100%;
-  box-shadow: 0 0 12px rgba(45, 212, 191, 0.5);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--cmd-tone) 45%, transparent);
   animation: cmd-accent-flow 3.5s linear infinite;
 }
 @keyframes cmd-accent-flow {
   from { background-position: 0% 0; }
   to { background-position: 200% 0; }
 }
-
-/* ============ 头像 ============ */
+.cmd-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--cmd-border);
+  background:
+    radial-gradient(circle at 12% 0, color-mix(in srgb, var(--cmd-tone) 15%, transparent), transparent 34%),
+    rgba(15, 23, 42, 0.34);
+}
+.cmd-brand-mark,
 .cmd-avatar,
 .cmd-avatar-sm {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  background: linear-gradient(150deg, rgba(56, 189, 248, 0.88), rgba(20, 184, 166, 0.88));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px -2px rgba(20, 184, 166, 0.5);
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--cmd-tone) 82%, white);
+  background:
+    radial-gradient(circle at 30% 18%, color-mix(in srgb, var(--cmd-tone) 42%, transparent), transparent 45%),
+    color-mix(in srgb, var(--cmd-tone) 11%, rgba(255,255,255,0.04));
+  border: 1px solid color-mix(in srgb, var(--cmd-tone) 42%, rgba(255,255,255,0.08));
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--cmd-tone) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.cmd-brand-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
 }
 .cmd-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
 }
 .cmd-avatar-sm {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
 }
-
-/* ============ 按钮 ============ */
+.cmd-eyebrow {
+  margin: 0 0 3px;
+  color: color-mix(in srgb, var(--cmd-tone) 72%, white 8%);
+  font: 850 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cmd-title {
+  margin: 0;
+  color: rgba(248, 250, 252, 0.96);
+  font-size: 21px;
+  font-weight: 850;
+  letter-spacing: -0.01em;
+}
+.cmd-subtitle {
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--cmd-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.cmd-live-pill,
+.cmd-header-btn,
+.cmd-iconbtn,
+.cmd-send,
+.cmd-action,
+.cmd-approval-btn,
+.ability-tag,
+.cmd-suggestion,
+.resize-handle,
+.cmd-pending-x,
+.cmd-row-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  cursor: pointer;
+}
+.cmd-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.13), rgba(251, 191, 36, 0.06));
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
+}
+.cmd-live-pill.is-ready {
+  border-color: color-mix(in srgb, var(--cmd-tone) 34%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 16%, transparent), color-mix(in srgb, var(--cmd-tone) 7%, transparent));
+  color: color-mix(in srgb, var(--cmd-tone) 80%, white);
+}
+.cmd-header-btn,
 .cmd-iconbtn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  color: rgba(255, 255, 255, 0.5);
-  transition: background 0.15s, color 0.15s;
+  border: 1px solid rgba(255,255,255,0.085);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
+  color: rgba(226, 232, 240, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
 }
-.cmd-iconbtn:hover {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.1);
+.cmd-header-btn {
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 800;
 }
-.cmd-send {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.cmd-iconbtn {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  color: #fff;
-  flex-shrink: 0;
-  background: linear-gradient(150deg, #38bdf8, #2dd4bf);
-  box-shadow: 0 2px 10px -2px rgba(20, 184, 166, 0.5);
-  transition: opacity 0.15s, transform 0.12s;
 }
-.cmd-send:hover:not(:disabled) {
-  transform: scale(1.06);
+.cmd-header-btn:hover:not(:disabled),
+.cmd-header-btn:focus-visible,
+.cmd-iconbtn:hover,
+.cmd-iconbtn:focus-visible {
+  color: white;
+  border-color: color-mix(in srgb, var(--cmd-tone) 30%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 9%, rgba(255,255,255,0.07));
+  outline: 0;
 }
-.cmd-send:disabled {
-  opacity: 0.3;
+.cmd-header-btn:disabled {
   cursor: not-allowed;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: none;
+  opacity: 0.45;
 }
-.cmd-send.is-stop {
-  background: linear-gradient(150deg, rgba(244, 63, 94, 0.85), rgba(225, 29, 72, 0.85));
-  box-shadow: 0 2px 10px -2px rgba(244, 63, 94, 0.5);
+.cmd-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
 }
-
-/* ============ 内容过渡动画 ============ */
-.content-fade-enter-active,
-.content-fade-leave-active {
-  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+.cmd-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.cmd-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
 }
-.content-fade-enter-from,
-.content-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
+.cmd-bubble-user,
+.cmd-bubble-ai,
+.cmd-activity,
+.cmd-suggestion,
+.ability-tag,
+.quote-preview,
+.cmd-pending-bar,
+.cmd-input-wrapper,
+.cmd-footer {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
 }
-
-/* ============ 气泡 ============ */
 .cmd-bubble-user {
-  padding: 10px 14px;
-  border-radius: 16px 16px 6px 16px;
-  font-size: 14px;
-  line-height: 1.6;
+  position: relative;
+  overflow: hidden;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, var(--cmd-tone) 38%, transparent);
+  border-radius: 16px 16px 7px 16px;
+  background:
+    radial-gradient(circle at 16px 12px, color-mix(in srgb, var(--cmd-tone) 25%, transparent), transparent 46px),
+    linear-gradient(135deg, color-mix(in srgb, var(--cmd-tone) 38%, rgba(15, 23, 42, 0.58)), color-mix(in srgb, var(--cmd-tone-2) 18%, rgba(2, 6, 23, 0.4)));
   color: #fff;
+  font-size: 14px;
+  line-height: 1.62;
   white-space: pre-wrap;
   word-break: break-word;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.5), rgba(20, 184, 166, 0.45));
-  border: 1px solid rgba(125, 211, 252, 0.4);
-  box-shadow:
-    0 4px 16px -4px rgba(20, 184, 166, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.cmd-bubble-user::before,
+.cmd-bubble-ai::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--cmd-tone), transparent);
+  opacity: 0.72;
 }
 .cmd-bubble-ai {
   position: relative;
-  padding: 12px 16px;
-  border-radius: 6px 18px 18px 18px;
-  font-size: 14px;
+  max-width: min(100%, 680px);
+  overflow: hidden;
+  padding: 13px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 7px 16px 16px 16px;
+  background:
+    radial-gradient(circle at 18px 14px, color-mix(in srgb, var(--cmd-tone) 12%, transparent), transparent 58px),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(2, 6, 23, 0.34));
   color: rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
   word-break: break-word;
-  border-left: 3px solid rgba(94, 234, 212, 0.6);
 }
 .cmd-ui-stack {
   display: grid;
-  gap: 8px;
-  max-width: min(100%, 620px);
+  gap: 10px;
+  max-width: min(100%, 680px);
 }
-
 .cmd-caret {
   display: inline-block;
   width: 6px;
   height: 15px;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: rgba(94, 234, 212, 0.9);
+  background: color-mix(in srgb, var(--cmd-tone) 90%, white);
   border-radius: 1px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--cmd-tone) 45%, transparent);
   animation: cmd-blink 1s steps(2, start) infinite;
 }
-@keyframes cmd-blink {
-  50% { opacity: 0; }
-}
-
+@keyframes cmd-blink { 50% { opacity: 0; } }
 .cmd-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(94, 234, 212, 0.75);
+  background: color-mix(in srgb, var(--cmd-tone) 82%, white);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--cmd-tone) 45%, transparent);
   animation: cmd-bounce 1.2s infinite ease-in-out;
 }
 @keyframes cmd-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
-
-/* ============ 输入框聚焦视觉 ============ */
-.cmd-input-wrapper {
-  transition: background 0.2s, box-shadow 0.2s;
-}
-.cmd-input-wrapper:focus-within {
-  background: rgba(45, 212, 191, 0.04);
-  box-shadow:
-    inset 0 1px 0 rgba(45, 212, 191, 0.15),
-    inset 0 -1px 0 rgba(45, 212, 191, 0.1),
-    0 0 16px rgba(45, 212, 191, 0.15);
-}
-.cmd-input-wrapper:focus-within .cmd-avatar {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 0 12px rgba(45, 212, 191, 0.5);
-}
-.cmd-input {
-  transition: background 0.2s, height 0.15s ease-out;
-  resize: none;
-  overflow-y: auto;
-}
-.cmd-input:focus {
-  background: transparent;
-}
-/* 输入框滚动条美化 */
-.cmd-input::-webkit-scrollbar {
-  width: 4px;
-}
-.cmd-input::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-.cmd-input::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.35);
-}
-/* 头像呼吸灯（有内容时） */
-.cmd-avatar.has-content {
-  animation: avatar-glow 2s ease-in-out infinite;
-}
-@keyframes avatar-glow {
-  0%, 100% {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px -2px rgba(20, 184, 166, 0.5);
-  }
-  50% {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 16px rgba(45, 212, 191, 0.6);
-  }
-}
-
-/* ============ 工具活动卡 ============ */
 .cmd-activity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px 7px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  background: rgba(45, 212, 191, 0.06);
-  border: 1px solid rgba(45, 212, 191, 0.18);
+  --tool-tone: var(--cmd-tone);
   position: relative;
+  display: block;
   overflow: hidden;
-  border-left: 3px solid rgba(45, 212, 191, 0.5);
+  padding: 9px 12px 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--tool-tone) 22%, rgba(148, 163, 184, 0.12));
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--tool-tone) 16%, transparent), transparent 48px),
+    linear-gradient(180deg, color-mix(in srgb, var(--tool-tone) 6%, rgba(15, 23, 42, 0.55)), rgba(2, 6, 23, 0.28));
+  font-size: 12px;
+}
+.cmd-activity::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--tool-tone), transparent);
+  opacity: 0.7;
 }
 .cmd-activity::after {
-  content: '';
   position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(110deg, rgba(0,0,0,0.46), transparent 66%);
 }
-.cmd-activity.running::after {
-  left: 100%;
-  animation: activity-sweep 1.5s ease-in-out infinite;
+.cmd-activity > * { position: relative; z-index: 1; }
+.cmd-activity.running {
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--tool-tone) 10%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.055);
 }
-@keyframes activity-sweep {
-  0% { left: -100%; }
-  100% { left: 100%; }
+.cmd-activity.running::before { animation: activity-pulse 1.4s ease-in-out infinite; }
+@keyframes activity-pulse {
+  0%, 100% { opacity: 0.42; filter: saturate(1); }
+  50% { opacity: 1; filter: saturate(1.4); }
 }
-.cmd-activity.is-error {
-  background: rgba(244, 63, 94, 0.07);
-  border-color: rgba(244, 63, 94, 0.2);
-  border-left-color: rgba(244, 63, 94, 0.5);
-}
-.cmd-activity.is-pending {
-  display: block;
-  background: rgba(251, 191, 36, 0.08);
-  border-color: rgba(251, 191, 36, 0.24);
-  border-left-color: rgba(251, 191, 36, 0.62);
-}
+.cmd-activity.is-error { --tool-tone: #fb7185; }
+.cmd-activity.is-pending { --tool-tone: #fbbf24; }
+.cmd-activity.tool-weather { --tool-tone: #38bdf8; }
+.cmd-activity.tool-task { --tool-tone: #34d399; }
+.cmd-activity.tool-bug { --tool-tone: #fb7185; }
+.cmd-activity.tool-kb { --tool-tone: #fbbf24; }
+.cmd-activity.tool-local { --tool-tone: #2dd4bf; }
 .cmd-approval {
-  margin-top: 9px;
-  padding: 10px;
-  border-radius: 9px;
-  background: rgba(2, 6, 23, 0.34);
-  border: 1px solid rgba(251, 191, 36, 0.18);
+  position: relative;
+  margin-top: 10px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 18px 14px, rgba(251, 191, 36, 0.14), transparent 70px),
+    rgba(2, 6, 23, 0.38);
 }
-.cmd-approval-head {
+.cmd-approval-head,
+.cmd-approval-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
 }
 .cmd-approval-head strong {
+  color: rgba(248, 250, 252, 0.92);
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.9);
+  font-weight: 850;
 }
 .cmd-approval-kicker {
   flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 650;
+  padding: 2px 7px;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.1);
   color: #fde68a;
-  background: rgba(251, 191, 36, 0.14);
+  font: 850 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .cmd-approval-desc,
 .cmd-approval-risk {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   font-size: 11.5px;
   line-height: 1.55;
 }
-.cmd-approval-desc {
-  color: rgba(255, 255, 255, 0.66);
-}
-.cmd-approval-risk {
-  color: rgba(253, 230, 138, 0.86);
-}
+.cmd-approval-desc { color: rgba(226, 232, 240, 0.66); }
+.cmd-approval-risk { color: rgba(253, 230, 138, 0.86); }
 .cmd-approval-args {
-  margin-top: 8px;
+  margin-top: 9px;
+  color: rgba(226, 232, 240, 0.44);
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.42);
 }
 .cmd-approval-args summary {
-  cursor: pointer;
   width: fit-content;
+  cursor: pointer;
 }
-.cmd-approval-args pre {
-  margin: 6px 0 0;
-  padding: 8px;
-  max-height: 140px;
+.cmd-approval-args pre,
+.cmd-activity pre {
+  margin: 7px 0 0;
+  max-height: 160px;
   overflow: auto;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.28);
-  color: rgba(255, 255, 255, 0.68);
+  padding: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.56);
+  color: rgba(226, 232, 240, 0.7);
   white-space: pre-wrap;
   word-break: break-all;
 }
 .cmd-approval-actions {
-  display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
+  margin-top: 11px;
 }
 .cmd-approval-btn {
-  height: 27px;
-  padding: 0 11px;
-  border-radius: 7px;
+  height: 31px;
+  padding: 0 12px;
+  border-radius: 9px;
   font-size: 11.5px;
-  font-weight: 600;
-  transition: background 0.15s, color 0.15s, opacity 0.15s;
+  font-weight: 800;
+  transition: transform 0.15s, filter 0.15s, opacity 0.15s;
 }
+.cmd-approval-btn:hover:not(:disabled) { transform: translateY(-1px); }
 .cmd-approval-btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
+  opacity: 0.5;
 }
 .cmd-approval-btn.is-cancel {
-  color: rgba(255, 255, 255, 0.58);
-  background: rgba(255, 255, 255, 0.07);
-}
-.cmd-approval-btn.is-cancel:hover:not(:disabled) {
-  color: rgba(255, 255, 255, 0.86);
-  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.055);
+  color: rgba(226, 232, 240, 0.66);
 }
 .cmd-approval-btn.is-confirm {
-  color: #fff7ed;
-  background: rgba(245, 158, 11, 0.72);
+  background: #fbbf24;
+  color: #281705;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.22);
 }
-.cmd-approval-btn.is-confirm:hover:not(:disabled) {
-  background: rgba(245, 158, 11, 0.9);
-}
-/* 工具类型色标 + 左侧色条强化 */
-.cmd-activity.tool-weather {
-  background: rgba(56, 189, 248, 0.1);
-  border-color: rgba(56, 189, 248, 0.3);
-  border-left-color: rgba(56, 189, 248, 0.6);
-}
-.cmd-activity.tool-weather :deep(.animate-spin) {
-  color: rgba(125, 211, 252, 0.9) !important;
-}
-.cmd-activity.tool-task {
-  background: rgba(52, 211, 153, 0.1);
-  border-color: rgba(52, 211, 153, 0.3);
-  border-left-color: rgba(52, 211, 153, 0.6);
-}
-.cmd-activity.tool-task :deep(.animate-spin) {
-  color: rgba(110, 231, 183, 0.9) !important;
-}
-.cmd-activity.tool-bug {
-  background: rgba(251, 113, 133, 0.1);
-  border-color: rgba(251, 113, 133, 0.3);
-  border-left-color: rgba(251, 113, 133, 0.6);
-}
-.cmd-activity.tool-bug :deep(.animate-spin) {
-  color: rgba(251, 113, 133, 0.9) !important;
-}
-.cmd-activity.tool-kb {
-  background: rgba(251, 191, 36, 0.1);
-  border-color: rgba(251, 191, 36, 0.3);
-  border-left-color: rgba(251, 191, 36, 0.6);
-}
-.cmd-activity.tool-kb :deep(.animate-spin) {
-  color: rgba(252, 211, 77, 0.9) !important;
-}
-.cmd-activity.tool-local {
-  background: rgba(94, 234, 212, 0.1);
-  border-color: rgba(94, 234, 212, 0.3);
-  border-left-color: rgba(94, 234, 212, 0.6);
-}
-.cmd-activity.tool-local :deep(.animate-spin) {
-  color: rgba(94, 234, 212, 0.9) !important;
-}
-.cmd-activity.is-pending {
-  background: rgba(251, 191, 36, 0.08);
-  border-color: rgba(251, 191, 36, 0.24);
-  border-left-color: rgba(251, 191, 36, 0.62);
-}
-
-/* ============ 消息操作 ============ */
 .cmd-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin-top: 7px;
+  gap: 3px;
+  margin-top: 8px;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.cmd-bubble-ai:hover .cmd-actions {
-  opacity: 1;
-}
+.cmd-bubble-ai:hover .cmd-actions,
+.cmd-bubble-ai:focus-within .cmd-actions { opacity: 1; }
 .cmd-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 25px;
-  height: 25px;
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.4);
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.42);
   transition: background 0.15s, color 0.15s;
 }
-.cmd-action:hover {
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(255, 255, 255, 0.1);
+.cmd-action:hover,
+.cmd-action:focus-visible {
+  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.1);
+  outline: 0;
 }
-.cmd-quality-tag {
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: rgba(199, 210, 254, 0.76);
-  background: rgba(129, 140, 248, 0.1);
-  border: 1px solid rgba(165, 180, 252, 0.14);
-}
-.cmd-quality-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  color: rgba(255, 255, 255, 0.25);
-}
+.cmd-quality-tag,
 .cmd-quality-pill {
   display: inline-flex;
   align-items: center;
-  max-width: 84px;
-  padding: 1px 6px;
   border-radius: 999px;
-  color: rgba(253, 230, 138, 0.72);
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.12);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 750;
 }
-
-/* ============ 推荐问题 ============ */
-.cmd-suggestion {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 11px;
-  font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.16s;
+.cmd-quality-tag {
+  height: 23px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--cmd-tone-2) 20%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone-2) 9%, transparent);
+  color: rgba(199, 210, 254, 0.78);
 }
-.cmd-suggestion:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(94, 234, 212, 0.35);
-}
-
-/* ============ 能力标签 ============ */
 .ability-tag {
+  --tag-tone: var(--cmd-tone);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--tag-tone) 26%, rgba(255,255,255,0.1));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tag-tone) 8%, rgba(255,255,255,0.04));
+  color: rgba(255,255,255,0.76);
+  font-weight: 750;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.ability-tag:hover {
+.ability-tag:hover,
+.ability-tag:focus-visible {
   transform: translateY(-1px);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  border-color: color-mix(in srgb, var(--tag-tone) 48%, transparent);
+  background: color-mix(in srgb, var(--tag-tone) 14%, rgba(255,255,255,0.05));
+  color: white;
+  outline: 0;
 }
-.ability-tag.tag-weather {
-  border-color: rgba(56, 189, 248, 0.3);
-}
-.ability-tag.tag-weather:hover {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.5);
-}
-.ability-tag.tag-task {
-  border-color: rgba(52, 211, 153, 0.3);
-}
-.ability-tag.tag-task:hover {
-  background: rgba(52, 211, 153, 0.15);
-  border-color: rgba(52, 211, 153, 0.5);
-}
-.ability-tag.tag-bug {
-  border-color: rgba(251, 113, 133, 0.3);
-}
-.ability-tag.tag-bug:hover {
-  background: rgba(251, 113, 133, 0.15);
-  border-color: rgba(251, 113, 133, 0.5);
-}
-.ability-tag.tag-kb {
-  border-color: rgba(251, 191, 36, 0.3);
-}
-.ability-tag.tag-kb:hover {
-  background: rgba(251, 191, 36, 0.15);
-  border-color: rgba(251, 191, 36, 0.5);
-}
-.ability-tag.tag-local {
-  border-color: rgba(94, 234, 212, 0.3);
-}
-.ability-tag.tag-local:hover {
-  background: rgba(94, 234, 212, 0.15);
-  border-color: rgba(94, 234, 212, 0.5);
-}
-
-/* ============ 输入联想过渡动画 ============ */
-.autocomplete-fade-enter-active,
-.autocomplete-fade-leave-active {
-  transition: opacity 0.15s ease;
-}
-.autocomplete-fade-enter-from,
-.autocomplete-fade-leave-to {
-  opacity: 0;
-}
-
-/* ============ 键帽 ============ */
-.cmd-kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* 滚动条 */
-.cmd-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-}
-.cmd-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.cmd-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
-
-/* ============ 进出场动画 ============ */
-.cmd-fade-enter-active,
-.cmd-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.cmd-fade-enter-from,
-.cmd-fade-leave-to {
-  opacity: 0;
-}
-.cmd-pop-enter-active {
-  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.cmd-pop-leave-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-.cmd-pop-enter-from {
-  opacity: 0;
-  transform: translateY(-12px) scale(0.96);
-}
-.cmd-pop-leave-to {
-  opacity: 0;
-  transform: translateY(-8px) scale(0.98);
-}
-
-/* ============ 拖拽缩放句柄 ============ */
-.resize-handle {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.35;
-  transition: opacity 0.2s;
-  border-bottom-right-radius: 17px;
-}
-.resize-handle:hover {
-  opacity: 0.8;
-  background: rgba(255, 255, 255, 0.05);
-}
-.resize-icon {
-  width: 10px;
-  height: 10px;
-  fill: rgba(255, 255, 255, 0.5);
-}
-.resize-handle:hover .resize-icon {
-  fill: rgba(94, 234, 212, 0.9);
-}
-
-/* 拖拽中禁用文本选择 */
-.is-resizing,
-.is-resizing * {
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: se-resize !important;
-}
-
-/* 引用预览过渡动画 */
-.quote-fade-enter-active,
-.quote-fade-leave-active {
-  transition: all 0.2s ease;
-  max-height: 60px;
-}
-.quote-fade-enter-from,
-.quote-fade-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-/* 工具活动卡展开过渡 */
-.activity-expand-enter-active,
-.activity-expand-leave-active {
-  transition: all 0.25s ease;
-  overflow: hidden;
-}
-.activity-expand-enter-from,
-.activity-expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-  margin-top: 0;
-  padding-top: 0;
-}
-.activity-expand-enter-to,
-.activity-expand-leave-from {
-  max-height: 220px;
-}
-
-/* 活动卡展开状态样式 */
-.cmd-activity.is-expanded {
-  border-radius: 12px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cmd-accent,
-  .cmd-dot,
-  .cmd-caret,
-  .cmd-fade-enter-active,
-  .cmd-fade-leave-active,
-  .cmd-pop-enter-active,
-  .cmd-pop-leave-active,
-  .quote-fade-enter-active,
-  .quote-fade-leave-active,
-  .content-fade-enter-active,
-  .content-fade-leave-active { animation: none; transition: none; }
-}
-
-/* ===== Markdown 正文样式（v-html 注入，需 :deep 命中）===== */
-.cmd-md { line-height: 1.65; position: relative; }
-/* 流式中的纯文本渲染（未走 markdown 解析，保留换行与空白） */
-.cmd-md-raw { white-space: pre-wrap; word-break: break-word; }
-
-.cmd-md :deep(> span > :first-child) { margin-top: 0; }
-.cmd-md :deep(> span > :last-child) { margin-bottom: 0; }
-.cmd-md :deep(p) { margin: 0.45em 0; }
-.cmd-md :deep(h1),
-.cmd-md :deep(h2),
-.cmd-md :deep(h3),
-.cmd-md :deep(h4) { margin: 0.7em 0 0.35em; font-weight: 600; line-height: 1.3; color: rgba(255,255,255,0.96); }
-.cmd-md :deep(h1) { font-size: 1.18em; }
-.cmd-md :deep(h2) { font-size: 1.1em; }
-.cmd-md :deep(h3) { font-size: 1.04em; }
-.cmd-md :deep(ul),
-.cmd-md :deep(ol) { margin: 0.45em 0; padding-left: 1.4em; }
-.cmd-md :deep(ul) { list-style: disc; }
-.cmd-md :deep(ol) { list-style: decimal; }
-.cmd-md :deep(li) { margin: 0.24em 0; }
-.cmd-md :deep(li::marker) { color: rgba(94, 234, 212, 0.7); }
-.cmd-md :deep(a) { color: rgb(125 211 252); text-decoration: underline; text-underline-offset: 2px; }
-.cmd-md :deep(strong) { font-weight: 600; color: rgba(255, 255, 255, 0.98); }
-.cmd-md :deep(em) { font-style: italic; }
-.cmd-md :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.86em; padding: 0.1em 0.36em; border-radius: 4px;
-  background: rgba(255, 255, 255, 0.09); color: rgb(94 234 212);
-}
-
-/* 代码块样式 */
-.cmd-md :deep(.code-block-wrapper) {
+.ability-tag.tag-weather { --tag-tone: #38bdf8; }
+.ability-tag.tag-task { --tag-tone: #34d399; }
+.ability-tag.tag-bug { --tag-tone: #fb7185; }
+.ability-tag.tag-kb { --tag-tone: #fbbf24; }
+.ability-tag.tag-local { --tag-tone: #2dd4bf; }
+.cmd-suggestion {
   position: relative;
-  margin: 0.55em 0;
-}
-.cmd-md :deep(.code-block-header) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
+  overflow: hidden;
+  padding: 11px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.018)),
+    rgba(2, 6, 23, 0.3);
+  color: rgba(255,255,255,0.8);
+  font-size: 13.5px;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.cmd-md :deep(.code-lang) {
-  color: rgb(94 234 212);
-  font-weight: 500;
+.cmd-suggestion::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--cmd-tone), transparent);
+  opacity: 0;
 }
-.cmd-md :deep(.code-line-count) {
-  opacity: 0.5;
-  font-size: 11px;
+.cmd-suggestion:hover,
+.cmd-suggestion:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--cmd-tone) 34%, transparent);
+  background:
+    radial-gradient(circle at 14px 12px, color-mix(in srgb, var(--cmd-tone) 12%, transparent), transparent 42px),
+    rgba(15, 23, 42, 0.46);
+  color: #fff;
+  outline: 0;
 }
-.cmd-md :deep(.code-copy-btn) {
-  margin-left: auto;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
+.cmd-suggestion:hover::before,
+.cmd-suggestion:focus-visible::before { opacity: 0.8; }
+.quote-preview,
+.cmd-pending-bar,
+.cmd-input-wrapper,
+.cmd-footer {
+  border-top: 1px solid var(--cmd-border);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.52), rgba(2, 6, 23, 0.34));
 }
-.cmd-md :deep(.code-copy-btn:hover) {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(94, 234, 212, 0.2);
+.quote-preview {
+  border-left: 3px solid color-mix(in srgb, var(--cmd-tone) 70%, transparent);
 }
-.cmd-md :deep(.code-copy-btn.copied) {
-  color: rgb(74 222 128);
-  background: rgba(74, 222, 128, 0.15);
-}
-
-.cmd-md :deep(pre) {
-  margin: 0; padding: 0.7em 0.9em; border-radius: 0 0 10px 10px;
-  background: rgba(0, 0, 0, 0.4); overflow-x: auto;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-top: none;
-}
-.cmd-md :deep(pre code) { display: block; padding: 0; background: transparent; color: rgba(255, 255, 255, 0.86); white-space: pre; }
-
-.cmd-md :deep(blockquote) {
-  margin: 0.55em 0; padding: 0.2em 0.9em;
-  border-left: 3px solid rgba(94, 234, 212, 0.45); color: rgba(255, 255, 255, 0.72);
-}
-.cmd-md :deep(hr) { margin: 0.75em 0; border: none; border-top: 1px solid rgba(255, 255, 255, 0.12); }
-.cmd-md :deep(table) { margin: 0.55em 0; border-collapse: collapse; font-size: 0.92em; width: 100%; border-radius: 8px; overflow: hidden; }
-.cmd-md :deep(th),
-.cmd-md :deep(td) { border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.4em 0.7em; text-align: left; }
-.cmd-md :deep(th) {
-  background: rgba(94, 234, 212, 0.15);
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.95);
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-/* 表格斑马纹 */
-.cmd-md :deep(tr:nth-child(even)) {
-  background: rgba(255, 255, 255, 0.03);
-}
-.cmd-md :deep(tr:nth-child(odd)) {
-  background: rgba(255, 255, 255, 0.01);
-}
-.cmd-md :deep(tr:hover) {
-  background: rgba(94, 234, 212, 0.08);
-}
-
-/* ============ 用户消息里的图片 ============ */
-.cmd-user-images {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.cmd-user-img {
-  max-width: 180px;
-  max-height: 180px;
-  border-radius: 8px;
-  object-fit: contain;
-  cursor: zoom-in;
-  background: rgba(0, 0, 0, 0.2);
-}
-/* 气泡里只有图、没有文字时，去掉底部多余间距 */
-.cmd-bubble-user .cmd-user-images:last-child {
-  margin-bottom: 0;
-}
-
-/* ============ 待发送图片预览条 ============ */
 .cmd-pending-bar {
-  background: rgba(45, 212, 191, 0.04);
-}
-.cmd-input-wrapper.is-drag-img {
-  background: rgba(45, 212, 191, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.5);
+  min-height: 68px;
 }
 .cmd-pending-thumb {
   position: relative;
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
+  width: 54px;
+  height: 54px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.24);
 }
 .cmd-pending-thumb img {
   width: 100%;
@@ -1988,14 +1748,361 @@ onUnmounted(() => {
 }
 .cmd-pending-x {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  color: rgba(255, 255, 255, 0.9);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,0.9);
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.65));
   opacity: 0;
   transition: opacity 0.15s;
 }
-.cmd-pending-thumb:hover .cmd-pending-x {
-  opacity: 1;
+.cmd-pending-thumb:hover .cmd-pending-x { opacity: 1; }
+.cmd-input-wrapper {
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.cmd-input-wrapper:focus-within {
+  background: color-mix(in srgb, var(--cmd-tone) 5%, rgba(2, 6, 23, 0.44));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cmd-tone) 16%, transparent),
+    0 0 18px color-mix(in srgb, var(--cmd-tone) 14%, transparent);
+}
+.cmd-input-wrapper.is-drag-img {
+  background: color-mix(in srgb, var(--cmd-tone) 10%, rgba(2, 6, 23, 0.5));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cmd-tone) 55%, transparent);
+}
+.cmd-input {
+  resize: none;
+  overflow-y: auto;
+  transition: height 0.15s ease-out;
+}
+.cmd-input:focus { background: transparent; }
+.cmd-avatar.has-content {
+  animation: avatar-glow 2s ease-in-out infinite;
+}
+@keyframes avatar-glow {
+  0%, 100% { box-shadow: 0 0 18px color-mix(in srgb, var(--cmd-tone) 18%, transparent), inset 0 1px 0 rgba(255,255,255,0.1); }
+  50% { box-shadow: 0 0 28px color-mix(in srgb, var(--cmd-tone) 34%, transparent), inset 0 1px 0 rgba(255,255,255,0.16); }
+}
+.cmd-send {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 30% 0, rgba(255,255,255,0.32), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 92%, white 5%), var(--cmd-tone));
+  color: #03131a;
+  box-shadow:
+    0 10px 26px color-mix(in srgb, var(--cmd-tone) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.24);
+  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+.cmd-send:hover:not(:disabled),
+.cmd-send:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  outline: 0;
+}
+.cmd-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.34;
+  filter: none;
+  background: rgba(255,255,255,0.1);
+  box-shadow: none;
+}
+.cmd-send.is-stop {
+  background: linear-gradient(180deg, rgba(251,113,133,0.95), rgba(225,29,72,0.9));
+  color: white;
+  box-shadow: 0 10px 26px rgba(244,63,94,0.22), inset 0 1px 0 rgba(255,255,255,0.18);
+}
+.cmd-footer {
+  display: flex;
+  min-height: 38px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  color: rgba(226, 232, 240, 0.34);
+  font-size: 11px;
+}
+.cmd-footer-left,
+.cmd-feedback-counts,
+.cmd-feedback-counts span,
+.cmd-quality-summary,
+.cmd-shortcuts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cmd-footer-left svg { color: color-mix(in srgb, var(--cmd-tone) 70%, transparent); }
+.cmd-feedback-counts { color: rgba(255,255,255,0.3); }
+.cmd-feedback-counts span:first-child svg { color: rgba(52,211,153,0.58); }
+.cmd-feedback-counts span:last-child svg { color: rgba(251,113,133,0.58); }
+.cmd-quality-summary {
+  color: rgba(255,255,255,0.28);
+}
+.cmd-quality-pill {
+  max-width: 84px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid rgba(251, 191, 36, 0.12);
+  background: rgba(251, 191, 36, 0.08);
+  color: rgba(253, 230, 138, 0.72);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-shortcuts {
+  margin-left: auto;
+  gap: 10px;
+  white-space: nowrap;
+}
+.cmd-kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.52);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+.resize-handle {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-bottom-right-radius: 14px;
+  opacity: 0.35;
+  transition: opacity 0.2s, background 0.2s;
+}
+.resize-handle:hover {
+  background: rgba(255,255,255,0.05);
+  opacity: 0.85;
+}
+.resize-icon {
+  width: 10px;
+  height: 10px;
+  fill: rgba(255,255,255,0.5);
+}
+.resize-handle:hover .resize-icon { fill: color-mix(in srgb, var(--cmd-tone) 86%, white); }
+.is-resizing,
+.is-resizing * {
+  cursor: se-resize !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cmd-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+.cmd-user-img {
+  max-width: 180px;
+  max-height: 180px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.22);
+  cursor: zoom-in;
+  object-fit: contain;
+}
+.cmd-bubble-user .cmd-user-images:last-child { margin-bottom: 0; }
+.content-fade-enter-active,
+.content-fade-leave-active,
+.quote-fade-enter-active,
+.quote-fade-leave-active,
+.activity-expand-enter-active,
+.activity-expand-leave-active,
+.autocomplete-fade-enter-active,
+.autocomplete-fade-leave-active {
+  transition: all 0.2s ease;
+}
+.content-fade-enter-from,
+.content-fade-leave-to,
+.quote-fade-enter-from,
+.quote-fade-leave-to,
+.activity-expand-enter-from,
+.activity-expand-leave-to,
+.autocomplete-fade-enter-from,
+.autocomplete-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.activity-expand-enter-active,
+.activity-expand-leave-active { overflow: hidden; }
+.activity-expand-enter-from,
+.activity-expand-leave-to {
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.activity-expand-enter-to,
+.activity-expand-leave-from { max-height: 220px; }
+.cmd-fade-enter-active,
+.cmd-fade-leave-active { transition: opacity 0.2s ease; }
+.cmd-fade-enter-from,
+.cmd-fade-leave-to { opacity: 0; }
+.cmd-pop-enter-active { transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+.cmd-pop-leave-active { transition: opacity 0.16s ease, transform 0.16s ease; }
+.cmd-pop-enter-from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+.cmd-pop-leave-to { opacity: 0; transform: translateY(-8px) scale(0.98); }
+.cmd-md { line-height: 1.65; position: relative; }
+.cmd-md-raw { white-space: pre-wrap; word-break: break-word; }
+.cmd-md :deep(> span > :first-child) { margin-top: 0; }
+.cmd-md :deep(> span > :last-child) { margin-bottom: 0; }
+.cmd-md :deep(p) { margin: 0.45em 0; }
+.cmd-md :deep(h1),
+.cmd-md :deep(h2),
+.cmd-md :deep(h3),
+.cmd-md :deep(h4) {
+  margin: 0.7em 0 0.35em;
+  color: rgba(255,255,255,0.96);
+  font-weight: 700;
+  line-height: 1.3;
+}
+.cmd-md :deep(h1) { font-size: 1.18em; }
+.cmd-md :deep(h2) { font-size: 1.1em; }
+.cmd-md :deep(h3) { font-size: 1.04em; }
+.cmd-md :deep(ul),
+.cmd-md :deep(ol) { margin: 0.45em 0; padding-left: 1.4em; }
+.cmd-md :deep(ul) { list-style: disc; }
+.cmd-md :deep(ol) { list-style: decimal; }
+.cmd-md :deep(li) { margin: 0.24em 0; }
+.cmd-md :deep(li::marker) { color: color-mix(in srgb, var(--cmd-tone) 72%, transparent); }
+.cmd-md :deep(a) { color: rgb(125 211 252); text-decoration: underline; text-underline-offset: 2px; }
+.cmd-md :deep(strong) { color: rgba(255,255,255,0.98); font-weight: 700; }
+.cmd-md :deep(em) { font-style: italic; }
+.cmd-md :deep(code) {
+  padding: 0.1em 0.36em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cmd-tone) 10%, rgba(255,255,255,0.07));
+  color: color-mix(in srgb, var(--cmd-tone) 82%, white);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+}
+.cmd-md :deep(.code-block-wrapper) {
+  position: relative;
+  margin: 0.65em 0;
+}
+.cmd-md :deep(.code-block-header) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: rgba(2, 6, 23, 0.5);
+  color: rgba(255,255,255,0.52);
+  font-size: 12px;
+}
+.cmd-md :deep(.code-lang) {
+  color: color-mix(in srgb, var(--cmd-tone) 84%, white);
+  font-weight: 700;
+}
+.cmd-md :deep(.code-line-count) { opacity: 0.5; font-size: 11px; }
+.cmd-md :deep(.code-copy-btn) {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.62);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+.cmd-md :deep(.code-copy-btn:hover) {
+  background: color-mix(in srgb, var(--cmd-tone) 16%, transparent);
+  color: rgba(255,255,255,0.92);
+}
+.cmd-md :deep(.code-copy-btn.copied) {
+  background: rgba(74,222,128,0.15);
+  color: rgb(74 222 128);
+}
+.cmd-md :deep(pre) {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.75em 0.9em;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: rgba(0,0,0,0.42);
+}
+.cmd-md :deep(pre code) {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: rgba(255,255,255,0.86);
+  white-space: pre;
+}
+.cmd-md :deep(blockquote) {
+  margin: 0.55em 0;
+  padding: 0.25em 0.9em;
+  border-left: 3px solid color-mix(in srgb, var(--cmd-tone) 48%, transparent);
+  color: rgba(255,255,255,0.72);
+}
+.cmd-md :deep(hr) { margin: 0.75em 0; border: none; border-top: 1px solid rgba(255,255,255,0.12); }
+.cmd-md :deep(table) {
+  width: 100%;
+  margin: 0.6em 0;
+  overflow: hidden;
+  border-collapse: collapse;
+  border-radius: 9px;
+  font-size: 0.92em;
+}
+.cmd-md :deep(th),
+.cmd-md :deep(td) {
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 0.45em 0.7em;
+  text-align: left;
+}
+.cmd-md :deep(th) {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: color-mix(in srgb, var(--cmd-tone) 15%, rgba(2,6,23,0.6));
+  color: rgba(255,255,255,0.95);
+  font-weight: 700;
+}
+.cmd-md :deep(tr:nth-child(even)) { background: rgba(255,255,255,0.03); }
+.cmd-md :deep(tr:nth-child(odd)) { background: rgba(255,255,255,0.01); }
+.cmd-md :deep(tr:hover) { background: color-mix(in srgb, var(--cmd-tone) 8%, transparent); }
+@media (max-width: 760px) {
+  .cmd-shell { padding: 14px 10px; }
+  .cmd-header { padding: 16px; flex-wrap: wrap; }
+  .cmd-header-actions { width: 100%; justify-content: space-between; }
+  .cmd-subtitle { white-space: normal; }
+  .cmd-shortcuts { display: none; }
+  .cmd-footer { flex-wrap: wrap; min-height: auto; padding: 9px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmd-accent,
+  .cmd-dot,
+  .cmd-caret,
+  .cmd-avatar.has-content,
+  .cmd-activity.running::before,
+  .cmd-fade-enter-active,
+  .cmd-fade-leave-active,
+  .cmd-pop-enter-active,
+  .cmd-pop-leave-active,
+  .quote-fade-enter-active,
+  .quote-fade-leave-active,
+  .content-fade-enter-active,
+  .content-fade-leave-active,
+  .activity-expand-enter-active,
+  .activity-expand-leave-active,
+  .autocomplete-fade-enter-active,
+  .autocomplete-fade-leave-active {
+    animation: none;
+    transition: none;
+  }
+  .cmd-suggestion:hover,
+  .ability-tag:hover,
+  .cmd-send:hover:not(:disabled) { transform: none; }
 }
 </style>

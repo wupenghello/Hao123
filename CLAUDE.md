@@ -126,13 +126,28 @@ App.vue (router-view)
 
 **仅 dev 生效**；是否把 wbscf 工具暴露给模型由 `chat/tools.ts` 的 `wbscfEnabled`（dev 且配了 `VITE_WBSCF_WEB_ROOT`）门控（对齐 `kbEnabled` 约定）——生产或未配置时不暴露工具、system prompt 也不宣称该能力。**环境变量：** `.env` 配 `VITE_WBSCF_WEB_ROOT`（wbscf-web 根目录，Windows 用正斜杠）+ 可选 `VITE_WBSCF_PKG_MGR`；改动后需重启 dev。未配置时入口隐藏，dev/test/pre 不受影响。`StatusNav.vue` 的 `navItems` 前 5 项带 `local`（app key）即自动渲染该入口。
 
+### 大模型设置模块（`src/features/model-config/`，自包含特性模块）
+
+页面内管理小吴使用的 OpenAI-compatible 大模型线路（Provider / API Key / Base URL / 模型列表），外部统一从 `@/features/model-config` 引入；`src/features/chat/model-config.ts` 仅保留兼容 barrel，状态栏旧路径 `src/components/status/ModelConfigModal.vue` 仅保留 wrapper：
+
+| 路径 | 职责 |
+|---|---|
+| `types.ts` | `ProviderConfig` / `ModelEntry` / `ActiveLlmConfig` / 预设与连通性测试类型 |
+| `presets.ts` | 常见 OpenAI-compatible Provider 预设（DeepSeek / OpenAI / 通义 / Moonshot / GLM / 硅基流动 / 豆包），带 Base URL、常用模型与使用建议 |
+| `store.ts` | 模块级响应式状态 + localStorage（`hao123-llm-config`）持久化；多 Provider / 多模型 CRUD、激活线路、导入导出、测试结果记录、给 LLM 层读取 `getActiveConfig` / `getClientAuthBody` |
+| `connection-test.ts` | 经 dev 代理 `/deepseek/chat/completions` 发最小 ping 测试连接，避免浏览器 CORS；请求体携带 `api_key` / `base_url`，代理剥离后转发 |
+| `ui.ts` | API Key 脱敏、当前模型名、测试时间与 Provider 健康状态文案 |
+| `components/ModelConfigModal.vue` | 「模型线路控制台」弹窗：左侧保存线路和状态，右侧预设 Provider、Key/Base URL、模型编排、连接测试、导入导出 |
+
+API Key 明文存在本机 localStorage，仅定位为本地开发工作台；真正请求通过 `vite-plugin-deepseek-fallback.ts` 注入 Authorization 后转发到用户配置的 `base_url`。
+
 ### 聊天助理模块（`src/features/chat/`，自包含特性模块）
 
 小吴——嵌在工作台里的 AI 助理。命令面板形态（`Alt+K` / `⌘K` 召唤），agent 循环 + 工具调用，外部统一从 `@/features/chat` 引入（barrel `index.ts`）：
 
 | 路径 | 职责 |
 |---|---|
-| `config.ts` | 助手身份（`ASSISTANT_NAME`）+ LLM 接入参数（OpenAI 兼容，当前接 DeepSeek，env 驱动；API Key 由 vite 代理注入，客户端不碰密钥，用非敏感开关 `VITE_DEEPSEEK_CONFIGURED` 表达「已配置」） |
+| `config.ts` | 助手身份（`ASSISTANT_NAME`）；LLM 接入参数由 `src/features/model-config` 页面内管理 |
 | `connectivity.ts` | **LLM 连通性状态层**（模块级单例，非 Pinia）：把「连不上大模型」从被动等 7s 重试变成全局可观测 + 自动恢复的状态机（详见下文「连通性」节） |
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
@@ -156,7 +171,7 @@ App.vue (router-view)
 
 **System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
 
-**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需配支持图片的模型**——默认 `deepseek-chat` 不支持视觉，发图会收到模型错误（走错误条提示，不崩）；要用图片功能把 `VITE_DEEPSEEK_MODEL` 换成 VL 模型（如 `qwen-vl-max`、`gpt-4o`）。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
+**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需在模型设置里选择支持图片的模型**——默认 `deepseek-chat` 不支持视觉，发图会收到模型错误（走错误条提示，不崩）；要用图片功能可在模型设置中新增 / 切换 VL 模型（如 `qwen-vl-max`、`gpt-4o`）。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
 
 ### 洞察模块（`src/features/insights/`，自包含特性模块）
 

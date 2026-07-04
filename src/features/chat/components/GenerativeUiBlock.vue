@@ -82,6 +82,8 @@ const icon = computed(() => {
   }
 })
 
+const shellClass = computed(() => [`gui-kind-${block.value.kind}`, toneClass(data.value.tone)])
+
 const metrics = computed(() => records(data.value.metrics).slice(0, 8))
 const items = computed(() => records(data.value.items).slice(0, 12))
 const steps = computed(() => records(data.value.steps).slice(0, 8))
@@ -107,7 +109,7 @@ function cell(row: Rec, key: string): string {
 </script>
 
 <template>
-  <article class="gui-card" :class="`gui-${block.kind}`">
+  <article class="gui-card" :class="shellClass">
     <header class="gui-head">
       <span class="gui-icon">
         <component :is="icon" class="w-4 h-4" />
@@ -234,36 +236,71 @@ function cell(row: Rec, key: string): string {
 
 <style scoped>
 .gui-card {
+  --gui-tone: #38bdf8;
+  --gui-tone-soft: color-mix(in srgb, var(--gui-tone) 13%, transparent);
   position: relative;
   overflow: hidden;
-  border-radius: 8px;
-  padding: 12px;
-  color: rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  padding: 13px;
+  color: rgba(248, 250, 252, 0.9);
   background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.72)),
-    rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    radial-gradient(circle at 18px 18px, var(--gui-tone-soft), transparent 72px),
+    linear-gradient(160deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.7)),
+    rgba(255, 255, 255, 0.035);
+  border: 1px solid color-mix(in srgb, var(--gui-tone) 21%, rgba(148, 163, 184, 0.12));
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .gui-card::before {
   content: '';
   position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.042) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(115deg, rgba(0, 0, 0, 0.46), transparent 64%);
+}
+.gui-card::after {
+  content: '';
+  position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: linear-gradient(180deg, #38bdf8, #2dd4bf);
+  background: linear-gradient(180deg, transparent, var(--gui-tone), transparent);
+  opacity: 0.72;
 }
+.gui-kind-weather-current,
+.gui-kind-weather-forecast { --gui-tone: #38bdf8; }
+.gui-kind-item-list { --gui-tone: #34d399; }
+.gui-kind-data-table,
+.gui-kind-metrics { --gui-tone: #a78bfa; }
+.gui-kind-timeline { --gui-tone: #2dd4bf; }
+.gui-kind-status-grid { --gui-tone: #60a5fa; }
+.gui-kind-source-list { --gui-tone: #fbbf24; }
+.gui-card.tone-ok { --gui-tone: #34d399; }
+.gui-card.tone-warn { --gui-tone: #fbbf24; }
+.gui-card.tone-danger { --gui-tone: #fb7185; }
+.gui-card.tone-muted { --gui-tone: #94a3b8; }
 .gui-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 10px;
+  margin-bottom: 11px;
   min-width: 0;
 }
 .gui-head strong {
   display: block;
+  overflow: hidden;
+  color: rgba(248, 250, 252, 0.96);
   font-size: 13px;
+  font-weight: 800;
   line-height: 1.25;
-  color: rgba(255, 255, 255, 0.96);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gui-head em,
 .gui-muted,
@@ -271,22 +308,33 @@ function cell(row: Rec, key: string): string {
 .gui-status em,
 .gui-source em {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: 11px;
   font-style: normal;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(226, 232, 240, 0.43);
 }
 .gui-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   border-radius: 8px;
-  color: rgb(125, 211, 252);
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(125, 211, 252, 0.18);
+  color: var(--gui-tone);
+  background: color-mix(in srgb, var(--gui-tone) 13%, rgba(255, 255, 255, 0.035));
+  border: 1px solid color-mix(in srgb, var(--gui-tone) 28%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--gui-tone) 16%, transparent);
+}
+.gui-weather-now,
+.gui-forecast,
+.gui-list,
+.gui-sources,
+.gui-timeline,
+.gui-status-grid,
+.gui-table-wrap,
+.gui-summary {
+  position: relative;
+  z-index: 1;
 }
 .gui-weather-now {
   display: grid;
@@ -295,60 +343,64 @@ function cell(row: Rec, key: string): string {
   align-items: center;
 }
 .gui-temp {
-  font-size: 42px;
-  line-height: 0.95;
-  font-weight: 700;
-  color: #fff;
+  font: 850 46px/0.92 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: color-mix(in srgb, var(--gui-tone) 82%, white 14%);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--gui-tone) 18%, transparent);
 }
 .gui-temp span {
   font-size: 18px;
   margin-left: 1px;
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(226, 232, 240, 0.54);
 }
 .gui-weather-text {
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 750;
 }
 .gui-metrics {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 8px;
+}
+.gui-metric,
+.gui-forecast-row,
+.gui-item,
+.gui-status,
+.gui-source {
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.28);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 .gui-metric {
   min-width: 0;
-  padding: 7px 8px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 9px;
 }
 .gui-metric small {
   display: block;
   font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(226, 232, 240, 0.42);
 }
 .gui-metric b {
   display: block;
-  margin-top: 2px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.94);
+  margin-top: 3px;
   overflow: hidden;
+  color: rgba(248, 250, 252, 0.94);
+  font: 800 13px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .gui-forecast {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 .gui-forecast-row {
   display: grid;
   grid-template-columns: minmax(58px, 0.9fr) minmax(76px, 1fr) minmax(64px, 1fr) auto;
   gap: 8px;
   align-items: center;
-  min-height: 34px;
-  padding: 6px 8px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
+  min-height: 36px;
+  padding: 7px 9px;
 }
 .gui-forecast-row span,
 .gui-forecast-row em,
@@ -361,31 +413,36 @@ function cell(row: Rec, key: string): string {
 }
 .gui-forecast-row span,
 .gui-forecast-row small {
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(226, 232, 240, 0.48);
   font-size: 11px;
 }
 .gui-forecast-row strong {
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.94);
+  color: rgba(248, 250, 252, 0.94);
 }
 .gui-forecast-row em {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(226, 232, 240, 0.72);
 }
 .gui-list,
 .gui-sources,
 .gui-timeline {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 .gui-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 8px 9px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
-  border-left: 2px solid rgba(125, 211, 252, 0.55);
+  gap: 9px;
+  padding: 9px 10px;
+  border-color: color-mix(in srgb, var(--gui-tone) 16%, rgba(148, 163, 184, 0.12));
+}
+.gui-item:hover,
+.gui-status:hover,
+.gui-source:hover,
+.gui-forecast-row:hover {
+  background: color-mix(in srgb, var(--gui-tone) 7%, rgba(2, 6, 23, 0.32));
+  border-color: color-mix(in srgb, var(--gui-tone) 27%, transparent);
 }
 .gui-item strong,
 .gui-step strong,
@@ -393,46 +450,46 @@ function cell(row: Rec, key: string): string {
 .gui-section strong {
   display: block;
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.92);
+  font-weight: 750;
+  color: rgba(248, 250, 252, 0.92);
 }
 .gui-item p,
 .gui-step p,
 .gui-source p,
 .gui-summary p {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   font-size: 11.5px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.62);
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.62);
 }
 .gui-badges {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px;
-  max-width: 140px;
+  gap: 5px;
+  max-width: 150px;
 }
 .gui-badges span {
-  height: 20px;
-  padding: 0 6px;
+  height: 21px;
+  padding: 0 7px;
   border-radius: 999px;
   font-size: 10px;
-  line-height: 20px;
-  color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.08);
+  font-weight: 750;
+  line-height: 21px;
+  color: color-mix(in srgb, var(--gui-tone) 70%, white 10%);
+  background: color-mix(in srgb, var(--gui-tone) 9%, rgba(255, 255, 255, 0.045));
+  border: 1px solid color-mix(in srgb, var(--gui-tone) 16%, transparent);
 }
 .gui-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
 }
 .gui-status {
   display: block;
   min-width: 0;
-  padding: 9px;
-  border-radius: 7px;
+  padding: 10px;
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .gui-status strong,
 .gui-status span {
@@ -443,18 +500,19 @@ function cell(row: Rec, key: string): string {
 }
 .gui-status strong {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(248, 250, 252, 0.92);
 }
 .gui-status span {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 650;
+  margin-top: 5px;
+  color: color-mix(in srgb, var(--gui-tone) 72%, white 8%);
+  font: 800 12px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .gui-table-wrap {
   max-width: 100%;
   overflow-x: auto;
-  border-radius: 7px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.13);
+  background: rgba(2, 6, 23, 0.2);
 }
 .gui-table {
   width: 100%;
@@ -463,100 +521,130 @@ function cell(row: Rec, key: string): string {
 }
 .gui-table th,
 .gui-table td {
-  padding: 7px 9px;
+  padding: 8px 10px;
   text-align: left;
   white-space: nowrap;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.11);
 }
 .gui-table th {
-  color: rgba(255, 255, 255, 0.76);
-  background: rgba(255, 255, 255, 0.06);
+  color: color-mix(in srgb, var(--gui-tone) 70%, white 10%);
+  background: color-mix(in srgb, var(--gui-tone) 10%, rgba(2, 6, 23, 0.36));
+  font: 800 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
 }
 .gui-table td {
-  color: rgba(255, 255, 255, 0.64);
+  color: rgba(226, 232, 240, 0.66);
 }
 .gui-step {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 9px;
   padding: 7px 0;
 }
+.gui-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 30px;
+  bottom: -8px;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.16);
+}
 .gui-step-dot {
-  display: inline-flex;
+  display: inline-grid;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.42);
-  background: rgba(255, 255, 255, 0.08);
+  width: 23px;
+  height: 23px;
+  border-radius: 8px;
+  color: rgba(226, 232, 240, 0.38);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .gui-source {
-  padding: 8px 9px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 9px 10px;
 }
 .gui-source small {
   display: inline-flex;
-  margin-top: 6px;
-  font-size: 10px;
-  color: rgba(125, 211, 252, 0.8);
+  margin-top: 7px;
+  color: color-mix(in srgb, var(--gui-tone) 76%, white 8%);
+  font: 800 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .gui-section {
-  margin-top: 10px;
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 .gui-section ul {
-  margin: 5px 0 0;
+  margin: 6px 0 0;
   padding-left: 16px;
 }
 .gui-section li {
-  margin: 2px 0;
+  margin: 3px 0;
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(226, 232, 240, 0.62);
+}
+.gui-section li::marker {
+  color: var(--gui-tone);
 }
 .gui-empty {
   margin: 0;
+  padding: 13px;
+  border-radius: 8px;
+  color: rgba(226, 232, 240, 0.45);
+  background: rgba(2, 6, 23, 0.24);
+  border: 1px dashed rgba(148, 163, 184, 0.16);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
 }
 .tone-ok {
-  border-color: rgba(52, 211, 153, 0.28);
-  border-left-color: rgba(52, 211, 153, 0.74);
+  border-color: color-mix(in srgb, #34d399 30%, rgba(148, 163, 184, 0.12));
 }
-.tone-ok span,
-.tone-ok b {
-  color: rgba(110, 231, 183, 0.95);
+.tone-ok > span,
+.tone-ok > b {
+  color: rgba(110, 231, 183, 0.96);
 }
 .tone-warn {
-  border-color: rgba(251, 191, 36, 0.26);
-  border-left-color: rgba(251, 191, 36, 0.74);
+  border-color: color-mix(in srgb, #fbbf24 28%, rgba(148, 163, 184, 0.12));
 }
-.tone-warn span,
-.tone-warn b {
+.tone-warn > span,
+.tone-warn > b {
   color: rgba(253, 230, 138, 0.94);
 }
 .tone-danger {
-  border-color: rgba(251, 113, 133, 0.26);
-  border-left-color: rgba(251, 113, 133, 0.76);
+  border-color: color-mix(in srgb, #fb7185 30%, rgba(148, 163, 184, 0.12));
 }
-.tone-danger span,
-.tone-danger b {
+.tone-danger > span,
+.tone-danger > b {
   color: rgba(253, 164, 175, 0.96);
 }
 .tone-muted {
-  opacity: 0.72;
-  border-left-color: rgba(148, 163, 184, 0.5);
+  opacity: 0.76;
+  border-color: rgba(148, 163, 184, 0.16);
 }
 .step-done .gui-step-dot {
-  color: rgba(110, 231, 183, 0.92);
-  background: rgba(52, 211, 153, 0.14);
+  color: rgba(110, 231, 183, 0.94);
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.22);
 }
 .step-doing .gui-step-dot {
-  color: rgba(125, 211, 252, 0.95);
-  background: rgba(56, 189, 248, 0.15);
+  color: rgba(125, 211, 252, 0.96);
+  background: rgba(56, 189, 248, 0.13);
+  border-color: rgba(56, 189, 248, 0.24);
 }
 .step-blocked .gui-step-dot {
-  color: rgba(253, 164, 175, 0.95);
-  background: rgba(244, 63, 94, 0.14);
+  color: rgba(253, 164, 175, 0.96);
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.24);
+}
+@media (max-width: 560px) {
+  .gui-forecast-row,
+  .gui-item {
+    grid-template-columns: 1fr;
+  }
+  .gui-badges {
+    justify-content: flex-start;
+    max-width: none;
+  }
 }
 </style>

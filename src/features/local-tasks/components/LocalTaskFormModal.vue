@@ -21,6 +21,7 @@ import IconCloseCircle from '~icons/mdi/close-circle'
 import IconUpload from '~icons/mdi/cloud-upload-outline'
 import IconFile from '~icons/mdi/file-document-outline'
 import IconDownload from '~icons/mdi/download'
+import IconClipboardCheck from '~icons/mdi/clipboard-check-outline'
 
 const props = defineProps<{
   /** 是否打开 */
@@ -232,8 +233,8 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
       enter-from-class="opacity-0"
       leave-to-class="opacity-0"
     >
-      <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" @click="close" />
+      <div v-if="open" class="lt-shell">
+        <div class="lt-backdrop" @click="close" />
 
         <Transition
           appear
@@ -242,30 +243,32 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
           enter-from-class="opacity-0 translate-y-2 scale-[0.98]"
           leave-to-class="opacity-0 translate-y-1 scale-[0.99]"
         >
-          <div
-            class="lt-form-card relative z-10 w-[92vw] max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+          <section
+            class="lt-form-card"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="task ? '编辑本地待办' : '新建本地待办'"
             @click.stop
             @paste="onPaste"
           >
-            <!-- 顶部渐变条（呼应主题） -->
-            <div class="lt-form-accent" />
+            <div class="lt-form-accent" aria-hidden="true" />
 
-            <!-- 头部 -->
-            <div class="px-5 pt-4 pb-3 flex items-center gap-2 flex-shrink-0">
-              <h3 class="text-white/90 text-sm font-medium">
-                {{ task ? '编辑任务' : '新建任务' }}
-              </h3>
-              <button
-                class="ml-auto text-white/40 hover:text-white/80 hover:bg-white/10 rounded-lg p-1.5 transition-colors"
-                title="关闭"
-                @click="close"
-              >
+            <header class="lt-form-head">
+              <div class="lt-brand-mark">
+                <IconClipboardCheck class="w-5 h-5" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="lt-eyebrow">Local Task Route</p>
+                <h3 class="lt-title">{{ task ? '编辑本地待办' : '新建本地待办' }}</h3>
+                <p class="lt-subtitle">标题、优先级、截止日和附件都会保存在本机工作台。</p>
+              </div>
+              <button class="lt-icon-btn" title="关闭" @click="close">
                 <IconClose class="w-4 h-4" />
               </button>
-            </div>
+            </header>
 
             <!-- 表单（可滚动，附件多了也不撑出视口） -->
-            <div class="lt-form-scroll px-5 pb-5 space-y-4 overflow-y-auto" @keydown.escape.prevent="close">
+            <div class="lt-form-scroll" @keydown.escape.prevent="close">
               <!-- 标题 -->
               <div>
                 <label class="lt-form-label">标题 <span class="text-rose-300/80">*</span></label>
@@ -393,17 +396,17 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
             </div>
 
             <!-- 底部操作 -->
-            <div class="flex-shrink-0 px-5 py-3 border-t border-white/8 flex justify-end gap-2">
+            <footer class="lt-form-actions">
               <button class="lt-form-btn lt-form-btn-ghost" @click="close">取消</button>
               <button
                 class="lt-form-btn lt-form-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
                 :disabled="!title.trim()"
                 @click="submit"
               >
-                {{ task ? '保存' : '创建' }}
+                {{ task ? '保存修改' : '创建待办' }}
               </button>
-            </div>
-          </div>
+            </footer>
+          </section>
         </Transition>
 
         <!-- 图片大图预览（点缩略图展开，点任意处关闭） -->
@@ -415,12 +418,13 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
         >
           <div
             v-if="previewUrl"
-            class="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/85 backdrop-blur-sm cursor-zoom-out"
+            class="lt-preview-backdrop"
             @click="previewUrl = null"
           >
-            <img :src="previewUrl" class="max-w-[94vw] max-h-[90vh] rounded-lg shadow-2xl" @click.stop>
+            <img :src="previewUrl" class="lt-preview-img" alt="附件图片预览" @click.stop>
             <button
-              class="absolute top-5 right-5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg p-2 transition-colors"
+              class="lt-preview-close"
+              title="关闭"
               @click="previewUrl = null"
             >
               <IconClose class="w-6 h-6" />
@@ -433,113 +437,289 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
 </template>
 
 <style scoped>
-/* 卡片：与项目其它弹窗一致的 navy→teal 玻璃质感（简化版，无 HUD 角 / 流光） */
+.lt-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.lt-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 22% 16%, rgba(34, 211, 238, 0.18), transparent 34%),
+    radial-gradient(circle at 84% 80%, rgba(167, 139, 250, 0.14), transparent 32%),
+    rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(16px) saturate(140%);
+}
 .lt-form-card {
-  border-radius: 16px;
-  background: linear-gradient(160deg, rgba(30, 58, 95, 0.92) 0%, rgba(15, 23, 42, 0.94) 100%);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  --lt-tone: #22d3ee;
+  --lt-tone-2: #a78bfa;
+  --lt-success: #34d399;
+  --lt-warning: #fbbf24;
+  --lt-danger: #fb7185;
+  --lt-border: rgba(148, 163, 184, 0.16);
+  position: relative;
+  z-index: 10;
+  display: flex;
+  width: min(560px, 92vw);
+  max-height: min(760px, 90vh);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--lt-tone) 20%, rgba(148, 163, 184, 0.24));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 14% 0, color-mix(in srgb, var(--lt-tone) 14%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--lt-tone) 8%, transparent), transparent 30%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98));
+  color: rgba(248, 250, 252, 0.92);
   box-shadow:
-    0 24px 70px -12px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(45, 212, 191, 0.15);
+    0 34px 110px rgba(0, 0, 0, 0.66),
+    0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 0 70px color-mix(in srgb, var(--lt-tone) 12%, transparent);
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
 }
-
+.lt-form-card::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.55), transparent 58%);
+}
+.lt-form-card::after {
+  position: absolute;
+  inset: auto 18px 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--lt-tone) 52%, transparent), transparent);
+  opacity: 0.75;
+}
 .lt-form-accent {
-  height: 3px;
+  position: relative;
+  z-index: 2;
   width: 100%;
+  height: 3px;
   flex-shrink: 0;
-  background: linear-gradient(90deg, #1e3a5f, #2dd4bf, #1e3a5f);
-  box-shadow: 0 0 10px rgba(45, 212, 191, 0.4);
+  background: linear-gradient(90deg, var(--lt-tone), var(--lt-tone-2), var(--lt-tone));
+  background-size: 200% 100%;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lt-tone) 45%, transparent);
 }
-
+.lt-form-head,
+.lt-form-scroll,
+.lt-form-actions {
+  position: relative;
+  z-index: 1;
+}
+.lt-form-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--lt-border);
+  background:
+    radial-gradient(circle at 12% 0, color-mix(in srgb, var(--lt-tone) 15%, transparent), transparent 34%),
+    rgba(15, 23, 42, 0.34);
+}
+.lt-brand-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--lt-tone) 42%, rgba(255,255,255,0.08));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 30% 18%, color-mix(in srgb, var(--lt-tone) 42%, transparent), transparent 45%),
+    color-mix(in srgb, var(--lt-tone) 11%, rgba(255,255,255,0.04));
+  color: color-mix(in srgb, var(--lt-tone) 82%, white);
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--lt-tone) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.lt-eyebrow {
+  margin: 0 0 3px;
+  color: color-mix(in srgb, var(--lt-tone) 72%, white 8%);
+  font: 850 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lt-title {
+  margin: 0;
+  color: rgba(248, 250, 252, 0.96);
+  font-size: 21px;
+  font-weight: 850;
+  letter-spacing: -0.01em;
+}
+.lt-subtitle {
+  margin: 5px 0 0;
+  color: rgba(226, 232, 240, 0.52);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.lt-icon-btn,
+.lt-form-pri,
+.lt-dropzone,
+.lt-thumb-remove,
+.lt-file-dl,
+.lt-file-x,
+.lt-form-btn,
+.lt-preview-close {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  cursor: pointer;
+}
+.lt-icon-btn {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.085);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
+  color: rgba(226, 232, 240, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
+}
+.lt-icon-btn:hover,
+.lt-icon-btn:focus-visible {
+  color: white;
+  border-color: color-mix(in srgb, var(--lt-tone) 30%, transparent);
+  background: color-mix(in srgb, var(--lt-tone) 9%, rgba(255,255,255,0.07));
+  outline: 0;
+}
 .lt-form-scroll {
+  display: grid;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 18px 22px 20px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
 }
-
+.lt-form-scroll::-webkit-scrollbar { width: 6px; }
+.lt-form-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+}
 .lt-form-label {
   display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 7px;
+  color: rgba(226,232,240,0.62);
+  font-size: 11px;
+  font-weight: 850;
 }
-
 .lt-form-input {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 9px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(2, 6, 23, 0.46));
+  color: rgba(248,250,252,0.92);
   outline: none;
-  transition: border-color 0.15s, background 0.15s;
+  font-size: 13.5px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
-.lt-form-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-}
+.lt-form-input::placeholder { color: rgba(226,232,240,0.32); }
 .lt-form-input:focus {
-  border-color: rgba(94, 234, 212, 0.5);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: color-mix(in srgb, var(--lt-tone) 50%, transparent);
+  background: rgba(2, 6, 23, 0.58);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--lt-tone) 14%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.06);
 }
-
-/* 优先级分段按钮 */
 .lt-form-pri {
+  position: relative;
   display: flex;
+  min-height: 54px;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  padding: 6px 0;
-  border-radius: 8px;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.28);
+  color: rgba(255,255,255,0.7);
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: all 0.15s;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
-.lt-form-pri:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
+.lt-form-pri::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--lt-tone), transparent);
+  opacity: 0;
+}
+.lt-form-pri:hover,
+.lt-form-pri:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--lt-tone) 30%, transparent);
+  background: color-mix(in srgb, var(--lt-tone) 8%, rgba(255,255,255,0.04));
+  color: rgba(255,255,255,0.92);
+  outline: 0;
 }
 .lt-form-pri.is-active {
-  color: #5eead4;
-  background: rgba(45, 212, 191, 0.14);
-  border-color: rgba(94, 234, 212, 0.5);
+  border-color: color-mix(in srgb, var(--lt-tone) 48%, transparent);
+  background:
+    radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--lt-tone) 18%, transparent), transparent 44px),
+    color-mix(in srgb, var(--lt-tone) 11%, rgba(2,6,23,0.42));
+  color: color-mix(in srgb, var(--lt-tone) 82%, white);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lt-tone) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-
-/* 拖放区 */
+.lt-form-pri.is-active::before { opacity: 0.76; }
 .lt-dropzone {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 14px 10px;
-  border-radius: 10px;
-  border: 1.5px dashed rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.02);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  gap: 4px;
+  overflow: hidden;
+  padding: 16px 10px;
+  border: 1px dashed color-mix(in srgb, var(--lt-tone) 28%, rgba(255,255,255,0.14));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--lt-tone) 10%, transparent), transparent 56%),
+    rgba(2, 6, 23, 0.25);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
-.lt-dropzone:hover {
-  border-color: rgba(94, 234, 212, 0.45);
-  background: rgba(45, 212, 191, 0.05);
+.lt-dropzone::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(110deg, rgba(0,0,0,0.44), transparent 66%);
 }
+.lt-dropzone:hover,
+.lt-dropzone:focus-visible,
 .lt-dropzone.is-drag {
-  border-color: rgba(94, 234, 212, 0.8);
-  background: rgba(45, 212, 191, 0.1);
+  border-color: color-mix(in srgb, var(--lt-tone) 58%, transparent);
+  background: color-mix(in srgb, var(--lt-tone) 9%, rgba(2,6,23,0.34));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lt-tone) 14%, transparent);
+  outline: 0;
 }
-
-/* 图片缩略图 */
 .lt-thumb {
   position: relative;
-  width: 56px;
-  height: 56px;
-  border-radius: 8px;
+  width: 58px;
+  height: 58px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.22);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .lt-thumb img {
   width: 100%;
@@ -549,74 +729,152 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
 }
 .lt-thumb-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  color: rgba(255, 255, 255, 0.9);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,0.9);
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.65));
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, color 0.15s;
 }
-.lt-thumb:hover .lt-thumb-remove {
-  opacity: 1;
-}
-
-/* 文件 chip */
+.lt-thumb:hover .lt-thumb-remove,
+.lt-thumb-remove:focus-visible { opacity: 1; outline: 0; }
 .lt-file {
   display: flex;
-  align-items: center;
-  gap: 6px;
   max-width: 100%;
-  padding: 5px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background: rgba(2,6,23,0.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
 }
 .lt-file-name {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-  max-width: 180px;
+  max-width: 190px;
   overflow: hidden;
+  color: rgba(255,255,255,0.82);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .lt-file-size {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.35);
   flex-shrink: 0;
+  color: rgba(255,255,255,0.36);
+  font-size: 11px;
 }
 .lt-file-dl,
 .lt-file-x {
+  display: grid;
   flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.4);
-  transition: color 0.15s;
+  place-items: center;
+  border-radius: 7px;
+  color: rgba(255,255,255,0.42);
+  transition: color 0.15s, background 0.15s;
 }
 .lt-file-dl:hover,
-.lt-file-x:hover {
-  color: rgba(255, 255, 255, 0.85);
+.lt-file-dl:focus-visible,
+.lt-file-x:hover,
+.lt-file-x:focus-visible {
+  color: rgba(255,255,255,0.88);
+  background: rgba(255,255,255,0.08);
+  outline: 0;
 }
-
+.lt-form-actions {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 13px 22px;
+  border-top: 1px solid var(--lt-border);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.52), rgba(2, 6, 23, 0.34));
+}
 .lt-form-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
   font-size: 13px;
-  transition: all 0.15s;
-  cursor: pointer;
+  font-weight: 850;
+  transition: transform 0.15s ease, filter 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.lt-form-btn:hover:not(:disabled),
+.lt-form-btn:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  outline: 0;
 }
 .lt-form-btn-ghost {
-  color: rgba(255, 255, 255, 0.65);
-  background: transparent;
+  border: 1px solid rgba(255,255,255,0.085);
+  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
+  color: rgba(226,232,240,0.68);
 }
-.lt-form-btn-ghost:hover {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.08);
+.lt-form-btn-ghost:hover,
+.lt-form-btn-ghost:focus-visible {
+  border-color: color-mix(in srgb, var(--lt-tone) 28%, transparent);
+  background: color-mix(in srgb, var(--lt-tone) 8%, rgba(255,255,255,0.06));
+  color: white;
 }
 .lt-form-btn-primary {
-  color: #042f2e;
-  font-weight: 500;
-  background: linear-gradient(135deg, #5eead4, #2dd4bf);
+  background:
+    radial-gradient(circle at 30% 0, rgba(255,255,255,0.32), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--lt-tone) 92%, white 5%), var(--lt-tone));
+  color: #03131a;
+  box-shadow:
+    0 10px 26px color-mix(in srgb, var(--lt-tone) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.24);
 }
-.lt-form-btn-primary:not(:disabled):hover {
-  filter: brightness(1.08);
-  box-shadow: 0 4px 14px -4px rgba(45, 212, 191, 0.5);
+.lt-form-btn-primary:not(:disabled):hover { filter: brightness(1.08); }
+.lt-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2,6,23,0.86);
+  backdrop-filter: blur(12px) saturate(130%);
+  cursor: zoom-out;
+}
+.lt-preview-img {
+  max-width: 94vw;
+  max-height: 90vh;
+  border: 1px solid rgba(148,163,184,0.18);
+  border-radius: 12px;
+  box-shadow: 0 30px 90px rgba(0,0,0,0.62);
+}
+.lt-preview-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: grid;
+  padding: 8px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.72);
+  transition: color 0.15s, background 0.15s;
+}
+.lt-preview-close:hover,
+.lt-preview-close:focus-visible {
+  background: rgba(255,255,255,0.12);
+  color: white;
+  outline: 0;
+}
+@media (max-width: 640px) {
+  .lt-shell { padding: 10px; }
+  .lt-form-card { width: 100%; max-height: 94vh; }
+  .lt-form-head { padding: 16px; }
+  .lt-title { font-size: 19px; }
+  .lt-form-scroll { padding: 16px; }
+  .lt-form-actions { padding: 12px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lt-form-pri,
+  .lt-form-btn,
+  .lt-dropzone { transition: none; }
+  .lt-form-pri:hover,
+  .lt-form-btn:hover:not(:disabled) { transform: none; }
 }
 </style>

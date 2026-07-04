@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { notify } from '@/features/feedback/store'
 
 const APP_KEY_PREFIX = 'hao123-'
 const CHAT_HISTORY_KEY = 'hao123-chat-history'
@@ -52,9 +53,7 @@ interface StoredChatMessage {
 }
 
 const usageState = ref<StorageUsage>(emptyUsage())
-const notices = ref<StorageNotice[]>([])
 
-let noticeSeq = 0
 let monitorStarted = false
 let monitorTimer: ReturnType<typeof window.setInterval> | null = null
 let lastWarningAt = 0
@@ -113,13 +112,12 @@ export function formatStorageBytes(bytes: number): string {
 }
 
 function pushNotice(input: Omit<StorageNotice, 'id'>): void {
-  const id = ++noticeSeq
-  notices.value = [...notices.value.slice(-2), { ...input, id }]
-  window.setTimeout(() => dismissStorageNotice(id), NOTICE_TTL_MS)
-}
-
-export function dismissStorageNotice(id: number): void {
-  notices.value = notices.value.filter((notice) => notice.id !== id)
+  notify({
+    tone: input.kind === 'cleaned' ? 'success' : input.kind === 'warning' ? 'warning' : 'danger',
+    title: input.title,
+    message: input.detail,
+    duration: NOTICE_TTL_MS,
+  })
 }
 
 function isQuotaExceeded(error: unknown): boolean {
@@ -378,12 +376,8 @@ export function useStorageHealth() {
   })
 
   return {
-    notices,
     usage: usageState,
     usageText,
     check: checkLocalStorageHealth,
-    dismiss: dismissStorageNotice,
   }
 }
-
-export { default as StorageHealthToastHost } from './components/StorageHealthToastHost.vue'

@@ -16,6 +16,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useGitDashboard } from '@/features/git'
 import { useChatStore } from '@/features/chat'
+import { useFeedback } from '@/features/feedback'
 import type { GitBlameLine, GitReflogEntry, GitCommit, GitTag } from '@/features/git'
 import GitDiffBox from '@/components/GitDiffBox.vue'
 import GitBranchesPanel from '@/components/git-dashboard/GitBranchesPanel.vue'
@@ -60,6 +61,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const dash = useGitDashboard()
 const chat = useChatStore()
+const feedback = useFeedback()
 
 const gitReady = computed(() => dash.gitReady.value)
 const gitUnavailable = computed(() => dash.gitUnavailable.value)
@@ -1097,21 +1099,45 @@ interface ConfirmDialog {
   onConfirm: () => Promise<void> | void
 }
 
-const confirmDialog = ref<ConfirmDialog | null>(null)
-
-function requestConfirm(dialog: ConfirmDialog) {
-  confirmDialog.value = dialog
+function decodeConfirmEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 }
 
-async function executeConfirm() {
-  if (!confirmDialog.value) return
-  const cb = confirmDialog.value.onConfirm
-  confirmDialog.value = null
-  await cb()
+function confirmHtmlToText(html: string): string {
+  return decodeConfirmEntities(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '\n- ')
+      .replace(/<\/li>/gi, '')
+      .replace(/<\/ul>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n'),
+  )
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n')
 }
 
-function cancelConfirm() {
-  confirmDialog.value = null
+function requestConfirm(dialog: ConfirmDialog): void {
+  void (async () => {
+    const lines = confirmHtmlToText(dialog.message).split('\n').filter(Boolean)
+    const message = lines.shift() || '确认执行这个操作？'
+    const confirmed = await feedback.confirm({
+      tone: dialog.danger ? 'danger' : 'warning',
+      title: dialog.danger ? '危险操作确认' : '操作确认',
+      message,
+      detail: lines.length ? lines.join('\n') : undefined,
+      confirmLabel: dialog.confirmLabel,
+      cancelLabel: '取消',
+    })
+    if (confirmed) await dialog.onConfirm()
+  })()
 }
 
 // ─── 便捷确认：分支 ────────────────────────────────
@@ -1414,11 +1440,6 @@ function onKeydown(e: KeyboardEvent) {
       e.stopPropagation()
       return
     }
-    if (confirmDialog.value) {
-      cancelConfirm()
-      e.stopPropagation()
-      return
-    }
     close()
     return
   }
@@ -1454,7 +1475,6 @@ watch(
       diffContent.value = ''
       blameTarget.value = ''
       blameLines.value = []
-      confirmDialog.value = null
       showMoreMenu.value = false
       showCreateTag.value = false
       cancelEditTag()
@@ -2826,30 +2846,6 @@ function onBackdropClick() {
               </div>
             </div>
 
-            <!-- ═══ 统一确认栏 ═══ -->
-            <Transition
-              enter-active-class="transition-all duration-200"
-              leave-active-class="transition-all duration-150"
-              enter-from-class="opacity-0 translate-y-2"
-              leave-to-class="opacity-0 translate-y-2"
-            >
-              <div
-                v-if="confirmDialog"
-                class="flex-shrink-0 px-6 py-3 border-t border-white/8 flex items-center justify-between gap-3"
-              >
-                <span class="text-[13px] text-white/70 min-w-0" v-html="confirmDialog.message" />
-                <div class="flex gap-2 flex-shrink-0">
-                  <button class="gd-confirm-btn cancel" @click="cancelConfirm">取消</button>
-                  <button
-                    class="gd-confirm-btn"
-                    :class="confirmDialog.danger ? 'danger' : 'ok'"
-                    @click="executeConfirm"
-                  >
-                    {{ confirmDialog.confirmLabel }}
-                  </button>
-                </div>
-              </div>
-            </Transition>
           </div>
         </Transition>
       </div>

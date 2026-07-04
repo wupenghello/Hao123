@@ -20,14 +20,7 @@ interface ImportMetaEnv {
   readonly VITE_ASSISTANT_NAME?: string
   /** LLM 助手一句话定位（欢迎页/提示用） */
   readonly VITE_ASSISTANT_TAGLINE?: string
-  /** LLM API Key（OpenAI 兼容，当前接 DeepSeek） */
-  readonly VITE_DEEPSEEK_API_KEY: string
-  /** LLM 是否已配置（非敏感布尔开关，客户端据此显示引导；密钥本身由代理注入，不进前端包） */
-  readonly VITE_DEEPSEEK_CONFIGURED?: string
-  /** LLM 模型名（默认 deepseek-chat） */
-  readonly VITE_DEEPSEEK_MODEL?: string
-  /** LLM API 根地址（可选，默认 https://api.deepseek.com） */
-  readonly VITE_DEEPSEEK_BASE?: string
+  // LLM 接入参数已全部迁移至页面内模型配置面板管理（不再通过 env 配置）
   /** 知识库来源：本地文件夹路径（如 D:/projects/todayops-kb）或 manifest 的 http URL */
   readonly VITE_KB_SOURCE?: string
   /** wbscf-web 代码库根目录（如 D:/projects/wbscf-web），仅 dev 用于拉起本地 dev 服务 */

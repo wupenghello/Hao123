@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { fetchClaudeStatus, triggerClaudeLaunch, claudeEnabled } from '@/features/claude'
+import { useFeedback } from '@/features/feedback'
 
 /**
  * 状态栏左侧 Claude Code 启动按钮
@@ -10,6 +11,7 @@ import { fetchClaudeStatus, triggerClaudeLaunch, claudeEnabled } from '@/feature
 const available = ref(true)
 const launching = ref(false)
 const launchSuccess = ref(false)
+const feedback = useFeedback()
 let successTimer: number | null = null
 let pollTimer: number | null = null
 
@@ -41,10 +43,18 @@ async function launch() {
       }, 1500)
       return
     } else {
-      alert(`启动失败：${data.error || '未知错误'}\n请先全局安装：npm i -g @anthropic-ai/claude-code`)
+      feedback.danger({
+        title: 'Claude Code 启动失败',
+        message: data.error || '未知错误',
+        duration: 6800,
+      })
     }
   } catch (e) {
-    alert(`请求失败：${e instanceof Error ? e.message : String(e)}`)
+    feedback.danger({
+      title: 'Claude Code 请求失败',
+      message: e instanceof Error ? e.message : String(e),
+      duration: 6800,
+    })
   }
   launching.value = false
 }
