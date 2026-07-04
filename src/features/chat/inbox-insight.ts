@@ -18,6 +18,7 @@
 import { ref, computed, watch } from 'vue'
 import { useStorage } from '@/composables/useStorage'
 import { llm } from './llm'
+import { classifyError, markUnreachable, onRecover } from './connectivity'
 import { useInboxInsights } from '@/features/insights'
 import type { Insight } from '@/features/insights'
 
@@ -83,12 +84,21 @@ async function generate(insights: Insight[]): Promise<void> {
     })
     const content = raw.trim()
     if (content) state.value = { content, signature: sig, date: todayStr(), generatedAt: Date.now() }
-  } catch {
-    // 失败静默：组件侧回退检测模板（不抛错、不留错态干扰首页）
+  } catch (e) {
+    // 网络类错误归连通性层（让 UnifiedInbox 的洞察卡显示「AI 解读暂不可用」）；
+    // 失败仍静默——组件侧回退检测模板，不抛错、不留错态干扰首页
+    const reason = classifyError(e)
+    if (reason) markUnreachable(reason)
   } finally {
     generating.value = false
   }
 }
+
+// 连通恢复后自动续生成（断网期间错过的洞察，恢复后立即补上）
+let latestInsights: Insight[] = []
+onRecover(() => {
+  void generate(latestInsights)
+})
 
 /**
  * 首页「小吴的洞察」卡 composable。
@@ -98,7 +108,10 @@ export function useInboxInsight() {
   const { insights } = useInboxInsights()
 
   // 检测结果变化时按需生成（缓存守卫确保同日同签名只生成一次）
-  watch(insights, (val) => void generate(val), { immediate: true })
+  watch(insights, (val) => {
+    latestInsights = val
+    void generate(val)
+  }, { immediate: true })
 
   /** 当前可用的 LLM 文案：仅当已配置、今日已生成、且签名仍匹配当前检测时才有值 */
   const content = computed(() => {

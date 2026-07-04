@@ -17,6 +17,7 @@ import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
+import ConnectivityBanner from './ConnectivityBanner.vue'
 import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
@@ -958,6 +959,9 @@ onUnmounted(() => {
                 </button>
               </div>
             </Transition>
+
+            <!-- 连通性状态条（连不上大模型时的统一琥珀提示，区别于红条业务错误） -->
+            <ConnectivityBanner v-if="store.configured" />
 
             <!-- 待发送图片预览（多模态输入；粘贴 / 拖入的图片在发送前列在这里） -->
             <Transition name="quote-fade">

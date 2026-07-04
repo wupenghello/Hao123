@@ -26,6 +26,7 @@ import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/re
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
+import { classifyError, markSuccess, markUnreachable, probe as probeConnectivity, onRecover, useConnectivity } from './connectivity'
 import {
   summarizeUiRenderResult,
   uiBlocksFromRenderResult,
@@ -582,6 +583,17 @@ export const useChatStore = defineStore('chat', () => {
 
   let abortController: AbortController | null = null
 
+  // 连通性状态（组件可通过 store 读取；store 自身在 send() 里据此短路）
+  const connectivity = useConnectivity()
+  const connectivityStatus = connectivity.status
+
+  // 连通恢复时：若对话末尾是用户消息（断网期间发出的提问未得到答复），自动重跑 agent 循环
+  onRecover(() => {
+    if (streaming.value) return
+    const tail = messages.value[messages.value.length - 1]
+    if (tail?.role === 'user') void runAgentLoop()
+  })
+
   function toggle() {
     open.value = !open.value
     if (open.value) unread.value = false
@@ -795,6 +807,8 @@ export const useChatStore = defineStore('chat', () => {
           qualityCategory: 'general',
         })
       }
+      // 整轮顺利完成 → 通知连通性层「现在可达」，触发 ambient 模块恢复续生成
+      markSuccess()
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') {
         // 中止也要清理当前轮留下的「空 assistant 占位」（content 为空且无 tool_calls），
@@ -803,14 +817,13 @@ export const useChatStore = defineStore('chat', () => {
         cleanupEmptyAssistant(messages.value)
         return
       }
-      const msg = (e as Error)?.message || '对话出错了，请稍后重试'
-      // 诊断常见配置问题：代理未启动 / API Key 未设置
-      if (/Failed to fetch|NetworkError|fetch failed/i.test(msg)) {
-        error.value = '无法连接 LLM 服务，请确认 Vite 开发服务器正在运行且 /deepseek 代理已配置'
-      } else if (/401|403|Unauthorized|Forbidden/.test(msg)) {
-        error.value = 'LLM 认证失败，请在 .env 设置 VITE_DEEPSEEK_API_KEY 后重启 dev'
+      // 网络类错误归连通性层（琥珀条 / Launcher 色点 / 自动重试），不污染 store.error 红条；
+      // 非网络错误（解析失败、工具异常等）才走红条。
+      const reason = classifyError(e)
+      if (reason) {
+        markUnreachable(reason)
       } else {
-        error.value = msg
+        error.value = (e as Error)?.message || '对话出错了，请稍后重试'
       }
       // 移除空的尾部 assistant 占位（避免残留空气泡）
       cleanupEmptyAssistant(messages.value)
@@ -846,6 +859,13 @@ export const useChatStore = defineStore('chat', () => {
       images: images.length ? images : undefined,
       ts: Date.now(),
     })
+
+    // 已知连不上时先快速 probe（5s 超时），避免用户白等 fetchWithRetry 的 1+2+4s 退避；
+    // probe 成功 → 正常跑；仍不通 → 不调用 runAgentLoop（auto-retry 恢复后 onRecover 会自动续答）
+    if (connectivityStatus.value === 'unreachable') {
+      const ok = await probeConnectivity()
+      if (!ok) return
+    }
     await runAgentLoop()
   }
 
@@ -1087,6 +1107,18 @@ export const useChatStore = defineStore('chat', () => {
     msg.activities[activityIndex].expanded = !msg.activities[activityIndex].expanded
   }
 
+  /**
+   * 手动重试连通性（连通性横条「重试」按钮调用）。
+   * 立即 probe 一次（跳过自动重试的退避）；恢复后若末尾是未答复的用户消息则自动续答。
+   */
+  async function retryConnection() {
+    const ok = await probeConnectivity()
+    if (!ok) return
+    if (streaming.value) return
+    const tail = messages.value[messages.value.length - 1]
+    if (tail?.role === 'user') await runAgentLoop()
+  }
+
   return {
     open,
     messages,
@@ -1110,5 +1142,6 @@ export const useChatStore = defineStore('chat', () => {
     approveTool,
     rejectTool,
     toggleActivityExpand,
+    retryConnection,
   }
 })

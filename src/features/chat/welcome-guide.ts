@@ -20,6 +20,7 @@ import { ref, computed, type ComputedRef } from 'vue'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { buildDashboardContext } from './dashboard-context'
+import { classifyError, markUnreachable, onRecover } from './connectivity'
 
 export interface Suggestion {
   icon: 'weather' | 'task' | 'bug' | 'local'
@@ -110,12 +111,18 @@ async function generate() {
       done = true
     }
     // 解析失败不置 done，允许下次重试
-  } catch {
-    // 网络/API 失败，保留静态兜底，允许下次重试
+  } catch (e) {
+    // 网络/API 失败，保留静态兜底，允许下次重试；
+    // 网络类错误同时归连通性层，让命令面板空态能提示「快捷问题为默认推荐（AI 未连接）」
+    const reason = classifyError(e)
+    if (reason) markUnreachable(reason)
   } finally {
     generating = false
   }
 }
+
+// 连通恢复后自动续生成（断网期间进站没拿到 AI 推荐，恢复后补上）
+onRecover(() => void generate())
 
 export function useWelcomeGuide(): { suggestions: ComputedRef<Suggestion[]> } {
   generate()

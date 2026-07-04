@@ -13,6 +13,7 @@
  */
 import { computed } from 'vue'
 import { useBriefing, renderMarkdown, ASSISTANT_NAME, buildBriefingActionFlowPrompt } from '@/features/chat'
+import { useConnectivity } from '../connectivity'
 import { useInboxInsights, deadlineDays } from '@/features/insights'
 import {
   useTaskStore,
@@ -34,6 +35,7 @@ import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const { briefing, generating, error, refresh } = useBriefing()
 const chat = useChatStore()
+const { unreachable, message: connectivityMsg, retry: retryConnectivity } = useConnectivity()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
@@ -170,7 +172,7 @@ const relTime = computed(() => {
 
 <template>
   <Transition name="mb-fade">
-    <section v-if="briefing || generating || error" class="mb-card">
+    <section v-if="briefing || generating || error || unreachable" class="mb-card">
       <header class="mb-head">
         <span class="mb-icon"><IconSpark class="w-3.5 h-3.5" /></span>
         <span class="mb-title">今日简报</span>
@@ -192,6 +194,13 @@ const relTime = computed(() => {
         <span class="mb-dot" />
         <span class="mb-dot" />
         <span class="mb-loading-text">{{ ASSISTANT_NAME }} 正在整理今日简报…</span>
+      </div>
+
+      <!-- 连不上模型且无缓存：显示连通性提示（区别于通用错误），可重试 -->
+      <div v-else-if="unreachable && !briefing" class="mb-error is-connectivity">
+        <IconAlert class="w-4 h-4 shrink-0" />
+        <span class="flex-1 min-w-0 truncate">{{ connectivityMsg || `暂时连不上${ASSISTANT_NAME}，正在自动重试` }}</span>
+        <button class="mb-retry" @click="retryConnectivity">重试</button>
       </div>
 
       <!-- 错误且无缓存可兜底（有缓存时不遮蔽已有简报，只在无缓存时显示错误态） -->
@@ -583,6 +592,13 @@ const relTime = computed(() => {
   padding: 12px 14px;
   font-size: 12.5px;
   color: rgba(252, 165, 165, 0.85);
+}
+/* 连通性问题：琥珀色（区别于红色「真出错」） */
+.mb-error.is-connectivity {
+  color: rgba(254, 240, 138, 0.88);
+}
+.mb-error.is-connectivity svg {
+  color: rgba(252, 211, 77, 0.9);
 }
 .mb-retry {
   flex-shrink: 0;

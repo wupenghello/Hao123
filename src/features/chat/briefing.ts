@@ -22,6 +22,7 @@ import { useLocalTaskStore } from '@/features/local-tasks'
 import { llm } from './llm'
 import { ASSISTANT_NAME } from './config'
 import { buildDashboardContext } from './dashboard-context'
+import { classifyError, markUnreachable, onRecover } from './connectivity'
 
 /** localStorage 键：持久化的晨报状态 */
 const BRIEFING_KEY = 'hao123-morning-briefing'
@@ -137,7 +138,14 @@ async function generate(force = false): Promise<void> {
       dataSignature: currentDataSignature(),
     }
   } catch (e) {
-    error.value = (e as Error)?.message || '简报生成失败'
+    // 网络类错误归连通性层（让首页/状态栏统一降级）；非网络错误保留给组件 error 态
+    const reason = classifyError(e)
+    if (reason) {
+      markUnreachable(reason)
+      error.value = null
+    } else {
+      error.value = (e as Error)?.message || '简报生成失败'
+    }
   } finally {
     generating.value = false
     // 兜底：generate 期间若有数据变更被 generating guard 跳过，完成时签名已不一致 → 再触发一次。
@@ -203,3 +211,6 @@ function ensureDataWatcher() {
     },
   )
 }
+
+// 连通恢复后自动续生成（断网期间错过的晨报，恢复后立即补上）
+onRecover(() => void generate(false))

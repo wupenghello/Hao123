@@ -19,6 +19,7 @@
  */
 export * from './config'
 export * from './types'
+export * from './connectivity'
 export * from './tools'
 export * from './action-flow'
 export * from './welcome-guide'
