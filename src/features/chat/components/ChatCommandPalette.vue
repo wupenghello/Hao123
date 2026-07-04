@@ -13,6 +13,7 @@
 import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../store'
 import { useWelcomeGuide } from '../welcome-guide'
+import { kbEnabled } from '../tools'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
@@ -51,16 +52,19 @@ const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
 
 // ============ 能力标签云 ============
+// 知识库标签仅在已配置时出现——未配置时点击会让用户撞上「搜不了」的尴尬。
 const abilityTags = [
   { icon: IconWeather, label: '查天气', text: '北京今天的天气怎么样', color: 'tag-weather' },
   { icon: IconTask, label: '看任务', text: '看看我的待办任务', color: 'tag-task' },
   { icon: IconBug, label: '查 Bug', text: '看看我有哪些 bug', color: 'tag-bug' },
   { icon: IconClip, label: '记待办', text: '记一下明天要交周报', color: 'tag-local' },
-  { icon: IconSpark, label: '知识库', text: '搜索知识库：环境配置', color: 'tag-kb' },
+  ...(kbEnabled
+    ? [{ icon: IconSpark, label: '知识库', text: '搜索知识库：环境配置', color: 'tag-kb' }]
+    : []),
 ]
 
 // ============ 输入联想相关 ============
-/** 联想提示词库 */
+/** 联想提示词库（知识库相关词条仅在已配置时给出，避免引导用户搜不到） */
 const suggestionTemplates = [
   { prefix: '查天气', full: '查一下北京今天的天气', icon: 'weather' },
   { prefix: '查一下', full: '查一下北京今天的天气', icon: 'weather' },
@@ -74,10 +78,14 @@ const suggestionTemplates = [
   { prefix: '待办', full: '查看我的待办任务', icon: 'task' },
   { prefix: 'bug', full: '看看我有哪些 bug', icon: 'bug' },
   { prefix: '缺陷', full: '查看我分配的缺陷', icon: 'bug' },
-  { prefix: '知识库', full: '搜索知识库：环境配置', icon: 'kb' },
-  { prefix: '搜一下', full: '搜索知识库：部署流程', icon: 'kb' },
-  { prefix: '搜索', full: '搜索知识库：环境域名', icon: 'kb' },
-  { prefix: '怎么', full: '怎么配置开发环境？请搜索知识库', icon: 'kb' },
+  ...(kbEnabled
+    ? [
+        { prefix: '知识库', full: '搜索知识库：环境配置', icon: 'kb' },
+        { prefix: '搜一下', full: '搜索知识库：部署流程', icon: 'kb' },
+        { prefix: '搜索', full: '搜索知识库：环境域名', icon: 'kb' },
+        { prefix: '怎么', full: '怎么配置开发环境？请搜索知识库', icon: 'kb' },
+      ]
+    : []),
   { prefix: '记一下', full: '记一下明天要交周报', icon: 'local' },
   { prefix: '提醒我', full: '提醒我下午三点开会', icon: 'local' },
   { prefix: '加个待办', full: '加个待办：周报改完发群里', icon: 'local' },
