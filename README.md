@@ -81,10 +81,6 @@ npm run preview
 | `VITE_ZENTAO_PASSWORD` | 禅道密码 | 使用禅道时必填 |
 | `VITE_ASSISTANT_NAME` | 助手名称，默认「小吴」 | 可选 |
 | `VITE_ASSISTANT_TAGLINE` | 助手一句话定位 | 可选 |
-| `VITE_DEEPSEEK_API_KEY` | OpenAI 兼容 LLM API Key，当前默认走 DeepSeek 代理 | 使用 AI 助手时必填 |
-| `VITE_DEEPSEEK_CONFIGURED` | 非敏感布尔开关，告诉前端 LLM 是否已配置 | 使用 AI 助手时必填 |
-| `VITE_DEEPSEEK_MODEL` | LLM 模型名 | 可选 |
-| `VITE_DEEPSEEK_BASE` | OpenAI 兼容 API 根地址 | 可选 |
 | `VITE_KB_SOURCE` | 知识库来源，本地 Markdown 目录或远程 JSON manifest | 使用知识库时必填 |
 | `VITE_WBSCF_WEB_ROOT` | wbscf-web 仓库根目录，用于 dev 服务和 Git 仪表盘 | 使用 wbscf/Git 时必填 |
 | `VITE_WBSCF_PKG_MGR` | 启动 wbscf-web dev 脚本的包管理器，默认 `pnpm` | 可选 |
@@ -167,7 +163,7 @@ src/
 
 ## 重要提醒
 
-- `.env` 不要提交；`VITE_DEEPSEEK_API_KEY` 虽然以 `VITE_` 开头，但项目通过 Vite 代理读取并注入请求头，前端只使用 `VITE_DEEPSEEK_CONFIGURED` 判断是否已配置。
+- `.env` 不要提交；小吴的大模型线路在页面内「模型线路控制台」管理，API Key / Base URL / 模型列表保存在本机 localStorage，dev 代理只负责转发请求。
 - 视觉输入需要模型支持图片。默认模型如果不支持 vision，发送图片会返回模型错误，但应用不会崩溃。
 - wbscf/Git/Claude 启动类能力只在本地 dev 场景有意义，生产构建会自动降级或隐藏入口。
 - README 描述的是当前产品定位；更细的模块设计与约定请看 `AGENTS.md`。
