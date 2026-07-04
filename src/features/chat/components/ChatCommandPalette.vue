@@ -533,18 +533,13 @@ function autoGrow() {
   const el = inputEl.value
   if (!el) return
 
-  // 先重置高度以获取真实 scrollHeight
+  // 先重置高度以获取真实 scrollHeight；输入第二行时就应自然增高。
   el.style.height = 'auto'
   const scrollH = el.scrollHeight
   const maxH = maxInputHeight.value
 
-  // 小于等于 3 行时（约 66px），保持 1 行
-  // 超过 3 行时平滑扩展到最大高度
-  if (scrollH <= 66) {
-    el.style.height = 'auto'
-  } else {
-    el.style.height = Math.min(scrollH, maxH) + 'px'
-  }
+  el.style.height = Math.min(scrollH, maxH) + 'px'
+  el.style.overflowY = scrollH > maxH ? 'auto' : 'hidden'
 }
 
 function onSend() {
@@ -1021,61 +1016,67 @@ onUnmounted(() => {
 
             <!-- 底部输入栏 -->
             <div
-              class="cmd-input-wrapper relative z-10 flex items-center gap-3 px-4 py-3.5 border-t border-white/10 shrink-0"
+              class="cmd-input-wrapper relative z-10 shrink-0"
               :class="{ 'is-drag-img': isDraggingImage }"
               @dragover.prevent="isDraggingImage = true"
               @dragleave.prevent="isDraggingImage = false"
               @drop.prevent="onImageDrop"
             >
-              <div class="cmd-avatar shrink-0" :class="{ 'has-content': input.trim() }">
-                <IconRobot class="w-5 h-5" />
-              </div>
-              <div class="relative flex-1 min-w-0">
-                <textarea
-                  ref="inputEl"
-                  v-model="input"
-                  rows="1"
-                  :disabled="!store.configured"
-                  :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : `问${ASSISTANT_NAME}任何事，或输入指令…`"
-                  class="cmd-input w-full resize-none bg-transparent text-[15px] text-white/95 placeholder:text-white/35 outline-none leading-6 py-0.5 cmd-scroll relative z-10"
-                  :style="{ maxHeight: maxInputHeight + 'px' }"
-                  @keydown="onEnter"
-                  @input="autoGrow(); filterSuggestions(input)"
-                  @blur="onInputBlur"
-                  @focus="onInputFocus"
-                  @paste="onImagePaste"
-                />
-                <!-- 输入联想提示（幽灵文字） -->
-                <Transition name="autocomplete-fade">
-                  <div
-                    v-if="showAutocomplete && autocompleteSuggestion && input.trim()"
-                    class="absolute inset-0 flex items-center pointer-events-none text-[15px] leading-6 py-0.5"
-                    aria-hidden="true"
-                  >
-                    <span class="invisible whitespace-pre-wrap">{{ input }}</span>
-                    <span class="text-teal-400/50 whitespace-nowrap overflow-hidden text-ellipsis">
-                      {{ autocompleteSuggestion.slice(input.trim().length) }}
-                    </span>
-                  </div>
-                </Transition>
-              </div>
-              <button
-                v-if="store.streaming"
-                class="cmd-send is-stop"
-                title="停止生成"
-                @click="store.stop()"
+              <div
+                class="cmd-composer"
+                :class="{
+                  'has-text': input.trim(),
+                  'has-images': pendingImages.length,
+                  'is-disabled': !store.configured,
+                }"
               >
-                <IconStop class="w-4 h-4" />
-              </button>
-              <button
-                v-else
-                class="cmd-send"
-                :disabled="(!input.trim() && !pendingImages.length) || !store.configured"
-                title="发送（Enter）"
-                @click="onSend"
-              >
-                <IconSend class="w-4 h-4" />
-              </button>
+                <div class="cmd-composer-main relative flex-1 min-w-0">
+                  <textarea
+                    ref="inputEl"
+                    v-model="input"
+                    rows="1"
+                    :disabled="!store.configured"
+                    :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : `问${ASSISTANT_NAME}任何事，或输入指令…`"
+                    class="cmd-input w-full resize-none bg-transparent text-[15px] text-white/95 placeholder:text-white/35 outline-none leading-6 cmd-scroll relative z-10"
+                    :style="{ maxHeight: maxInputHeight + 'px' }"
+                    @keydown="onEnter"
+                    @input="autoGrow(); filterSuggestions(input)"
+                    @blur="onInputBlur"
+                    @focus="onInputFocus"
+                    @paste="onImagePaste"
+                  />
+                  <!-- 输入联想提示（幽灵文字） -->
+                  <Transition name="autocomplete-fade">
+                    <div
+                      v-if="showAutocomplete && autocompleteSuggestion && input.trim()"
+                      class="cmd-autocomplete-ghost"
+                      aria-hidden="true"
+                    >
+                      <span class="invisible whitespace-pre-wrap">{{ input }}</span>
+                      <span class="text-teal-400/50 whitespace-nowrap overflow-hidden text-ellipsis">
+                        {{ autocompleteSuggestion.slice(input.trim().length) }}
+                      </span>
+                    </div>
+                  </Transition>
+                </div>
+                <button
+                  v-if="store.streaming"
+                  class="cmd-send is-stop"
+                  title="停止生成"
+                  @click="store.stop()"
+                >
+                  <IconStop class="w-4 h-4" />
+                </button>
+                <button
+                  v-else
+                  class="cmd-send"
+                  :disabled="(!input.trim() && !pendingImages.length) || !store.configured"
+                  title="发送（Enter）"
+                  @click="onSend"
+                >
+                  <IconSend class="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <!-- 底部状态条 -->
@@ -1759,24 +1760,108 @@ onUnmounted(() => {
 }
 .cmd-pending-thumb:hover .cmd-pending-x { opacity: 1; }
 .cmd-input-wrapper {
-  transition: background 0.2s, box-shadow 0.2s;
+  padding: 13px 16px 12px;
+  transition: background 0.2s;
 }
 .cmd-input-wrapper:focus-within {
-  background: color-mix(in srgb, var(--cmd-tone) 5%, rgba(2, 6, 23, 0.44));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--cmd-tone) 16%, transparent),
-    0 0 18px color-mix(in srgb, var(--cmd-tone) 14%, transparent);
+  background: transparent;
 }
 .cmd-input-wrapper.is-drag-img {
-  background: color-mix(in srgb, var(--cmd-tone) 10%, rgba(2, 6, 23, 0.5));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cmd-tone) 55%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 7%, rgba(2, 6, 23, 0.34));
+}
+.cmd-composer {
+  position: relative;
+  display: flex;
+  min-height: 56px;
+  align-items: flex-end;
+  gap: 12px;
+  overflow: hidden;
+  padding: 13px 12px 12px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.cmd-composer::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cmd-tone) 55%, transparent), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.cmd-input-wrapper:focus-within .cmd-composer {
+  border-color: color-mix(in srgb, var(--cmd-tone) 38%, rgba(148, 163, 184, 0.24));
+  background: rgba(15, 23, 42, 0.64);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.065);
+}
+.cmd-input-wrapper.is-drag-img .cmd-composer::before,
+.cmd-composer.has-images::before {
+  opacity: 0.22;
+}
+.cmd-input-wrapper.is-drag-img .cmd-composer {
+  border-color: color-mix(in srgb, var(--cmd-tone) 58%, rgba(255,255,255,0.18));
+  background: color-mix(in srgb, var(--cmd-tone) 8%, rgba(15, 23, 42, 0.68));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--cmd-tone) 12%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cmd-tone) 18%, transparent);
+}
+.cmd-composer.is-disabled {
+  opacity: 0.72;
+}
+.cmd-composer-main,
+.cmd-composer > .cmd-send {
+  position: relative;
+  z-index: 1;
+}
+.cmd-composer-main {
+  display: flex;
+  min-height: 30px;
+  align-items: flex-start;
+  padding: 2px 0 3px;
 }
 .cmd-input {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 28px;
+  border: 0;
   resize: none;
   overflow-y: auto;
+  padding: 0;
+  box-shadow: none;
+  font: inherit;
   transition: height 0.15s ease-out;
 }
-.cmd-input:focus { background: transparent; }
+.cmd-input:focus,
+.cmd-input:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+}
+.cmd-input::placeholder {
+  color: rgba(226, 232, 240, 0.34);
+}
+.cmd-input:disabled {
+  cursor: not-allowed;
+}
+.cmd-autocomplete-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: flex-start;
+  padding: 2px 0 3px;
+  pointer-events: none;
+  color: rgba(45, 212, 191, 0.5);
+  font-size: 15px;
+  line-height: 1.5rem;
+}
 .cmd-avatar.has-content {
   animation: avatar-glow 2s ease-in-out infinite;
 }
@@ -1786,31 +1871,32 @@ onUnmounted(() => {
 }
 .cmd-send {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   place-items: center;
-  border-radius: 11px;
-  background:
-    radial-gradient(circle at 30% 0, rgba(255,255,255,0.32), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 92%, white 5%), var(--cmd-tone));
-  color: #03131a;
+  border: 1px solid color-mix(in srgb, var(--cmd-tone) 42%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--cmd-tone) 82%, rgba(255,255,255,0.08));
+  color: rgba(2, 6, 23, 0.92);
   box-shadow:
-    0 10px 26px color-mix(in srgb, var(--cmd-tone) 18%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.24);
-  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+    0 8px 18px color-mix(in srgb, var(--cmd-tone) 16%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.22);
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 .cmd-send:hover:not(:disabled),
 .cmd-send:focus-visible:not(:disabled) {
   transform: translateY(-1px);
-  filter: brightness(1.08);
+  border-color: color-mix(in srgb, var(--cmd-tone) 58%, rgba(255,255,255,0.2));
+  background: color-mix(in srgb, var(--cmd-tone) 92%, white 4%);
   outline: 0;
 }
 .cmd-send:disabled {
   cursor: not-allowed;
-  opacity: 0.34;
-  filter: none;
-  background: rgba(255,255,255,0.1);
+  opacity: 0.42;
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.12);
+  color: rgba(226, 232, 240, 0.48);
   box-shadow: none;
 }
 .cmd-send.is-stop {
