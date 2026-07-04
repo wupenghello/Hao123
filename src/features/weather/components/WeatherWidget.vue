@@ -41,25 +41,31 @@ onUnmounted(() => {
 
 <template>
   <span
-    class="relative inline-flex items-center text-white text-[13px] font-normal tracking-[-0.01em] leading-none cursor-pointer hover:text-white/90 transition-colors"
+    class="weather-widget"
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
     @click="onClick"
   >
     <template v-if="store.now">
-      <component v-if="currentIcon" :is="currentIcon" class="w-[13px] h-[13px] mr-1" />
-      <span class="tabular-nums mr-1">{{ store.now.temp }}°</span>
-      <span>{{ store.cityName }}</span>
+      <span class="weather-icon-core">
+        <component v-if="currentIcon" :is="currentIcon" class="weather-icon" />
+      </span>
+      <span class="weather-temp">{{ store.now.temp }}°</span>
+      <span class="weather-city">{{ store.cityName }}</span>
     </template>
     <!-- 首次加载中：显示已持久化的城市名 + 旋转图标，避免状态栏空白 -->
     <template v-else-if="store.loading">
-      <IconLoading class="w-[13px] h-[13px] mr-1 animate-spin text-white/55" />
-      <span class="text-white/55">{{ store.cityName }}</span>
+      <span class="weather-icon-core">
+        <IconLoading class="weather-icon weather-spin" />
+      </span>
+      <span class="weather-city is-muted">{{ store.cityName }}</span>
     </template>
     <!-- 加载失败且无数据：轻量错误提示，点击仍可打开弹窗查看详情/重试 -->
     <template v-else-if="store.error">
-      <IconAlertCircleOutline class="w-[13px] h-[13px] mr-1 text-amber-300/80" />
-      <span class="text-white/55">天气暂不可用</span>
+      <span class="weather-icon-core is-warn">
+        <IconAlertCircleOutline class="weather-icon" />
+      </span>
+      <span class="weather-city is-muted">天气暂不可用</span>
     </template>
 
     <!-- Hover 简易卡片 -->
@@ -78,3 +84,71 @@ onUnmounted(() => {
     <WeatherDetailModal :show="modalVisible" @close="modalVisible = false" />
   </span>
 </template>
+
+<style scoped>
+.weather-widget {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  color: rgba(224, 242, 254, 0.84);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.weather-widget:hover {
+  background: rgba(94, 234, 212, 0.08);
+  color: #fff;
+}
+.weather-icon-core {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(94, 234, 212, 0.94);
+  flex: 0 0 auto;
+}
+.weather-icon-core.is-warn {
+  color: rgba(252, 211, 77, 0.92);
+}
+.weather-icon {
+  width: 14px;
+  height: 14px;
+}
+.weather-spin {
+  animation: weather-spin 0.9s linear infinite;
+}
+@keyframes weather-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.weather-temp {
+  font-family: var(--hud-font-data);
+  font-size: 12px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+.weather-city {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weather-city.is-muted {
+  color: rgba(224, 242, 254, 0.58);
+}
+@media (max-width: 760px) {
+  .weather-city {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weather-spin {
+    animation: none;
+  }
+}
+</style>

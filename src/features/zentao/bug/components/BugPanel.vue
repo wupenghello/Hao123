@@ -5,14 +5,12 @@
  * 自身负责首次加载与刷新；未配置/加载/错误/空态均有占位。
  */
 import { onMounted, onUnmounted } from 'vue'
+import StateNotice from '@/components/common/StateNotice.vue'
 import { useBugStore } from '../store'
 import { priorityBadge } from '../../shared/ui'
 import { bugStatusBadge, severityBadge } from '../ui'
-import IconLoading from '~icons/mdi/loading'
 import IconRefresh from '~icons/mdi/refresh'
 import IconBug from '~icons/mdi/bug-outline'
-import IconAlert from '~icons/mdi/alert-circle-outline'
-import IconInboxOutline from '~icons/mdi/inbox-outline'
 import BugDetailModal from './BugDetailModal.vue'
 
 const store = useBugStore()
@@ -44,35 +42,36 @@ onUnmounted(() => store.stop())
     <!-- 内容区 -->
     <div class="max-h-[60vh] overflow-y-auto">
       <!-- 未配置 -->
-      <div v-if="!store.configured" class="flex flex-col items-center gap-2 py-12 text-center text-white/50">
-        <IconAlert class="w-7 h-7 text-amber-300/70" />
-        <p class="text-sm">未配置禅道连接信息</p>
-        <p class="text-xs text-white/40">请在 .env 中设置 VITE_ZENTAO_BASE / ACCOUNT / PASSWORD 后重启 dev</p>
-      </div>
+      <StateNotice
+        v-if="!store.configured"
+        tone="warning"
+        title="禅道连接未配置"
+        message="请在 .env 中设置连接信息后重启 dev。"
+        :details="['VITE_ZENTAO_BASE', 'VITE_ZENTAO_ACCOUNT / VITE_ZENTAO_PASSWORD']"
+      />
 
       <!-- 加载中（首次，无数据） -->
-      <div
+      <StateNotice
         v-else-if="store.loading && !store.count"
-        class="flex flex-col items-center gap-2 py-12 text-white/50"
-      >
-        <IconLoading class="w-6 h-6 animate-spin" />
-        <p class="text-sm">{{ store.loggingIn ? '正在登录禅道…' : '加载中…' }}</p>
-      </div>
+        tone="loading"
+        :title="store.loggingIn ? '正在登录禅道' : '正在加载 Bug'"
+        :message="store.loggingIn ? '正在建立会话并同步指派给你的 Bug。' : '正在刷新禅道 Bug 清单。'"
+      />
 
       <!-- 错误 -->
-      <div v-else-if="store.error" class="flex flex-col items-center gap-2 py-12 text-center text-white/55">
-        <IconAlert class="w-7 h-7 text-rose-300/70" />
-        <p class="text-sm">{{ store.error }}</p>
-        <button class="mt-1 px-3 h-7 rounded-md text-xs bg-white/10 text-white/80 hover:bg-white/15" @click="store.load()">
-          重试
-        </button>
-      </div>
+      <StateNotice
+        v-else-if="store.error"
+        tone="danger"
+        title="Bug 同步失败"
+        :message="store.error"
+        action-label="重试"
+        @action="store.load()"
+      />
 
       <!-- 列表 -->
       <ul v-else>
-        <li v-if="!store.bugs.length" class="flex flex-col items-center gap-2 py-12 text-white/45">
-          <IconInboxOutline class="w-7 h-7" />
-          <span class="text-sm">没有指派给我的 Bug</span>
+        <li v-if="!store.bugs.length">
+          <StateNotice tone="empty" title="没有指派给我的 Bug" message="Bug 同步正常，当前没有待处理项。" compact />
         </li>
         <li
           v-for="b in store.bugs"

@@ -7,22 +7,7 @@ import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
 
-/**
- * 状态栏左侧「工作台导航」
- *
- * 紧跟在品牌（TodayOps）右侧的一排内部系统入口：
- *   - 账号中心 / 买家中心 / 卖家中心 / 运营管理 / ERP：hover 展开本地 dev 服务 + 环境入口；
- *   - 水星 / GitLab Tags / 发布平台 / 我的地盘-禅道 / apifox：普通直链（新标签打开）。
- *
- * 链接全部来自知识库（Obsidian「06-环境入口」「05-常用链接汇总」）；改地址只改下面
- * navItems 即可，无需动模板。
- *
- * 本地 dev 服务接入（wbscf-web）：状态来自 dev server 的 /wbscf/services。运行中时
- * 标签文字转绿（状态栏运行状态指示）；hover 菜单顶部一行 localhost:端口 可点击启动 / 打开，
- * 运行中绿字、启动中转圈琥珀、未启动可点击拉起。点击未运行服务另弹全局提示反馈启动进度。
- */
 type EnvKey = 'dev' | 'test' | 'pre'
-
 type EnvLinks = Partial<Record<EnvKey, string>>
 
 interface EnvGroup {
@@ -32,17 +17,12 @@ interface EnvGroup {
 
 interface NavItem {
   label: string
-  /** 普通直链地址（无 envs 时用） */
   url?: string
-  /** 配了 envs / envGroups 的项，hover 展开环境子菜单 */
   envs?: EnvLinks
-  /** 多套环境分组（例如 ERP 的新老系统） */
   envGroups?: EnvGroup[]
-  /** wbscf-web 本地 dev 服务应用 key（account/buyer/seller/ops/erp）；配了即在 dev 前加 localhost 入口 */
   local?: string
 }
 
-/** 环境子菜单的展示顺序（dev/test/pre 纯文字，不带点） */
 const envMeta: { key: EnvKey }[] = [
   { key: 'dev' },
   { key: 'test' },
@@ -54,7 +34,6 @@ interface EnvEntry {
   url: string
 }
 
-/** 导航项配置（地址取自知识库）。顺序即展示顺序：前 5 项带环境子菜单，后 5 项为直链。 */
 const navItems: NavItem[] = [
   { label: '账号中心', local: 'account', envs: {
       dev: 'http://i-dev.wbscf.tech/account/#/auth/login',
@@ -88,27 +67,23 @@ const navItems: NavItem[] = [
   { label: '我的地盘-禅道', url: 'http://pm.esteel.tech/zentao/my/' },
   { label: 'apifox', url: 'https://app.apifox.com/project/7718065' },
 ]
+const moreNavItems = navItems.slice(7)
 
 const { startOrOpen, statusOf } = useWbscfServices()
 
-/** localhost 入口是否展示：仅当 dev 服务可用（脚本存在于 wbscf-web/package.json）时 */
 function showLocal(app?: string): boolean {
   return !!app && statusOf(app)?.available === true
 }
-/** 本地 dev 服务是否运行中（决定标签文字绿色 + localhost 入口绿字） */
 function isRunning(app?: string): boolean {
   return !!app && statusOf(app)?.running === true
 }
-/** 本地 dev 服务是否启动中（端口未就绪、已拉起）→ localhost 行转圈琥珀 + 「启动中…」 */
 function isBooting(app?: string): boolean {
   return !!app && statusOf(app)?.booting === true
 }
-/** localhost 入口展示的端口（取自静态注册表，不依赖状态是否已加载） */
 function portOf(app?: string): number | undefined {
   if (!app) return undefined
   return wbscfServices.find((s) => s.app === app)?.port
 }
-/** 悬停提示：点击语义随状态切换 */
 function localTitle(app?: string): string {
   if (isRunning(app)) return '本地服务运行中，点击打开'
   if (isBooting(app)) return '正在启动本地服务…'
@@ -130,19 +105,24 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
 
 <template>
   <nav class="status-nav" aria-label="工作台导航">
-    <span class="status-nav-divider" aria-hidden="true" />
     <ul class="status-nav-list">
-      <li v-for="item in navItems" :key="item.label" class="status-nav-item">
-        <!-- 有环境子菜单：hover 展开本地服务 + 环境入口（标签是 hover 面，不跳转） -->
+      <li
+        v-for="(item, index) in navItems"
+        :key="item.label"
+        class="status-nav-item"
+        :class="{
+          'status-nav-tail-item': index >= 7,
+          'status-nav-compact-tail-item': index >= 7,
+        }"
+      >
         <template v-if="item.envs || item.envGroups">
-          <!-- 本地 dev 服务运行中时，标签文字转绿（状态栏运行状态指示） -->
           <span class="status-nav-label" :class="{ 'is-local-running': isRunning(item.local) }">
             {{ item.label }}
+            <span v-if="isRunning(item.local)" class="status-nav-run-dot" aria-hidden="true" />
           </span>
 
           <div class="status-nav-menu">
             <div class="status-nav-menu-card" role="menu">
-              <!-- 本地服务（顶部高亮行）：localhost:端口；运行中绿字+✓、启动中转圈琥珀、未启动可点击拉起 -->
               <button
                 v-if="showLocal(item.local)"
                 type="button"
@@ -158,7 +138,7 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
                 <span class="status-nav-local-host">localhost:{{ portOf(item.local) }}</span>
                 <span v-if="isBooting(item.local)" class="status-nav-local-state">启动中…</span>
               </button>
-              <!-- 本地服务与环境的分组分隔 -->
+
               <div v-if="showLocal(item.local)" class="status-nav-menu-sep" aria-hidden="true" />
               <template v-for="(group, groupIndex) in envGroupsOf(item)" :key="group.label ?? `envs-${groupIndex}`">
                 <div v-if="groupIndex > 0" class="status-nav-menu-sep" aria-hidden="true" />
@@ -177,7 +157,6 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
           </div>
         </template>
 
-        <!-- 普通直链 -->
         <a
           v-else
           class="status-nav-label"
@@ -186,6 +165,25 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
           rel="noopener noreferrer"
         >{{ item.label }}</a>
       </li>
+
+      <li class="status-nav-item status-nav-more-item">
+        <button type="button" class="status-nav-label status-nav-more-button">更多</button>
+        <div class="status-nav-menu status-nav-more-menu">
+          <div class="status-nav-menu-card" role="menu">
+            <a
+              v-for="item in moreNavItems"
+              :key="item.label"
+              class="status-nav-env status-nav-env-link"
+              :href="item.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              role="menuitem"
+            >{{ item.label }}</a>
+          </div>
+        </div>
+      </li>
+
+      <li class="status-nav-divider" aria-hidden="true" />
       <li class="status-nav-item status-nav-modao-item">
         <ModaoWidget />
       </li>
@@ -200,8 +198,6 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
 </template>
 
 <style scoped>
-/* align-self:stretch 让 nav 撑满状态栏高度（h-9），
-   下拉菜单 top:100% 正好落在状态栏底边，不会叠在状态栏上 */
 .status-nav {
   display: flex;
   align-items: stretch;
@@ -209,19 +205,11 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   min-width: 0;
 }
 
-.status-nav-divider {
-  align-self: center;
-  width: 1px;
-  height: 16px;
-  margin: 0 10px;
-  background: linear-gradient(180deg, transparent, rgba(125, 211, 252, 0.42), transparent);
-  flex-shrink: 0;
-}
-
 .status-nav-list {
   display: flex;
   align-items: stretch;
   gap: 2px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -231,43 +219,68 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
 }
 
-/* 文字口径对齐 StatusTime：text-white / 13px / font-normal / -0.01em；
-   前 5 项（span）与后 5 项（a）共用同一段样式，颜色完全一致 */
 .status-nav-label {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
-  border-radius: 8px;
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.02em;
-  color: rgba(224, 242, 254, 0.86);
+  letter-spacing: 0;
+  color: rgba(224, 242, 254, 0.82);
   white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background-color 0.15s, color 0.15s;
+}
+button.status-nav-label {
+  border: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .status-nav-item:hover > .status-nav-label {
   color: #fff;
-  background: rgba(125, 211, 252, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16);
+  background: rgba(125, 211, 252, 0.09);
 }
 
-/* 本地 dev 服务运行中：标签文字转绿（状态栏运行状态指示，替代原先的绿点） */
 .status-nav-label.is-local-running {
   color: #34d399;
 }
+.status-nav-run-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+}
 
-/* 下拉菜单：absolute 悬浮在状态栏下方（透明毛玻璃，同 ChatLauncher / ZentaoInbox 同族） */
+.status-nav-divider {
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: rgba(125, 211, 252, 0.18);
+  flex-shrink: 0;
+}
+.status-nav-more-item {
+  display: none;
+}
+.status-nav-more-menu {
+  left: auto;
+  right: 0;
+}
+
 .status-nav-menu {
   position: absolute;
   top: 100%;
   left: 0;
-  /* 透明桥接区：鼠标从标签移到卡片途中不丢失 hover */
   padding-top: 6px;
   opacity: 0;
   pointer-events: none;
@@ -275,23 +288,23 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   z-index: 50;
 }
 
-.status-nav-item:hover > .status-nav-menu {
+.status-nav-item:hover > .status-nav-menu,
+.status-nav-item:focus-within > .status-nav-menu {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* 下拉卡：加宽 + 加大圆角 + 更通透的玻璃底，呼吸感更好 */
 .status-nav-menu-card {
   display: flex;
   flex-direction: column;
-  min-width: 168px;
+  min-width: 160px;
   padding: 6px;
-  border-radius: 14px;
-  background: rgba(2, 6, 23, 0.78);
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.36), 0 0 28px rgba(14, 165, 233, 0.14);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
 }
 
 .status-nav-env {
@@ -299,10 +312,10 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
-  border-radius: 9px;
+  border-radius: 8px;
   font-size: 12px;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.66);
+  color: rgba(255, 255, 255, 0.68);
   text-decoration: none;
   transition: color 0.15s, background-color 0.15s;
 }
@@ -322,21 +335,20 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   }
 }
 
-/* 本地服务行：满宽按钮 + 轻底高亮，使其作为主操作与下方环境链接区分 */
 .status-nav-local {
   width: 100%;
-  /* 整行不换行：localhost:xxxx + 启动中… 挤在一行，避免「启动中」换行 */
   flex-wrap: nowrap;
   border: 0;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.045);
   appearance: none;
   -webkit-appearance: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.status-nav-local:hover {
-  background: rgba(255, 255, 255, 0.1);
+.status-nav-local:hover,
+.status-nav-env-link:hover {
+  background: rgba(255, 255, 255, 0.075);
   color: #fff;
 }
 .status-nav-local-host {
@@ -349,7 +361,7 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   white-space: nowrap;
 }
 .status-nav-local.is-running {
-  background: rgba(52, 211, 153, 0.1);
+  background: rgba(52, 211, 153, 0.09);
   color: #34d399;
 }
 .status-nav-local.is-booting {
@@ -361,19 +373,36 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
-  color: rgba(125, 211, 252, 0.82);
+  color: rgba(125, 211, 252, 0.72);
   white-space: nowrap;
-}
-
-/* 环境链接：纯文字行，hover 微提亮 */
-.status-nav-env-link:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .status-nav-menu-sep {
   height: 1px;
   margin: 4px 4px;
   background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 1380px) {
+  .status-nav-tail-item {
+    display: none;
+  }
+  .status-nav-more-item {
+    display: flex;
+  }
+}
+@media (max-width: 1180px) {
+  .status-nav-compact-tail-item {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .status-nav-item:nth-child(n + 5):not(.status-nav-more-item):not(.status-nav-modao-item):not(.status-nav-git-item):not(.status-nav-model-item),
+  .status-nav-model-item {
+    display: none;
+  }
+  .status-nav-more-item {
+    display: flex;
+  }
 }
 </style>

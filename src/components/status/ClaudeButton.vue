@@ -92,20 +92,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 样式完全对齐 status-nav-label：13px、白色、圆角6px、hover 效果一致 */
 .claude-btn {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  margin: 0 -6px 0 0; /* 抵消StatusNav分隔线左边的10px margin，让间距和其他导航项一致 */
+  padding: 4px 7px;
+  margin: 0 -4px 0 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  font-size: 13px;
-  font-weight: 400;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.01em;
-  color: #fff; /* 默认和其他导航项一致白色，不单独用橙色 */
+  letter-spacing: 0;
+  color: rgba(224, 242, 254, 0.82);
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
@@ -114,7 +113,8 @@ onUnmounted(() => {
 }
 
 .claude-btn:hover {
-  background: rgba(255, 255, 255, 0.1); /* 和其他导航hover完全一致 */
+  background: rgba(125, 211, 252, 0.09);
+  color: #fff;
 }
 
 .claude-btn.is-launching {

@@ -13,6 +13,7 @@
  */
 import { computed, onMounted, onUnmounted } from 'vue'
 import IconModified from '~icons/mdi/circle-edit-outline'
+import IconBranch from '~icons/mdi/source-branch'
 import { useGitDashboard } from '@/features/git'
 import GitDashboard from '@/components/GitDashboard.vue'
 
@@ -78,10 +79,14 @@ onUnmounted(() => dash.stopWidgetPolling())
     @click="dashboardOpen = true"
   >
     <template v-if="unavailable">
+      <IconBranch class="git-icon" />
       <span class="git-branch">Git 未连接</span>
       <span class="git-sync tone-danger">!</span>
     </template>
     <template v-else>
+      <span class="git-icon-wrap" aria-hidden="true">
+        <IconBranch class="git-icon" />
+      </span>
       <span class="git-branch" :title="dash.branch.value || '—'">
         <span v-if="branchParts.scope" class="git-branch-scope">{{ branchParts.scope }}</span>
         <span class="git-branch-leaf">{{ branchParts.leaf }}</span>
@@ -109,27 +114,26 @@ onUnmounted(() => dash.stopWidgetPolling())
   align-items: center;
   max-width: min(34vw, 360px);
   min-width: 0;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 4px 7px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.02em;
-  color: rgba(224, 242, 254, 0.86);
+  letter-spacing: 0;
+  color: rgba(224, 242, 254, 0.82);
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background-color 0.15s, color 0.15s;
   appearance: none;
   -webkit-appearance: none;
   overflow: hidden;
 }
 .git-widget:hover {
-  background: rgba(125, 211, 252, 0.1);
+  background: rgba(125, 211, 252, 0.09);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16);
 }
 .git-widget:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.55);
@@ -140,6 +144,17 @@ onUnmounted(() => dash.stopWidgetPolling())
 }
 .git-widget.is-unavailable:hover {
   background: rgba(244, 63, 94, 0.1);
+}
+.git-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(125, 211, 252, 0.9);
+  flex: 0 0 auto;
+}
+.git-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 .git-branch {
   display: inline-flex;
@@ -194,6 +209,9 @@ onUnmounted(() => dash.stopWidgetPolling())
 @media (max-width: 760px) {
   .git-widget {
     max-width: 42vw;
+  }
+  .git-branch-scope {
+    display: none;
   }
   .git-meta {
     display: none;

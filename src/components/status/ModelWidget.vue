@@ -9,7 +9,7 @@
  *
  * Hover 展开快速切换列表，点击打开完整配置面板。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import {
   providers,
   activeProvider,
@@ -29,6 +29,9 @@ import IconAlert from '~icons/mdi/alert-circle-outline'
 const { status: connectivityStatus, message: connectivityMsg } = useConnectivity()
 
 const configOpen = ref(false)
+const switchedKey = ref('')
+const switchNotice = ref('')
+let switchTimer: number | null = null
 
 // 连通性色点：仅已配置才显示
 const dotState = computed<'ok' | 'warn' | 'down' | 'none'>(() => {
@@ -79,19 +82,33 @@ const confirmedModels = computed<FlatModelEntry[]>(() => {
 })
 
 function switchModel(entry: FlatModelEntry) {
+  const key = `${entry.providerId}:${entry.modelId}`
+  if (entry.isActive && switchedKey.value === key) return
   setActiveModel(entry.providerId, entry.modelId)
+  switchedKey.value = key
+  switchNotice.value = `已切换到 ${entry.modelName}`
+  if (switchTimer) clearTimeout(switchTimer)
+  switchTimer = window.setTimeout(() => {
+    switchedKey.value = ''
+    switchNotice.value = ''
+    switchTimer = null
+  }, 1800)
 }
 
 function openConfig() {
   configOpen.value = true
 }
+
+onUnmounted(() => {
+  if (switchTimer) clearTimeout(switchTimer)
+})
 </script>
 
 <template>
   <div class="model-widget-wrapper">
     <button
       class="model-widget"
-      :class="{ 'is-unconfigured': !configured }"
+      :class="{ 'is-unconfigured': !configured, 'is-switched': !!switchNotice }"
       :title="widgetTitle"
       :aria-label="widgetTitle"
       @click="openConfig"
@@ -126,6 +143,13 @@ function openConfig() {
     <!-- Hover 下拉 -->
     <div class="model-menu">
       <div class="model-menu-card" role="menu">
+        <Transition name="model-switch-notice">
+          <div v-if="switchNotice" class="model-switch-notice" role="status">
+            <IconCheck class="w-3.5 h-3.5" />
+            <span>{{ switchNotice }}</span>
+          </div>
+        </Transition>
+
         <template v-if="confirmedModels.length > 0">
           <div class="model-menu-section-label">已确认可用模型</div>
           <button
@@ -133,7 +157,10 @@ function openConfig() {
             :key="`${entry.providerId}:${entry.modelId}`"
             type="button"
             class="model-menu-item"
-            :class="{ 'is-active': entry.isActive }"
+            :class="{
+              'is-active': entry.isActive,
+              'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
+            }"
             role="menuitem"
             @click.stop="switchModel(entry)"
           >
@@ -178,27 +205,42 @@ function openConfig() {
   align-items: center;
   max-width: min(26vw, 260px);
   min-width: 0;
-  gap: 3px;
+  gap: 4px;
   padding: 4px 7px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.02em;
-  color: rgba(224, 242, 254, 0.86);
+  letter-spacing: 0;
+  color: rgba(224, 242, 254, 0.82);
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background-color 0.15s, color 0.15s;
   appearance: none;
   -webkit-appearance: none;
   overflow: hidden;
 }
 .model-widget:hover {
-  background: rgba(139, 92, 246, 0.12);
+  background: rgba(139, 92, 246, 0.1);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.22);
+}
+.model-widget.is-switched {
+  color: #e9d5ff;
+  background: rgba(139, 92, 246, 0.13);
+  animation: model-widget-confirm 0.72s ease-out;
+}
+@keyframes model-widget-confirm {
+  0% {
+    box-shadow: 0 0 0 rgba(167, 139, 250, 0);
+  }
+  34% {
+    box-shadow: 0 0 18px rgba(167, 139, 250, 0.28);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(167, 139, 250, 0);
+  }
 }
 .model-widget:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.55);
@@ -241,7 +283,7 @@ function openConfig() {
 .model-provider-label {
   font-weight: 600;
   font-size: 11px;
-  opacity: 0.7;
+  color: rgba(196, 181, 253, 0.68);
 }
 .model-name {
   min-width: 0;
@@ -266,13 +308,27 @@ function openConfig() {
 .model-widget-wrapper:hover .model-menu { opacity: 1; pointer-events: auto; }
 
 .model-menu-card {
+  position: relative;
   display: flex; flex-direction: column;
-  padding: 6px; border-radius: 14px;
-  background: rgba(2, 6, 23, 0.82);
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.36), 0 0 28px rgba(139, 92, 246, 0.12);
+  padding: 6px; border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.82)),
+    rgba(2, 6, 23, 0.82);
+  border: 1px solid rgba(139, 92, 246, 0.24);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.42),
+    0 0 28px rgba(139, 92, 246, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
+  overflow: hidden;
+}
+.model-menu-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  content: '';
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.58), rgba(125, 211, 252, 0.34), transparent);
 }
 
 .model-menu-section-label {
@@ -282,16 +338,77 @@ function openConfig() {
   color: rgba(255, 255, 255, 0.3);
 }
 
+.model-switch-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 2px 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(139, 92, 246, 0.2), rgba(14, 165, 233, 0.1)),
+    rgba(255, 255, 255, 0.045);
+  color: rgba(237, 233, 254, 0.94);
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.16);
+}
+.model-switch-notice-enter-active,
+.model-switch-notice-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease, max-height 0.18s ease, margin 0.18s ease;
+  max-height: 34px;
+}
+.model-switch-notice-enter-from,
+.model-switch-notice-leave-to {
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .model-menu-item {
+  position: relative;
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: 9px; border: 0;
+  padding: 7px 10px; border-radius: 8px; border: 0;
   background: transparent; font-size: 12px; line-height: 1;
   color: rgba(255, 255, 255, 0.7); cursor: pointer;
-  transition: color 0.15s, background-color 0.15s;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s;
   text-align: left; appearance: none; -webkit-appearance: none; white-space: nowrap;
+  overflow: hidden;
 }
 .model-menu-item:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 .model-menu-item.is-active { color: #c084fc; background: rgba(139, 92, 246, 0.1); }
+.model-menu-item.is-switching {
+  color: #f5f3ff;
+  background: rgba(139, 92, 246, 0.16);
+  transform: translateX(2px);
+  animation: model-row-confirm 0.78s ease-out;
+}
+.model-menu-item.is-switching::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: translateX(-100%);
+  animation: model-row-light 0.72s ease-out;
+}
+@keyframes model-row-confirm {
+  0% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+  }
+  40% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.32);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+  }
+}
+@keyframes model-row-light {
+  to {
+    transform: translateX(100%);
+  }
+}
 .model-menu-provider { font-weight: 600; color: rgba(139, 92, 246, 0.85); flex-shrink: 0; }
 .model-menu-model { flex: 1; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
 .model-menu-check { flex-shrink: 0; color: #a78bfa; }
@@ -302,7 +419,7 @@ function openConfig() {
 
 .model-menu-config {
   display: flex; align-items: center; gap: 7px;
-  padding: 8px 10px; border-radius: 9px; border: 0;
+  padding: 8px 10px; border-radius: 8px; border: 0;
   background: transparent; font-size: 12px; line-height: 1;
   color: rgba(255, 255, 255, 0.55); cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
@@ -317,5 +434,14 @@ function openConfig() {
 }
 @media (prefers-reduced-motion: reduce) {
   .model-dot.is-down { animation: none; }
+  .model-widget.is-switched,
+  .model-menu-item.is-switching,
+  .model-menu-item.is-switching::before {
+    animation: none;
+  }
+  .model-switch-notice-enter-active,
+  .model-switch-notice-leave-active {
+    transition: none;
+  }
 }
 </style>

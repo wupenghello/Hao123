@@ -37,7 +37,9 @@ onMounted(() => {
     :aria-label="title"
     @click="dashboardOpen = true"
   >
-    <IconPrototype class="modao-icon" />
+    <span class="modao-icon-wrap" aria-hidden="true">
+      <IconPrototype class="modao-icon" />
+    </span>
     <span class="modao-label">{{ label }}</span>
     <IconLoading v-if="dash.loading.value" class="modao-warn modao-spin" />
     <IconAlert v-if="!dash.renderReady.value" class="modao-warn" />
@@ -52,26 +54,25 @@ onMounted(() => {
   max-width: min(22vw, 190px);
   min-width: 0;
   gap: 5px;
-  padding: 4px 8px;
+  padding: 4px 7px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(224, 242, 254, 0.86);
+  color: rgba(224, 242, 254, 0.82);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
   overflow: hidden;
-  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background-color 0.15s, color 0.15s;
 }
 .modao-widget:hover {
-  background: rgba(125, 211, 252, 0.1);
+  background: rgba(125, 211, 252, 0.09);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16);
 }
 .modao-widget:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.55);
@@ -79,6 +80,12 @@ onMounted(() => {
 }
 .modao-widget.is-unavailable {
   color: #fecdd3;
+}
+.modao-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(125, 211, 252, 0.9);
+  flex: 0 0 auto;
 }
 .modao-icon,
 .modao-warn {

@@ -70,9 +70,9 @@ onUnmounted(() => stopStorageHealthMonitor())
   gap: 8px;
   font-family: var(--hud-font-data);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: rgba(224, 242, 254, 0.96);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   text-shadow: 0 0 16px rgba(125, 211, 252, 0.38);
 }
@@ -82,6 +82,6 @@ onUnmounted(() => stopStorageHealthMonitor())
   height: 7px;
   border-radius: 999px;
   background: var(--hud-teal);
-  box-shadow: 0 0 12px rgba(94, 234, 212, 0.9);
+  box-shadow: 0 0 12px rgba(94, 234, 212, 0.82);
 }
 </style>

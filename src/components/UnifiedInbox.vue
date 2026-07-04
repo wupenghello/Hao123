@@ -12,6 +12,7 @@
  * 未配置禅道时，本地待办即清单主角；两者都空时给清闲空态 + 创建入口。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import StateNotice from '@/components/common/StateNotice.vue'
 import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/features/zentao'
 import {
   priorityBadge as ztPri,
@@ -148,6 +149,19 @@ const urgentCount = computed(
 )
 const total = computed(() => items.value.length)
 const isEmpty = computed(() => !loading.value && total.value === 0 && localStore.doneCount === 0)
+const inboxSubtitle = computed(() => {
+  if (loading.value) return zentaoLoggingIn.value ? '正在建立禅道会话' : '正在同步工作项'
+  if (hasError.value && total.value === 0) return '禅道连接异常，等待恢复'
+  if (total.value > 0) {
+    const parts = [
+      taskStore.assigned.length ? `${taskStore.assigned.length} 任务` : '',
+      bugStore.assigned.length ? `${bugStore.assigned.length} Bug` : '',
+      localStore.openCount ? `${localStore.openCount} 本地` : '',
+    ].filter(Boolean)
+    return parts.length ? parts.join(' · ') : '清单已就绪'
+  }
+  return '任务、Bug 与本地待办汇入一处'
+})
 
 // ============ 信任面板：把「为什么这么排」产品化，而不是藏在 tooltip 里 ============
 const trustOpen = ref(false)
@@ -670,16 +684,26 @@ onUnmounted(() => {
     <!-- 头部 -->
     <header class="zt-head">
       <div class="zt-head-main">
-        <span class="zt-pulse" :class="{ 'is-active': total > 0, 'is-urgent': urgentCount > 0 }" />
-        <h2 class="text-white/90 text-sm font-medium">统一收件箱</h2>
-        <span
-          v-if="total"
-          class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-teal-200 bg-teal-400/15 ring-1 ring-teal-400/25"
-        >{{ total }}</span>
-        <span
-          v-if="urgentCount > 0"
-          class="tabular-nums text-[11px] font-medium px-1.5 py-0.5 rounded-full text-rose-200 bg-rose-400/15 ring-1 ring-rose-400/25"
-        >{{ urgentCount }} 紧急</span>
+        <span class="zt-title-core" :class="{ 'is-active': total > 0, 'is-urgent': urgentCount > 0 }">
+          <span class="zt-pulse" />
+        </span>
+        <div class="zt-title-copy">
+          <div class="zt-title-line">
+            <span class="zt-title-kicker">WORKSTREAM</span>
+            <h2>统一收件箱</h2>
+          </div>
+          <p>{{ inboxSubtitle }}</p>
+        </div>
+        <div class="zt-title-metrics" aria-label="收件箱统计">
+          <span v-if="total" class="zt-title-pill is-total">
+            <strong>{{ total }}</strong>
+            <span>项</span>
+          </span>
+          <span v-if="urgentCount > 0" class="zt-title-pill is-urgent">
+            <strong>{{ urgentCount }}</strong>
+            <span>紧急</span>
+          </span>
+        </div>
       </div>
 
       <nav class="zt-tabs" aria-label="收件箱显示形态">
@@ -691,7 +715,11 @@ onUnmounted(() => {
           :title="tab.hint"
           @click="activeView = tab.key"
         >
-          {{ tab.label }}
+          <span class="zt-tab-icon" aria-hidden="true">
+            <IconClipboardCheck v-if="tab.key === 'list'" class="w-3.5 h-3.5" />
+            <IconSpark v-else class="w-3.5 h-3.5" />
+          </span>
+          <span class="zt-tab-label">{{ tab.label }}</span>
         </button>
       </nav>
 
@@ -711,7 +739,10 @@ onUnmounted(() => {
           aria-label="新建本地待办"
           @click="openCreate"
         >
-          <IconPlus class="w-4 h-4" />
+          <span class="zt-create-core">
+            <IconPlus class="w-4 h-4" />
+          </span>
+          <span class="zt-create-label">新建</span>
         </button>
       </div>
     </header>
@@ -848,24 +879,24 @@ onUnmounted(() => {
     </div>
 
     <!-- 加载中：仅清单视图占位；星图视图始终展示星域本身 -->
-    <div v-if="activeView === 'list' && loading" class="px-4 py-8 text-center text-sm text-white/45">
-      {{ zentaoLoggingIn ? '正在登录禅道…' : '加载中…' }}
-    </div>
+    <StateNotice
+      v-if="activeView === 'list' && loading"
+      tone="loading"
+      surface="center"
+      :title="zentaoLoggingIn ? '正在登录禅道' : '正在同步清单'"
+      :message="zentaoLoggingIn ? '正在建立会话并同步任务、Bug 指派信息。' : '正在刷新禅道与本地待办的合并视图。'"
+    />
 
     <!-- 禅道加载出错且清单无内容可兜底：仅清单视图占满提示 + 重试（本地待办存在时走下面的清单，不被遮蔽） -->
-    <div
+    <StateNotice
       v-else-if="activeView === 'list' && hasError && total === 0"
-      class="flex flex-col items-center gap-2 py-8 text-center"
-    >
-      <IconAlert class="w-7 h-7 text-rose-300/70" />
-      <p class="text-sm text-white/55">{{ errorMessage }}</p>
-      <button
-        class="mt-1 px-3 h-7 rounded-md text-xs bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
-        @click="retryZentao"
-      >
-        重试
-      </button>
-    </div>
+      tone="danger"
+      surface="center"
+      title="禅道清单同步失败"
+      :message="errorMessage || '禅道服务暂时不可用。'"
+      action-label="重试"
+      @action="retryZentao"
+    />
 
     <!-- 星图视图：Three.js 科幻任务星域（即使当前没有任务，也保留星域背景与核心状态） -->
     <InboxConstellation
@@ -887,12 +918,13 @@ onUnmounted(() => {
       <button class="zt-empty-create" @click="openCreate">新建一个待办</button>
     </div>
 
-    <!-- 统一清单 -->
-    <ul v-else class="zt-list-scroll">
+    <!-- 统一清单：任务板形态 -->
+    <div v-else class="zt-mission-board">
       <template v-for="g in groups" :key="g.key">
         <!-- 需求线分组头（仅 ≥2 项的簇显示；可折叠） -->
-        <li
+        <button
           v-if="g.isCluster"
+          type="button"
           class="zt-group-head"
           :style="{ '--thread': threadColor(g.label) }"
           @click="toggleGroup(g.key)"
@@ -901,13 +933,13 @@ onUnmounted(() => {
           <span class="zt-group-dot" />
           <span class="zt-group-label">需求线 · {{ g.label }}</span>
           <span class="zt-group-count">{{ g.items.length }}</span>
-        </li>
+        </button>
         <!-- 组内条目（簇折叠时隐藏；其他组始终显示） -->
-        <li
-          v-for="it in g.items"
+        <article
+          v-for="(it, idx) in g.items"
           :key="it.key"
           v-show="g.isCluster ? groupOpen(g.key) : true"
-          class="zt-row"
+          class="zt-mission-card"
           :class="{
             'is-urgent': isUrgent(it),
             'is-clickable': it.kind !== 'local',
@@ -917,147 +949,163 @@ onUnmounted(() => {
           @click="onRowClick(it)"
         >
           <span v-if="g.isCluster" class="zt-thread-mark" :style="{ '--thread': threadColor(g.label) }" />
-        <!-- 禅道任务 -->
-        <template v-if="it.kind === 'task'">
-          <IconCheckboxOutline class="w-4 h-4 text-sky-300/80 shrink-0" />
-          <span class="zt-kind text-sky-200/90 bg-sky-400/10">任务</span>
-          <span class="flex-1 min-w-0 truncate text-sm text-white/85">{{ (it.ref as ZentaoTask).name }}</span>
-          <span
-            v-if="it.risk"
-            class="zt-risk"
-            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
-            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
-            @click.stop="askXiaowu(it)"
-          >
-            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
-            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
-            <IconPause v-else class="w-3 h-3" />
-            {{ it.risk.label }}
-          </span>
-          <span
-            v-if="ztPri((it.ref as ZentaoTask).pri)"
-            class="zt-badge ring-1 ring-inset"
-            :class="ztPri((it.ref as ZentaoTask).pri)!.class"
-          >{{ ztPri((it.ref as ZentaoTask).pri)!.label }}</span>
-          <span class="zt-badge ring-1 ring-inset" :class="taskStatusBadge((it.ref as ZentaoTask).status).class">
-            {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
-          </span>
-          <span
-            v-if="ztHasDeadline((it.ref as ZentaoTask).deadline)"
-            class="hidden sm:inline shrink-0 text-[11px] text-white/40 tabular-nums w-[4.5rem] text-right"
-            :class="{ '!text-rose-300/80': ztIsOverdue((it.ref as ZentaoTask).deadline) }"
-          >{{ (it.ref as ZentaoTask).deadline }}</span>
-        </template>
-
-        <!-- 禅道 Bug -->
-        <template v-else-if="it.kind === 'bug'">
-          <IconBug class="w-4 h-4 text-rose-300/80 shrink-0" />
-          <span class="zt-kind text-rose-200/90 bg-rose-400/10">Bug</span>
-          <span class="flex-1 min-w-0 truncate text-sm text-white/85">{{ (it.ref as ZentaoBug).title }}</span>
-          <span
-            v-if="it.risk"
-            class="zt-risk"
-            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
-            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
-            @click.stop="askXiaowu(it)"
-          >
-            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
-            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
-            <IconPause v-else class="w-3 h-3" />
-            {{ it.risk.label }}
-          </span>
-          <span
-            v-if="severityBadge((it.ref as ZentaoBug).severity)"
-            class="zt-badge ring-1 ring-inset"
-            :class="severityBadge((it.ref as ZentaoBug).severity)!.class"
-          >{{ severityBadge((it.ref as ZentaoBug).severity)!.label }}</span>
-          <span class="zt-badge ring-1 ring-inset" :class="bugStatusBadge((it.ref as ZentaoBug).status).class">
-            {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
-          </span>
-        </template>
-
-        <!-- 本地待办 -->
-        <template v-else>
-          <button
-            class="zt-check"
-            title="标记完成"
-            :disabled="hasCompleting((it.ref as LocalTask).id)"
-            @click.stop="completeLocalTask(it.ref as LocalTask)"
-          >
-            <IconCircle class="w-[18px] h-[18px]" />
-          </button>
-          <span class="zt-kind text-teal-200/90 bg-teal-400/10">本地</span>
-          <div class="flex-1 min-w-0">
-            <span
-              class="zt-title truncate text-sm text-white/90 cursor-text block"
-              :title="(it.ref as LocalTask).title"
-              @click.stop="openEdit(it.ref as LocalTask)"
-            >{{ (it.ref as LocalTask).title }}</span>
-            <p v-if="(it.ref as LocalTask).note" class="zt-note truncate">{{ (it.ref as LocalTask).note }}</p>
+          <div class="zt-card-node">
+            <button
+              v-if="it.kind === 'local'"
+              class="zt-check"
+              title="标记完成"
+              :disabled="hasCompleting((it.ref as LocalTask).id)"
+              @click.stop="completeLocalTask(it.ref as LocalTask)"
+            >
+              <IconCircle class="w-[18px] h-[18px]" />
+            </button>
+            <template v-else-if="it.kind === 'task'">
+              <IconCheckboxOutline class="w-5 h-5" />
+            </template>
+            <template v-else>
+              <IconBug class="w-5 h-5" />
+            </template>
+            <span class="zt-card-index">{{ String(idx + 1).padStart(2, '0') }}</span>
           </div>
-          <span
-            v-if="it.risk"
-            class="zt-risk"
-            :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
-            :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
-            @click.stop="askXiaowu(it)"
-          >
-            <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
-            <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
-            <IconPause v-else class="w-3 h-3" />
-            {{ it.risk.label }}
-          </span>
-          <span
-            v-if="deadlineLabel((it.ref as LocalTask).deadline)"
-            class="zt-dl"
-            :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
-          >{{ deadlineLabel((it.ref as LocalTask).deadline) }}</span>
-          <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
-            {{ priBadge((it.ref as LocalTask).pri).label }}
-          </span>
-          <span
-            v-if="(it.ref as LocalTask).attachments?.length"
-            class="zt-att flex items-center gap-0.5 text-white/35"
-            :title="`${(it.ref as LocalTask).attachments!.length} 个附件`"
-          >
-            <IconClip class="w-3.5 h-3.5" />
-            <span class="text-[11px] tabular-nums">{{ (it.ref as LocalTask).attachments!.length }}</span>
-          </span>
-          <button
-            class="zt-act"
-            :class="{ 'is-confirm': pendingDelete === (it.ref as LocalTask).id }"
-            :title="pendingDelete === (it.ref as LocalTask).id ? '再点一次确认删除' : '删除'"
-            @click.stop="onDelete((it.ref as LocalTask).id)"
-          >
-            <IconTrash v-if="pendingDelete !== (it.ref as LocalTask).id" class="w-4 h-4" />
-            <IconCheck v-else class="w-4 h-4" />
-          </button>
-          <button class="zt-act zt-act-edit" title="编辑" @click.stop="openEdit(it.ref as LocalTask)">
-            <IconPencil class="w-3.5 h-3.5" />
-          </button>
-        </template>
-        </li>
+
+          <div class="zt-card-main">
+            <div class="zt-card-top">
+              <span
+                class="zt-kind"
+                :class="{
+                  'is-task': it.kind === 'task',
+                  'is-bug': it.kind === 'bug',
+                  'is-local': it.kind === 'local',
+                }"
+              >{{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}</span>
+              <span class="zt-card-source">
+                #{{ (it.ref as { id: string | number }).id }}
+              </span>
+              <span v-if="isUrgent(it)" class="zt-card-pressure">HIGH PRESSURE</span>
+            </div>
+
+            <div class="zt-card-title-row">
+              <button
+                v-if="it.kind === 'local'"
+                type="button"
+                class="zt-title"
+                :title="(it.ref as LocalTask).title"
+                @click.stop="openEdit(it.ref as LocalTask)"
+              >{{ (it.ref as LocalTask).title }}</button>
+              <span v-else-if="it.kind === 'task'" class="zt-title" :title="(it.ref as ZentaoTask).name">
+                {{ (it.ref as ZentaoTask).name }}
+              </span>
+              <span v-else class="zt-title" :title="(it.ref as ZentaoBug).title">
+                {{ (it.ref as ZentaoBug).title }}
+              </span>
+            </div>
+
+            <p v-if="it.kind === 'local' && (it.ref as LocalTask).note" class="zt-note truncate">
+              {{ (it.ref as LocalTask).note }}
+            </p>
+
+            <div class="zt-card-meta">
+              <template v-if="it.kind === 'task'">
+                <span
+                  v-if="ztPri((it.ref as ZentaoTask).pri)"
+                  class="zt-badge ring-1 ring-inset"
+                  :class="ztPri((it.ref as ZentaoTask).pri)!.class"
+                >{{ ztPri((it.ref as ZentaoTask).pri)!.label }}</span>
+                <span class="zt-badge ring-1 ring-inset" :class="taskStatusBadge((it.ref as ZentaoTask).status).class">
+                  {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
+                </span>
+                <span
+                  v-if="ztHasDeadline((it.ref as ZentaoTask).deadline)"
+                  class="zt-dl"
+                  :class="{ 'is-overdue': ztIsOverdue((it.ref as ZentaoTask).deadline) }"
+                >{{ (it.ref as ZentaoTask).deadline }}</span>
+              </template>
+
+              <template v-else-if="it.kind === 'bug'">
+                <span
+                  v-if="severityBadge((it.ref as ZentaoBug).severity)"
+                  class="zt-badge ring-1 ring-inset"
+                  :class="severityBadge((it.ref as ZentaoBug).severity)!.class"
+                >{{ severityBadge((it.ref as ZentaoBug).severity)!.label }}</span>
+                <span class="zt-badge ring-1 ring-inset" :class="bugStatusBadge((it.ref as ZentaoBug).status).class">
+                  {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
+                </span>
+              </template>
+
+              <template v-else>
+                <span
+                  v-if="deadlineLabel((it.ref as LocalTask).deadline)"
+                  class="zt-dl"
+                  :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
+                >{{ deadlineLabel((it.ref as LocalTask).deadline) }}</span>
+                <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
+                  {{ priBadge((it.ref as LocalTask).pri).label }}
+                </span>
+                <span
+                  v-if="(it.ref as LocalTask).attachments?.length"
+                  class="zt-att flex items-center gap-0.5 text-white/35"
+                  :title="`${(it.ref as LocalTask).attachments!.length} 个附件`"
+                >
+                  <IconClip class="w-3.5 h-3.5" />
+                  <span class="text-[11px] tabular-nums">{{ (it.ref as LocalTask).attachments!.length }}</span>
+                </span>
+              </template>
+            </div>
+          </div>
+
+          <div class="zt-card-command">
+            <button
+              v-if="it.risk"
+              type="button"
+              class="zt-risk"
+              :class="[`is-${it.risk.level}`, { 'is-ask': chat.configured }]"
+              :title="it.risk.why + (chat.configured ? '（点击让小吴跟进）' : '')"
+              @click.stop="askXiaowu(it)"
+            >
+              <IconAlert v-if="it.risk.level === 'overdue'" class="w-3 h-3" />
+              <IconCalendarClock v-else-if="it.risk.level === 'due-soon'" class="w-3 h-3" />
+              <IconPause v-else class="w-3 h-3" />
+              {{ it.risk.label }}
+            </button>
+            <span v-else class="zt-card-calm">STABLE</span>
+
+            <div v-if="it.kind === 'local'" class="zt-card-actions">
+              <button
+                class="zt-act"
+                :class="{ 'is-confirm': pendingDelete === (it.ref as LocalTask).id }"
+                :title="pendingDelete === (it.ref as LocalTask).id ? '再点一次确认删除' : '删除'"
+                @click.stop="onDelete((it.ref as LocalTask).id)"
+              >
+                <IconTrash v-if="pendingDelete !== (it.ref as LocalTask).id" class="w-4 h-4" />
+                <IconCheck v-else class="w-4 h-4" />
+              </button>
+              <button class="zt-act zt-act-edit" title="编辑" @click.stop="openEdit(it.ref as LocalTask)">
+                <IconPencil class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </article>
       </template>
 
       <!-- 已完成（本地待办）折叠 -->
       <template v-if="localStore.doneCount">
-        <li class="zt-done-head" @click="showDone = !showDone">
+        <button type="button" class="zt-done-head" @click="showDone = !showDone">
           <IconCheck class="w-3.5 h-3.5 text-teal-300/60" />
           <span class="text-[12px] text-white/45">已完成 {{ localStore.doneCount }}</span>
           <span class="zt-chevron text-white/30 transition-transform" :class="{ 'rotate-180': showDone }">▾</span>
-        </li>
+        </button>
         <template v-if="showDone">
-          <li
+          <article
             v-for="t in localStore.done"
             :key="`done-${t.id}`"
-            class="zt-row is-done"
+            class="zt-mission-card is-done"
           >
             <button class="zt-check" title="取消完成" @click.stop="localStore.toggle(t.id)">
               <IconCheck class="w-[18px] h-[18px] text-teal-300" />
             </button>
-            <span class="flex-1 min-w-0 truncate text-sm text-white/40 line-through" :title="t.title">
-              {{ t.title }}
-            </span>
+            <div class="zt-card-main">
+              <span class="zt-title line-through" :title="t.title">{{ t.title }}</span>
+            </div>
             <button
               class="zt-act"
               :class="{ 'is-confirm': pendingDelete === t.id }"
@@ -1067,10 +1115,10 @@ onUnmounted(() => {
               <IconTrash v-if="pendingDelete !== t.id" class="w-4 h-4" />
               <IconCheck v-else class="w-4 h-4" />
             </button>
-          </li>
+          </article>
         </template>
       </template>
-    </ul>
+    </div>
 
     <!-- 详情 / 编辑弹窗 -->
     <TaskDetailModal />
@@ -1093,16 +1141,18 @@ onUnmounted(() => {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 18%, var(--zt-border));
-  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 24%, var(--zt-border));
+  border-radius: 18px;
   background:
-    radial-gradient(circle at 82% 0, color-mix(in srgb, var(--zt-tone) 13%, transparent), transparent 34%),
-    linear-gradient(135deg, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 34%),
-    rgba(2, 6, 23, 0.34);
+    linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(2, 6, 23, 0.38)),
+    linear-gradient(115deg, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 38%),
+    linear-gradient(245deg, color-mix(in srgb, var(--zt-tone-2) 7%, transparent), transparent 42%),
+    rgba(2, 6, 23, 0.36);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.055),
-    0 22px 76px rgba(0,0,0,0.28);
-  backdrop-filter: blur(18px) saturate(130%);
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 0 0 1px rgba(255,255,255,0.03),
+    0 24px 82px rgba(0,0,0,0.32);
+  backdrop-filter: blur(20px) saturate(135%);
 }
 .zt-panel::before {
   position: absolute;
@@ -1110,18 +1160,20 @@ onUnmounted(() => {
   pointer-events: none;
   content: '';
   background:
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(135deg, rgba(0,0,0,0.45), transparent 58%);
+    linear-gradient(90deg, rgba(255,255,255,0.038) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px),
+    repeating-linear-gradient(135deg, transparent 0 34px, rgba(255,255,255,0.018) 34px 35px, transparent 35px 70px);
+  background-size: 30px 30px, 30px 30px, auto;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.58), transparent 66%);
 }
 .zt-panel::after {
   position: absolute;
-  inset: auto 18px 0;
-  height: 1px;
+  inset: 0 18px auto;
+  height: 2px;
   content: '';
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 48%, transparent), transparent);
-  opacity: 0.7;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 64%, transparent), color-mix(in srgb, var(--zt-tone-2) 38%, transparent), transparent);
+  opacity: 0.88;
+  box-shadow: 0 0 28px color-mix(in srgb, var(--zt-tone) 18%, transparent);
 }
 .zt-panel.is-orbit-view {
   border-color: color-mix(in srgb, var(--zt-tone) 12%, transparent);
@@ -1131,7 +1183,7 @@ onUnmounted(() => {
 .zt-insight,
 .zt-trust,
 .zt-ic,
-.zt-list-scroll,
+.zt-mission-board,
 .zt-empty,
 .zt-panel > div,
 .zt-panel > ul,
@@ -1140,17 +1192,25 @@ onUnmounted(() => {
   z-index: 1;
 }
 .zt-head {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto minmax(180px, 1fr);
   align-items: center;
   gap: 12px;
-  min-height: 60px;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--zt-border);
+  min-height: 64px;
+  padding: 12px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--zt-tone) 18%, rgba(255,255,255,0.08));
   background:
-    radial-gradient(circle at 8% 0, color-mix(in srgb, var(--zt-tone) 13%, transparent), transparent 42%),
-    rgba(15, 23, 42, 0.36);
-  backdrop-filter: blur(14px);
+    linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.26)),
+    linear-gradient(90deg, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 38%);
+  backdrop-filter: blur(16px) saturate(125%);
+}
+.zt-head::after {
+  position: absolute;
+  inset: auto 16px 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
 }
 .zt-panel.is-orbit-view .zt-head {
   position: absolute;
@@ -1173,8 +1233,15 @@ onUnmounted(() => {
 }
 .zt-panel.is-orbit-view .zt-head-main h2,
 .zt-panel.is-orbit-view .zt-head-main > span:not(.zt-pulse),
+.zt-panel.is-orbit-view .zt-title-copy,
+.zt-panel.is-orbit-view .zt-title-metrics,
 .zt-panel.is-orbit-view .zt-head-actions button:first-child { display: none; }
 .zt-panel.is-orbit-view .zt-head-actions { min-width: auto; }
+.zt-panel.is-orbit-view .zt-create-btn {
+  width: 34px;
+  padding: 0;
+}
+.zt-panel.is-orbit-view .zt-create-label { display: none; }
 .zt-panel.is-orbit-view .zt-insight,
 .zt-panel.is-orbit-view .zt-ic { display: none; }
 .zt-head-main,
@@ -1184,11 +1251,103 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
 }
-.zt-head-main h2 {
+.zt-head-main {
+  gap: 10px;
+}
+.zt-title-core {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid rgba(148,163,184,0.14);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(255,255,255,0.1), transparent 52%),
+    rgba(2,6,23,0.34);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
+}
+.zt-title-core::before {
+  position: absolute;
+  inset: -5px;
+  border-radius: 16px;
+  content: '';
+  background: radial-gradient(circle, color-mix(in srgb, var(--zt-tone) 16%, transparent), transparent 64%);
+  opacity: 0.42;
+}
+.zt-title-core.is-active {
+  border-color: color-mix(in srgb, var(--zt-success) 32%, transparent);
+}
+.zt-title-core.is-urgent {
+  border-color: color-mix(in srgb, var(--zt-danger) 36%, transparent);
+}
+.zt-title-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.zt-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+.zt-title-kicker {
+  color: color-mix(in srgb, var(--zt-tone) 64%, white 4%);
+  font: 850 9px/1 var(--hud-font-data, ui-monospace, monospace);
+  letter-spacing: 0.12em;
+}
+.zt-title-copy h2 {
+  margin: 0;
   color: rgba(248,250,252,0.94);
-  font-size: 15px;
+  font-size: 15.5px;
   font-weight: 850;
-  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.zt-title-copy p {
+  margin: 0;
+  overflow: hidden;
+  color: rgba(226,232,240,0.45);
+  font-size: 11.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zt-title-metrics {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+}
+.zt-title-pill {
+  display: inline-flex;
+  height: 24px;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(226,232,240,0.64);
+  font-size: 10.5px;
+  line-height: 22px;
+}
+.zt-title-pill strong {
+  color: rgba(255,255,255,0.9);
+  font-size: 12px;
+  font-weight: 850;
+}
+.zt-title-pill.is-total {
+  border-color: rgba(45,212,191,0.18);
+  background: rgba(45,212,191,0.08);
+  color: rgba(153,246,228,0.7);
+}
+.zt-title-pill.is-urgent {
+  border-color: rgba(251,113,133,0.24);
+  background: rgba(244,63,94,0.11);
+  color: rgba(254,205,211,0.76);
 }
 .zt-head-actions { justify-content: flex-end; }
 .zt-head-actions button,
@@ -1224,54 +1383,139 @@ onUnmounted(() => {
   outline: 0;
 }
 .zt-head-actions .zt-create-btn {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 32%, transparent);
+  position: relative;
+  display: inline-flex;
+  width: auto;
+  height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px 0 6px;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 40%, transparent);
+  border-radius: 12px;
   background:
-    radial-gradient(circle at 30% 0, rgba(255,255,255,0.24), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 18%, rgba(2,6,23,0.6)), rgba(2,6,23,0.32));
+    radial-gradient(circle at 22px 0, rgba(255,255,255,0.14), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 18%, rgba(2,6,23,0.66)), rgba(2,6,23,0.34));
   color: rgba(236,254,255,0.94);
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--zt-tone) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.12);
+  box-shadow:
+    0 12px 28px color-mix(in srgb, var(--zt-tone) 14%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.14);
+  overflow: hidden;
+}
+.zt-head-actions .zt-create-btn::after {
+  position: absolute;
+  inset: auto 10px 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 72%, transparent), transparent);
+  opacity: 0.72;
 }
 .zt-head-actions .zt-create-btn:hover,
 .zt-head-actions .zt-create-btn:focus-visible {
   border-color: color-mix(in srgb, var(--zt-tone) 48%, transparent);
-  background: color-mix(in srgb, var(--zt-tone) 14%, rgba(255,255,255,0.05));
+  background:
+    radial-gradient(circle at 22px 0, rgba(255,255,255,0.18), transparent 42%),
+    color-mix(in srgb, var(--zt-tone) 14%, rgba(255,255,255,0.05));
   outline: 0;
+  transform: translateY(-1px);
+}
+.zt-create-core {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--zt-tone) 12%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+.zt-create-label {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
 }
 .zt-tabs {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 18%, transparent);
-  border-radius: 999px;
-  background: rgba(2, 6, 23, 0.58);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 26%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--zt-tone) 9%, transparent), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.018)),
+    rgba(2, 6, 23, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.065),
+    0 12px 30px rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+.zt-tabs::before {
+  position: absolute;
+  inset: 6px 50% 6px 6px;
+  width: calc(50% - 6px);
+  border-radius: 10px;
+  content: '';
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 19%, rgba(255,255,255,0.04)), color-mix(in srgb, var(--zt-tone-2) 8%, transparent));
+  box-shadow:
+    0 0 22px color-mix(in srgb, var(--zt-tone) 16%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--zt-tone) 30%, transparent);
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.zt-tabs:has(.zt-tab:nth-child(2).is-active)::before {
+  transform: translateX(calc(100% + 4px));
 }
 .zt-tab {
   position: relative;
-  height: 30px;
-  padding: 0 13px;
-  border-radius: 999px;
+  z-index: 1;
+  display: inline-flex;
+  height: 32px;
+  min-width: 62px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border-radius: 10px;
   color: rgba(226,232,240,0.54);
   font-size: 12px;
   font-weight: 750;
-  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
+  transition: color 0.18s, filter 0.18s;
 }
 .zt-tab:hover,
 .zt-tab:focus-visible { color: rgba(255,255,255,0.84); outline: 0; }
 .zt-tab.is-active {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--zt-tone) 20%, transparent), color-mix(in srgb, var(--zt-tone-2) 12%, transparent));
   color: #ecfeff;
-  box-shadow: 0 0 18px color-mix(in srgb, var(--zt-tone) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--zt-tone) 28%, transparent);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--zt-tone) 22%, transparent));
+}
+.zt-tab-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 7px;
+  color: rgba(226,232,240,0.52);
+}
+.zt-tab.is-active .zt-tab-icon {
+  color: color-mix(in srgb, var(--zt-tone) 78%, white 12%);
+}
+.zt-tab-label {
+  position: relative;
+}
+.zt-tab.is-active .zt-tab-label::after {
+  position: absolute;
+  inset: auto 15% -6px;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 82%, transparent), transparent);
 }
 .zt-pulse {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   flex-shrink: 0;
   border-radius: 9999px;
   background: rgba(148,163,184,0.5);
@@ -1281,6 +1525,14 @@ onUnmounted(() => {
   animation: zt-ping 2s ease-out infinite;
 }
 .zt-pulse.is-urgent {
+  background: var(--zt-danger);
+  animation: zt-ping-urgent 2s ease-out infinite;
+}
+.zt-title-core.is-active .zt-pulse {
+  background: var(--zt-success);
+  animation: zt-ping 2s ease-out infinite;
+}
+.zt-title-core.is-urgent .zt-pulse {
   background: var(--zt-danger);
   animation: zt-ping-urgent 2s ease-out infinite;
 }
@@ -1297,17 +1549,18 @@ onUnmounted(() => {
 .zt-insight,
 .zt-ic,
 .zt-trust {
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
   background:
-    linear-gradient(120deg, color-mix(in srgb, var(--zt-tone-2) 9%, transparent), color-mix(in srgb, var(--zt-tone) 4%, transparent)),
-    rgba(2, 6, 23, 0.14);
+    linear-gradient(120deg, color-mix(in srgb, var(--zt-tone-2) 8%, transparent), color-mix(in srgb, var(--zt-tone) 5%, transparent)),
+    linear-gradient(180deg, rgba(255,255,255,0.026), transparent),
+    rgba(2, 6, 23, 0.16);
 }
 .zt-insight {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 11px 16px;
   color: rgba(255,255,255,0.76);
   font-size: 12px;
 }
@@ -1315,14 +1568,15 @@ onUnmounted(() => {
 .zt-insight-spark,
 .zt-ic-spark {
   display: grid;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--zt-tone-2) 26%, transparent);
-  border-radius: 7px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--zt-tone-2) 14%, transparent);
   color: color-mix(in srgb, var(--zt-tone-2) 80%, white);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .zt-insight.is-calm .zt-insight-spark {
   border-color: color-mix(in srgb, var(--zt-success) 28%, transparent);
@@ -1466,68 +1720,97 @@ onUnmounted(() => {
 @keyframes zt-ic-bounce { 0%,80%,100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
 .zt-ic-foot { padding: 8px 0 0; }
 .zt-ic-ask { display: inline-flex; align-items: center; gap: 5px; min-height: 27px; padding: 0 10px; border-radius: 8px; font-size: 11.5px; font-weight: 800; }
-.zt-list-scroll {
+.zt-mission-board {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px;
+  padding: 12px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.024), transparent 7%, transparent 93%, rgba(255,255,255,0.018)),
+    linear-gradient(180deg, rgba(255,255,255,0.02), transparent 92%),
+    repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.014) 47px 48px);
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
 }
-.zt-list-scroll::-webkit-scrollbar { width: 6px; }
-.zt-list-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.24); border-radius: 999px; }
-.zt-row {
+.zt-mission-board::-webkit-scrollbar { width: 6px; }
+.zt-mission-board::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.24); border-radius: 999px; }
+.zt-mission-card {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 7px;
-  padding: 11px 12px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) minmax(112px, auto);
+  align-items: stretch;
+  gap: 13px;
+  min-height: 96px;
+  margin-bottom: 10px;
+  padding: 13px 14px 13px 16px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.11);
-  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.115);
+  border-radius: 16px;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.034), rgba(255,255,255,0.014)),
-    rgba(2, 6, 23, 0.26);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    radial-gradient(circle at 34px 28px, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 72px),
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.012)),
+    linear-gradient(100deg, color-mix(in srgb, var(--zt-tone) 6%, transparent), transparent 50%),
+    rgba(2, 6, 23, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.055),
+    inset 0 -1px 0 rgba(255,255,255,0.018),
+    0 10px 24px rgba(0,0,0,0.14);
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
-.zt-row::before {
+.zt-mission-card::before {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
+  inset: 12px auto 12px 0;
+  width: 2px;
+  border-radius: 999px;
   content: '';
   background: linear-gradient(180deg, transparent, var(--zt-tone), transparent);
-  opacity: 0;
+  opacity: 0.48;
 }
-.zt-row:last-child { margin-bottom: 0; }
-.zt-row.is-clickable { cursor: pointer; }
-.zt-row:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--zt-tone) 26%, transparent);
+.zt-mission-card::after {
+  position: absolute;
+  inset: 0 16px auto 18px;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, color-mix(in srgb, var(--zt-tone) 24%, transparent), transparent 54%);
+  opacity: 0.38;
+}
+.zt-mission-card:last-child { margin-bottom: 0; }
+.zt-mission-card.is-clickable { cursor: pointer; }
+.zt-mission-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--zt-tone) 34%, transparent);
   background:
-    radial-gradient(circle at 14px 12px, color-mix(in srgb, var(--zt-tone) 10%, transparent), transparent 44px),
-    rgba(15, 23, 42, 0.42);
+    radial-gradient(circle at 34px 32px, color-mix(in srgb, var(--zt-tone) 14%, transparent), transparent 86px),
+    linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.018)),
+    linear-gradient(100deg, color-mix(in srgb, var(--zt-tone) 11%, transparent), transparent 56%),
+    rgba(15, 23, 42, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.075),
+    inset 0 -1px 0 rgba(255,255,255,0.026),
+    0 14px 34px rgba(0,0,0,0.2),
+    0 0 28px color-mix(in srgb, var(--zt-tone) 9%, transparent);
 }
-.zt-row:hover::before { opacity: 0.58; }
-.zt-row.is-urgent {
-  border-color: rgba(244,63,94,0.2);
+.zt-mission-card:hover::before { opacity: 0.88; }
+.zt-mission-card:hover::after { opacity: 0.68; }
+.zt-mission-card.is-urgent {
+  border-color: rgba(244,63,94,0.24);
   background:
-    radial-gradient(circle at 14px 12px, rgba(244,63,94,0.11), transparent 44px),
-    rgba(244,63,94,0.035);
+    radial-gradient(circle at 34px 32px, rgba(244,63,94,0.16), transparent 86px),
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    rgba(244,63,94,0.04);
 }
-.zt-row.is-urgent::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.72; }
-.zt-row.is-done { opacity: 0.68; }
-.zt-row.is-done:hover { opacity: 1; }
-.zt-row.is-completing {
+.zt-mission-card.is-urgent::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.72; }
+.zt-mission-card.is-done { opacity: 0.68; }
+.zt-mission-card.is-done:hover { opacity: 1; }
+.zt-mission-card.is-completing {
   pointer-events: none;
   animation: zt-complete-row 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   background: linear-gradient(90deg, rgba(45,212,191,0.16), rgba(45,212,191,0.03)), rgba(125,211,252,0.05);
   box-shadow: inset 3px 0 0 rgba(45,212,191,0.72), 0 0 24px rgba(45,212,191,0.1);
 }
-.zt-row.is-completing .zt-title,
-.zt-row.is-completing .zt-note { position: relative; color: rgba(204,251,241,0.72); }
-.zt-row.is-completing .zt-title::after {
+.zt-mission-card.is-completing .zt-title,
+.zt-mission-card.is-completing .zt-note { position: relative; color: rgba(204,251,241,0.72); }
+.zt-mission-card.is-completing .zt-title::after {
   position: absolute;
   left: 0;
   top: 54%;
@@ -1540,19 +1823,110 @@ onUnmounted(() => {
   transform-origin: left;
   animation: zt-complete-strike 0.34s ease-out forwards;
 }
-.zt-row.is-completing .zt-check { color: #99f6e4; background: rgba(45,212,191,0.18); box-shadow: 0 0 0 5px rgba(45,212,191,0.1); animation: zt-complete-check 0.42s ease-out; }
+.zt-mission-card.is-completing .zt-check { color: #99f6e4; background: rgba(45,212,191,0.18); box-shadow: 0 0 0 5px rgba(45,212,191,0.1); animation: zt-complete-check 0.42s ease-out; }
 @keyframes zt-complete-row { 0% { opacity: 1; transform: translateY(0) scale(1); } 42% { opacity: 1; transform: translateY(-1px) scale(1.006); } 100% { opacity: 0; transform: translateY(-8px) scale(0.985); } }
 @keyframes zt-complete-strike { to { transform: scaleX(1); } }
 @keyframes zt-complete-check { 0% { transform: scale(1); } 45% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.zt-card-node {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 42px auto;
+  justify-items: center;
+  align-self: stretch;
+  gap: 6px;
+  color: color-mix(in srgb, var(--zt-tone) 70%, white 8%);
+}
+.zt-card-node::before {
+  position: absolute;
+  top: 48px;
+  bottom: 3px;
+  width: 1px;
+  content: '';
+  background: linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 34%, transparent), transparent);
+}
+.zt-card-node > svg,
+.zt-card-node .zt-check {
+  position: relative;
+  z-index: 1;
+}
+.zt-card-node > svg {
+  width: 42px;
+  height: 42px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 28%, transparent);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015)),
+    color-mix(in srgb, var(--zt-tone) 9%, rgba(2,6,23,0.28));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 0 20px color-mix(in srgb, var(--zt-tone) 10%, transparent);
+}
+.zt-card-index {
+  position: relative;
+  z-index: 1;
+  padding: 2px 5px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 6px;
+  background: rgba(2,6,23,0.42);
+  color: rgba(226,232,240,0.45);
+  font: 800 10px/1 var(--hud-font-data, ui-monospace, monospace);
+}
+.zt-card-main {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 8px;
+}
+.zt-card-top,
+.zt-card-meta,
+.zt-card-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.zt-card-title-row {
+  min-width: 0;
+}
+.zt-card-source,
+.zt-card-pressure,
+.zt-card-calm {
+  color: rgba(226,232,240,0.42);
+  font: 800 10px/1 var(--hud-font-data, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+}
+.zt-card-pressure {
+  color: rgba(254,205,211,0.72);
+}
+.zt-card-command {
+  display: grid;
+  min-width: 112px;
+  align-content: center;
+  justify-items: end;
+  gap: 8px;
+}
+.zt-card-calm {
+  padding: 6px 8px;
+  border: 1px solid rgba(52,211,153,0.12);
+  border-radius: 8px;
+  background: rgba(52,211,153,0.045);
+  color: rgba(167,243,208,0.48);
+}
 .zt-group-head {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 3px 0 7px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--thread) 22%, rgba(255,255,255,0.08));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--thread) 8%, rgba(2,6,23,0.32));
+  margin: 5px 0 9px;
+  padding: 8px 12px 8px 13px;
+  border: 1px solid color-mix(in srgb, var(--thread) 26%, rgba(255,255,255,0.08));
+  border-radius: 11px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--thread) 13%, rgba(2,6,23,0.38)), rgba(2,6,23,0.2)),
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
   user-select: none;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -1561,56 +1935,68 @@ onUnmounted(() => {
 .zt-group-chev { color: rgba(255,255,255,0.42); font-size: 10px; transition: transform 0.15s; }
 .zt-group-chev.is-collapsed { transform: rotate(-90deg); }
 .zt-group-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 999px; background: var(--thread); box-shadow: 0 0 8px var(--thread); }
-.zt-group-label { overflow: hidden; color: rgba(255,255,255,0.78); font-size: 11.5px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
-.zt-group-count { flex-shrink: 0; padding: 0 7px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); font-size: 11px; font-weight: 750; }
+.zt-group-label { overflow: hidden; color: rgba(255,255,255,0.82); font-size: 11.5px; font-weight: 830; text-overflow: ellipsis; white-space: nowrap; }
+.zt-group-count { flex-shrink: 0; padding: 0 7px; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.52); font-size: 11px; font-weight: 780; }
 .zt-thread-mark { width: 2px; align-self: stretch; flex-shrink: 0; margin: 3px 0; border-radius: 2px; background: var(--thread); opacity: 0.62; }
 .zt-kind,
 .zt-badge {
   flex-shrink: 0;
-  padding: 1px 7px;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(255,255,255,0.075);
+  background: rgba(255,255,255,0.04);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   font-size: 11px;
   font-weight: 750;
+  line-height: 1.35;
+}
+.zt-kind {
+  border-radius: 7px;
+  letter-spacing: 0.02em;
 }
 .zt-risk {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   gap: 3px;
-  padding: 1px 7px;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 8px;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 780;
   line-height: 1.4;
 }
-.zt-risk.is-overdue { color: #fda4af; background: rgba(244,63,94,0.12); box-shadow: inset 0 0 0 1px rgba(244,63,94,0.3); }
-.zt-risk.is-due-soon { color: #fcd34d; background: rgba(251,191,36,0.1); box-shadow: inset 0 0 0 1px rgba(251,191,36,0.28); }
-.zt-risk.is-stalled { color: #c4b5fd; background: rgba(139,92,246,0.1); box-shadow: inset 0 0 0 1px rgba(139,92,246,0.25); }
+.zt-risk.is-overdue { color: #fecdd3; background: linear-gradient(180deg, rgba(244,63,94,0.18), rgba(244,63,94,0.08)); box-shadow: inset 0 0 0 1px rgba(244,63,94,0.34); }
+.zt-risk.is-due-soon { color: #fde68a; background: linear-gradient(180deg, rgba(251,191,36,0.15), rgba(251,191,36,0.065)); box-shadow: inset 0 0 0 1px rgba(251,191,36,0.3); }
+.zt-risk.is-stalled { color: #ddd6fe; background: linear-gradient(180deg, rgba(139,92,246,0.15), rgba(139,92,246,0.065)); box-shadow: inset 0 0 0 1px rgba(139,92,246,0.28); }
 .zt-risk.is-ask { transition: filter 0.15s, transform 0.15s; cursor: pointer; }
 .zt-risk.is-ask:hover,
 .zt-risk.is-ask:focus-visible { transform: translateY(-1px); filter: brightness(1.15); outline: 0; }
 .zt-risk.is-overdue.is-ask { animation: zt-risk-pulse 2.4s ease-in-out infinite; }
 @keyframes zt-risk-pulse { 0%,100% { box-shadow: inset 0 0 0 1px rgba(244,63,94,0.3); } 50% { box-shadow: inset 0 0 0 1px rgba(244,63,94,0.55), 0 0 0 3px rgba(244,63,94,0.1); } }
-.zt-dl { flex-shrink: 0; color: rgba(255,255,255,0.45); font-size: 11px; }
+.zt-dl { flex-shrink: 0; padding: 2px 7px; border-radius: 7px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.48); font-size: 11px; }
 .zt-dl.is-overdue { color: #fda4af; }
 .zt-att { flex-shrink: 0; align-items: center; }
 .zt-check {
   display: flex;
-  width: 24px;
-  height: 24px;
+  width: 27px;
+  height: 27px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
   color: rgba(255,255,255,0.42);
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 .zt-check:hover,
 .zt-check:focus-visible { color: #5eead4; border-color: rgba(45,212,191,0.28); background: rgba(45,212,191,0.12); outline: 0; }
 .zt-check:disabled { cursor: default; }
-.zt-title { line-height: 1.3; }
+.zt-title { line-height: 1.3; font-weight: 720; }
 .zt-title:hover { color: #fff; }
-.zt-note { margin-top: 2px; color: rgba(255,255,255,0.42); font-size: 11.5px; }
+.zt-note { margin-top: 3px; color: rgba(255,255,255,0.42); font-size: 11.5px; }
 .zt-act {
   display: flex;
   width: 25px;
@@ -1618,14 +2004,14 @@ onUnmounted(() => {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 9px;
   color: rgba(255,255,255,0.28);
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, transform 0.15s;
 }
-.zt-row:hover .zt-act { opacity: 1; }
+.zt-mission-card:hover .zt-act { opacity: 1; }
 .zt-act:hover,
-.zt-act:focus-visible { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.08); outline: 0; }
+.zt-act:focus-visible { color: rgba(255,255,255,0.84); background: rgba(255,255,255,0.09); outline: 0; transform: translateY(-1px); }
 .zt-act.is-confirm { opacity: 1; color: #fda4af; background: rgba(244,63,94,0.14); }
 .zt-act-edit { width: 22px; height: 22px; }
 .zt-done-head {
@@ -1647,41 +2033,73 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 36px 16px;
+  padding: 44px 16px;
   text-align: center;
+  background:
+    linear-gradient(180deg, transparent, rgba(255,255,255,0.018), transparent),
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 5%, transparent), transparent);
 }
 .zt-empty-icon {
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   margin-bottom: 4px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 30%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--zt-tone) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 34%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 14%, rgba(255,255,255,0.045)), rgba(2,6,23,0.12));
   color: #5eead4;
-  box-shadow: 0 0 22px color-mix(in srgb, var(--zt-tone) 15%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.09),
+    0 0 30px color-mix(in srgb, var(--zt-tone) 17%, transparent);
 }
-.zt-empty-title { color: rgba(255,255,255,0.74); font-size: 14px; font-weight: 800; }
+.zt-empty-title { color: rgba(255,255,255,0.82); font-size: 15px; font-weight: 850; }
 .zt-empty-sub { color: rgba(255,255,255,0.42); font-size: 12.5px; }
 .zt-empty-create {
   margin-top: 7px;
-  padding: 6px 11px;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 28%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--zt-tone) 10%, transparent);
+  padding: 7px 13px;
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 34%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 13%, transparent), transparent),
+    rgba(255,255,255,0.035);
   color: #5eead4;
   font-size: 12.5px;
   font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .zt-empty-create:hover,
 .zt-empty-create:focus-visible { border-color: color-mix(in srgb, var(--zt-tone) 44%, transparent); background: color-mix(in srgb, var(--zt-tone) 16%, transparent); color: #99f6e4; outline: 0; }
 @media (max-width: 760px) {
-  .zt-head { grid-template-columns: 1fr; align-items: stretch; }
+  .zt-panel { border-radius: 14px; }
+  .zt-head { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
   .zt-tabs,
   .zt-head-actions { justify-content: flex-start; }
   .zt-trust-grid { grid-template-columns: 1fr; }
-  .zt-row { flex-wrap: wrap; }
+  .zt-mission-board { padding: 8px; }
+  .zt-mission-card {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 9px;
+    min-height: 0;
+    padding: 11px;
+  }
+  .zt-card-node {
+    grid-template-rows: 38px auto;
+  }
+  .zt-card-node > svg {
+    width: 38px;
+    height: 38px;
+  }
+  .zt-card-command {
+    grid-column: 2;
+    min-width: 0;
+    justify-items: start;
+  }
+  .zt-kind,
+  .zt-badge,
+  .zt-risk,
+  .zt-dl { min-height: 19px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .zt-pulse.is-active,
@@ -1689,17 +2107,17 @@ onUnmounted(() => {
   .zt-risk.is-overdue.is-ask,
   .zt-ic-refresh.is-spinning svg,
   .zt-ic-dot,
-  .zt-row.is-completing,
-  .zt-row.is-completing .zt-check,
-  .zt-row.is-completing .zt-title::after { animation: none; }
-  .zt-row,
+  .zt-mission-card.is-completing,
+  .zt-mission-card.is-completing .zt-check,
+  .zt-mission-card.is-completing .zt-title::after { animation: none; }
+  .zt-mission-card,
   .zt-insight-go,
   .zt-trust-toggle,
   .zt-ic-ask { transition: none; }
-  .zt-row:hover,
+  .zt-mission-card:hover,
   .zt-insight-go:hover,
   .zt-trust-toggle:hover,
   .zt-ic-ask:hover { transform: none; }
-  .zt-row.is-completing { opacity: 0.55; transform: none; }
+  .zt-mission-card.is-completing { opacity: 0.55; transform: none; }
 }
 </style>
