@@ -60,6 +60,8 @@ export const useBugStore = defineStore('zentao-bug', () => {
       detailCache.clear()
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return
+      bugs.value = []
+      detailCache.clear()
       error.value = session.toMessage(e, 'Bug 加载失败')
     } finally {
       if (abortController === controller) {
@@ -107,6 +109,7 @@ export const useBugStore = defineStore('zentao-bug', () => {
       assigned.value = result
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return
+      assigned.value = []
       assignedError.value = session.toMessage(e, 'Bug 加载失败')
     } finally {
       if (assignedAbort === controller) {

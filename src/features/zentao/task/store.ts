@@ -62,6 +62,10 @@ export const useTaskStore = defineStore('zentao-task', () => {
       detailCache.clear()
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return
+      tasks.value = []
+      assigned.value = []
+      assignedError.value = null
+      detailCache.clear()
       error.value = session.toMessage(e, '任务加载失败')
     } finally {
       if (abortController === controller) {
@@ -111,6 +115,9 @@ export const useTaskStore = defineStore('zentao-task', () => {
       error.value = null
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return
+      assigned.value = []
+      tasks.value = []
+      detailCache.clear()
       assignedError.value = session.toMessage(e, '任务加载失败')
     } finally {
       if (assignedAbort === controller) {

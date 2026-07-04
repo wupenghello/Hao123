@@ -698,19 +698,20 @@ onUnmounted(() => {
       <div class="zt-head-actions">
         <button
           v-if="localStore.doneCount"
-          class="text-[11px] text-white/40 hover:text-rose-300/90 transition-colors"
+          class="zt-clear-done text-[11px] text-white/40 hover:text-rose-300/90 transition-colors"
           title="清除所有已完成"
           @click="localStore.clearDone()"
         >
           清除已完成 ({{ localStore.doneCount }})
         </button>
         <button
-          class="flex items-center gap-1 px-2.5 h-7 rounded-md text-[12px] font-medium text-teal-100 bg-teal-400/15 ring-1 ring-teal-400/30 hover:bg-teal-400/25 transition-colors"
+          type="button"
+          class="zt-create-btn"
           title="新建本地待办"
+          aria-label="新建本地待办"
           @click="openCreate"
         >
-          <IconPlus class="w-3.5 h-3.5" />
-          新建
+          <IconPlus class="w-4 h-4" />
         </button>
       </div>
     </header>
@@ -846,14 +847,14 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- 加载中 -->
-    <div v-if="loading" class="px-4 py-8 text-center text-sm text-white/45">
+    <!-- 加载中：仅清单视图占位；星图视图始终展示星域本身 -->
+    <div v-if="activeView === 'list' && loading" class="px-4 py-8 text-center text-sm text-white/45">
       {{ zentaoLoggingIn ? '正在登录禅道…' : '加载中…' }}
     </div>
 
-    <!-- 禅道加载出错且清单无内容可兜底：占满提示 + 重试（本地待办存在时走下面的清单，不被遮蔽） -->
+    <!-- 禅道加载出错且清单无内容可兜底：仅清单视图占满提示 + 重试（本地待办存在时走下面的清单，不被遮蔽） -->
     <div
-      v-else-if="hasError && total === 0"
+      v-else-if="activeView === 'list' && hasError && total === 0"
       class="flex flex-col items-center gap-2 py-8 text-center"
     >
       <IconAlert class="w-7 h-7 text-rose-300/70" />
@@ -1208,21 +1209,26 @@ onUnmounted(() => {
 .zt-head-actions button {
   border-radius: 9px;
 }
-.zt-head-actions button:first-child {
+.zt-head-actions .zt-clear-done {
   height: 29px;
   padding: 0 9px;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.045);
   color: rgba(226,232,240,0.5);
 }
-.zt-head-actions button:first-child:hover,
-.zt-head-actions button:first-child:focus-visible {
+.zt-head-actions .zt-clear-done:hover,
+.zt-head-actions .zt-clear-done:focus-visible {
   color: #fecdd3;
   border-color: rgba(244,63,94,0.26);
   background: rgba(244,63,94,0.1);
   outline: 0;
 }
-.zt-head-actions button:last-child {
+.zt-head-actions .zt-create-btn {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
   border: 1px solid color-mix(in srgb, var(--zt-tone) 32%, transparent);
   background:
     radial-gradient(circle at 30% 0, rgba(255,255,255,0.24), transparent 34%),
@@ -1230,8 +1236,8 @@ onUnmounted(() => {
   color: rgba(236,254,255,0.94);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--zt-tone) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.12);
 }
-.zt-head-actions button:last-child:hover,
-.zt-head-actions button:last-child:focus-visible {
+.zt-head-actions .zt-create-btn:hover,
+.zt-head-actions .zt-create-btn:focus-visible {
   border-color: color-mix(in srgb, var(--zt-tone) 48%, transparent);
   background: color-mix(in srgb, var(--zt-tone) 14%, rgba(255,255,255,0.05));
   outline: 0;
