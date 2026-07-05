@@ -18,9 +18,10 @@ import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
 import { useChatSettings } from '../settings'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
+import ToolActivityRow from './ToolActivityRow.vue'
 import ChatSettingsModal from './ChatSettingsModal.vue'
 import { useConnectivity } from '../connectivity'
-import type { ChatMessage, ToolActivity } from '../types'
+import type { ChatMessage } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
 import IconSend from '~icons/mdi/arrow-up'
@@ -460,6 +461,59 @@ const executingToolLabel = computed(() => {
   return ''
 })
 
+// ============ Agent 循环中间步骤折叠（P0：多轮工具调用合并显示）============
+
+/**
+ * 消息索引 → agent 循环元信息。
+ * 同一次 runAgentLoop 产生的多个 assistant 消息共享 _loopGroup，
+ * 这里将它们分组并标记中间步骤（非最终回答），供模板折叠为紧凑摘要。
+ */
+const loopMeta = computed(() => {
+  const meta = new Map<number, { group: string; isIntermediate: boolean; round: number }>()
+  const groups = new Map<string, number[]>()
+
+  store.messages.forEach((m, i) => {
+    if (m.role === 'assistant' && m._loopGroup) {
+      const indices = groups.get(m._loopGroup) || []
+      indices.push(i)
+      groups.set(m._loopGroup, indices)
+    }
+  })
+
+  for (const [, indices] of groups) {
+    // 找该组的最终回答：有 _loopFinal 标记的最后一条，否则取最后一条
+    let finalIdx = -1
+    for (let j = indices.length - 1; j >= 0; j--) {
+      if (store.messages[indices[j]]._loopFinal) {
+        finalIdx = indices[j]
+        break
+      }
+    }
+    if (finalIdx < 0) finalIdx = indices[indices.length - 1]
+
+    indices.forEach((idx, round) => {
+      meta.set(idx, {
+        group: store.messages[idx]._loopGroup!,
+        isIntermediate: idx !== finalIdx,
+        round: round + 1,
+      })
+    })
+  }
+
+  return meta
+})
+
+/** 用户手动展开的中间步骤 key（`${loopGroup}_${round}`） */
+const expandedLoopSteps = ref(new Set<string>())
+
+function toggleLoopStep(group: string, round: number) {
+  const key = `${group}_${round}`
+  const s = new Set(expandedLoopSteps.value)
+  if (s.has(key)) s.delete(key)
+  else s.add(key)
+  expandedLoopSteps.value = s
+}
+
 // ============ 统一错误入口（问题9·方案A）============
 // 合并 store.error（业务错误）和 connectivity.unreachable（网络问题）为一个统一入口。
 // 内部保留分类，但用户只看到一个错误条，文案和操作统一。
@@ -667,9 +721,6 @@ function isLastAssistant(idx: number): boolean {
   return false
 }
 
-const activityIcon = (s: ToolActivity['status']) =>
-  s === 'running' ? IconLoading : s === 'pending' ? IconAlert : s === 'error' ? IconAlert : IconCheck
-
 // 初始化尺寸监听
 onMounted(() => {
   initSize()
@@ -792,6 +843,80 @@ onUnmounted(() => {
                   <span class="text-[10px] text-white/25 pr-1">{{ formatMessageTime(m.ts) }}</span>
                 </div>
 
+                <!-- 助手 · 中间步骤（agent 循环多轮工具调用，非最终回答 → 折叠为紧凑摘要） -->
+                <div
+                  v-else-if="m.role === 'assistant' && loopMeta.get(i)?.isIntermediate && m.activities?.length"
+                  class="flex gap-2.5"
+                >
+                  <div class="flex flex-col items-center gap-1">
+                    <div class="cmd-avatar-sm shrink-0 mt-0.5 opacity-40">
+                      <IconRobot class="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div
+                      class="cmd-loop-intermediate"
+                      :class="{ 'is-expanded': expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`) }"
+                      @click="toggleLoopStep(m._loopGroup!, loopMeta.get(i)!.round)"
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="cmd-loop-step-num">步骤 {{ loopMeta.get(i)!.round }}</span>
+                        <span class="cmd-loop-step-label truncate text-[11px] text-white/45">
+                          {{ m.activities!.map(a => a.label).join(' · ') }}
+                        </span>
+                        <span class="ml-auto flex items-center gap-1 shrink-0">
+                          <template v-if="m.activities!.every(a => a.status === 'done')">
+                            <IconCheck class="w-3 h-3 text-emerald-300/50" />
+                            <span class="text-[10px] text-emerald-300/50">{{ formatDuration(m.activities!.reduce((sum, a) => sum + (a.duration || 0), 0)) }}</span>
+                          </template>
+                          <template v-else-if="m.activities!.some(a => a.status === 'error')">
+                            <IconAlert class="w-3 h-3 text-rose-300/50" />
+                            <span class="text-[10px] text-rose-300/50">部分失败</span>
+                          </template>
+                          <template v-else-if="m.activities!.some(a => a.status === 'running')">
+                            <IconLoading class="w-3 h-3 text-teal-300/50 animate-spin" />
+                            <span class="text-[10px] text-teal-300/50">执行中</span>
+                          </template>
+                        </span>
+                        <svg
+                          class="w-3 h-3 text-white/25 transition-transform duration-200"
+                          :class="{ 'rotate-180': expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`) }"
+                          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+                    </div>
+                    <!-- 中间轮次的文字（模型在思考/换策略，非最终回答）→ 极轻量展示 -->
+                    <div v-if="m.content" class="mt-1 text-[11px] text-white/25 leading-relaxed line-clamp-2 px-1">
+                      {{ m.content }}
+                    </div>
+                    <!-- 展开时显示完整活动卡片（缩小、降低不透明度） -->
+                    <div
+                      v-if="expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`)"
+                      class="mt-1.5 space-y-1"
+                    >
+                      <div
+                        v-for="(a, ai) in m.activities!"
+                        :key="ai"
+                        class="cmd-activity opacity-60 scale-[0.97] origin-top-left"
+                        :class="[toolColorClass(a.label), a.status, { 'is-error': a.status === 'error' }]"
+                      >
+                        <ToolActivityRow :activity="a" compact />
+                      </div>
+                    </div>
+                    <!-- 中间步骤的生成式 UI 块（reach/天气等工具在中间轮也可能产出卡片） -->
+                    <div v-if="m.ui?.length" class="cmd-ui-stack mt-1.5">
+                      <GenerativeUiBlock
+                        v-for="block in m.ui"
+                        :key="block.id"
+                        :block="block"
+                      />
+                    </div>
+                    <span class="text-[10px] text-white/15">{{ formatMessageTime(m.ts) }}</span>
+                  </div>
+                </div>
+
                 <!-- 助手 -->
                 <div v-else-if="m.role === 'assistant' && (m.content || m.activities?.length || m.ui?.length)" class="flex gap-2.5">
                   <div class="flex flex-col items-center gap-1">
@@ -824,28 +949,7 @@ onUnmounted(() => {
                         @click="store.toggleActivityExpand(i, ai)"
                       >
                         <div class="flex items-center w-full">
-                          <component
-                            :is="activityIcon(a.status)"
-                            class="w-3.5 h-3.5 shrink-0"
-                            :class="{
-                              'animate-spin text-teal-300/80': a.status === 'running',
-                              'text-amber-300/90': a.status === 'pending',
-                              'text-emerald-300/80': a.status === 'done',
-                              'text-rose-300/80': a.status === 'error',
-                            }"
-                          />
-                          <span class="text-white/70">{{ a.label }}</span>
-                          <span v-if="a.detail" class="text-white/35 truncate">· {{ a.detail }}</span>
-                          <span class="ml-auto text-[10px] text-white/30 shrink-0 flex items-center gap-1">
-                            <span v-if="a.status === 'running'">查询中</span>
-                            <span v-else-if="a.status === 'pending'" class="text-amber-300/80">待确认</span>
-                            <span v-else-if="a.status === 'error'">{{ a.approval?.decision === 'rejected' ? '已取消' : '失败' }}</span>
-                            <template v-else>
-                              <span class="text-emerald-300/60">✓</span>
-                              <span v-if="a.duration">{{ formatDuration(a.duration) }}</span>
-                              <span v-else>完成</span>
-                            </template>
-                          </span>
+                          <ToolActivityRow :activity="a" />
                           <!-- 展开/收起箭头 -->
                           <svg
                             v-if="a.result"
@@ -1570,6 +1674,51 @@ onUnmounted(() => {
 }
 .cmd-activity.is-error { --tool-tone: #fb7185; }
 .cmd-activity.is-pending { --tool-tone: #fbbf24; }
+
+/* agent 循环中间步骤折叠卡：紧凑单行 + 点击展开查看详情 */
+.cmd-loop-intermediate {
+  position: relative;
+  display: block;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.008));
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.cmd-loop-intermediate::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: '';
+  background: linear-gradient(180deg, transparent, rgba(148, 163, 184, 0.2), transparent);
+  opacity: 0.6;
+}
+.cmd-loop-intermediate:hover {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+}
+.cmd-loop-intermediate.is-expanded {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(255,255,255,0.025);
+}
+.cmd-loop-step-num {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.35);
+  font: 700 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.cmd-loop-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cmd-activity.tool-weather { --tool-tone: #38bdf8; }
 .cmd-activity.tool-task { --tool-tone: #34d399; }
 .cmd-activity.tool-bug { --tool-tone: #fb7185; }

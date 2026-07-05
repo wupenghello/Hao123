@@ -580,7 +580,11 @@ export const useChatStore = defineStore('chat', () => {
   watch(
     messages,
     (val) => {
-      const slim = val.map((m) => (m.images?.length ? { ...m, images: undefined } : m))
+      const slim = val.map((m) => {
+        // 剥离不持久化的内部字段：图片 data URL（体积过大）+ agent 循环标记
+        const { _loopGroup, _loopFinal, images, ...rest } = m
+        return rest as ChatMessage
+      })
       setLocalStorageItem('hao123-chat-history', JSON.stringify(slim))
     },
     { deep: true },
@@ -709,6 +713,10 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     streaming.value = true
 
+    // 本次 agent 循环的统一标识：多轮工具调用产生的 assistant 消息共享此 ID，
+    // UI 据此将中间轮次折叠为紧凑摘要，只展开最终回答。
+    const loopGroup = `loop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+
     // 工具全量下发给模型，由模型自行决定是否调用、调用哪个——
     // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
     // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
@@ -729,6 +737,8 @@ export const useChatStore = defineStore('chat', () => {
         // 每轮新建一个 assistant 占位消息；改「数组里的响应式代理」以驱动流式重渲染
         const idx = messages.value.push({ role: 'assistant', content: '', ts: Date.now() }) - 1
         const assistant = messages.value[idx]
+        assistant._loopGroup = loopGroup
+        assistant._loopFinal = false
 
         const { toolCalls } = await llm.chatStream({
           messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts]),
@@ -748,6 +758,7 @@ export const useChatStore = defineStore('chat', () => {
         // 无工具调用 → 本轮即最终回答，结束
         if (!toolCalls.length) {
           assistant.qualityCategory = classifyAssistantMessage(messages.value.slice(0, idx), assistant)
+          assistant._loopFinal = true
           break
         }
 
@@ -845,6 +856,8 @@ export const useChatStore = defineStore('chat', () => {
           content: '（已达到工具调用轮数上限，未能给出最终答复，请缩小问题范围或继续追问。）',
           ts: Date.now(),
           qualityCategory: 'general',
+          _loopGroup: loopGroup,
+          _loopFinal: true,
         })
       }
       // 整轮顺利完成 → 通知连通性层「现在可达」，触发 ambient 模块恢复续生成
@@ -855,6 +868,13 @@ export const useChatStore = defineStore('chat', () => {
         // 否则它会被持久化到 localStorage，下一轮 buildApiMessages 把空 content 的
         // assistant 喂给模型，DeepSeek/OpenAI 会以 400「content must be non-empty」拒绝。
         cleanupEmptyAssistant(messages.value)
+        // 标记该 loop 组最后一条已完成轮次为最终回答，避免中间步骤被误当最终渲染
+        for (let i = messages.value.length - 1; i >= 0; i--) {
+          if ((messages.value[i] as ChatMessage)._loopGroup === loopGroup) {
+            (messages.value[i] as ChatMessage)._loopFinal = true
+            break
+          }
+        }
         return
       }
       // 网络类错误归连通性层（琥珀条 / Launcher 色点 / 自动重试），不污染 store.error 红条；
@@ -867,6 +887,13 @@ export const useChatStore = defineStore('chat', () => {
       }
       // 移除空的尾部 assistant 占位（避免残留空气泡）
       cleanupEmptyAssistant(messages.value)
+      // 同上：标记最后一条已完成轮次为最终回答
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        if ((messages.value[i] as ChatMessage)._loopGroup === loopGroup) {
+          (messages.value[i] as ChatMessage)._loopFinal = true
+          break
+        }
+      }
     } finally {
       if (abortController === controller) {
         streaming.value = false

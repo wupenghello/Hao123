@@ -119,6 +119,15 @@ export interface ChatMessage {
   feedback?: 'up' | 'down'
   /** 反馈归因分类：用于判断小吴哪类能力最不稳定 */
   qualityCategory?: FeedbackCategory
+  /**
+   * 内部字段：同一次 agent 循环的标识。
+   * 多轮工具调用产生的 assistant 消息共享同一 _loopGroup，
+   * UI 据此将中间轮次折叠为紧凑摘要，只展开最终回答。
+   * 不持久化到 localStorage（写入前剥离）。
+   */
+  _loopGroup?: string
+  /** 内部字段：是否为该 agent 循环的最终回答（有正文、不再继续调用工具）。 */
+  _loopFinal?: boolean
 }
 
 /** 一轮流式响应的累积结果 */
