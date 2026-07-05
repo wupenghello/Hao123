@@ -496,8 +496,10 @@ function buildStaticSystemPrompt(): string {
     '典型串联：',
     '- 「今天怎么安排 / 我先做什么好」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list（必要时加 weather.current），再按紧急·逾期·今天截止排出优先级与节奏。',
     '- 「这周还有啥没做完 / 我手头多少事」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list，归类汇总，点名最该跟进的。',
-    '- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。',
   )
+  if (reachEnabled) {
+    lines.push('- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。')
+  }
   if (kbEnabled) {
     lines.push('- 「这个 bug 怎么定位」→ 先 zentao.bug_detail 拿详情，再 kb.search 查相关流程/说明，综合给思路。')
   }
