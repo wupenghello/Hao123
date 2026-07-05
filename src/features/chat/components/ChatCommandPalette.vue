@@ -12,15 +12,12 @@
  */
 import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../store'
-import { useWelcomeGuide } from '../welcome-guide'
-import { kbEnabled } from '../tools'
 import { reachEnabled } from '@/features/reach'
-import { fetchReachStatus } from '@/features/reach'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
-import ConnectivityBanner from './ConnectivityBanner.vue'
+import { useConnectivity } from '../connectivity'
 import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
@@ -46,131 +43,73 @@ import IconQuote from '~icons/mdi/format-quote-close'
 import IconCloseCircle from '~icons/mdi/close-circle'
 
 const store = useChatStore()
-const { suggestions } = useWelcomeGuide()
 
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
-const reachStatus = ref<'idle' | 'checking' | 'ready' | 'partial' | 'off'>(
-  reachEnabled ? 'idle' : 'off',
-)
-const reachStatusText = ref(
-  reachEnabled
-    ? '外部调研已开启，可搜索公开互联网、读网页、分析 GitHub 与视频。'
-    : '外部调研未启用；运行 npm run setup:reach，并在 .env 设置 VITE_AGENT_REACH_ENABLED=true。',
-)
 
-// ============ 能力标签云 ============
-// 知识库标签仅在已配置时出现——未配置时点击会让用户撞上「搜不了」的尴尬。
-const abilityTags = [
-  { icon: IconWeather, label: '查天气', text: '北京今天的天气怎么样', color: 'tag-weather' },
-  { icon: IconTask, label: '看任务', text: '看看我的待办任务', color: 'tag-task' },
-  { icon: IconBug, label: '查 Bug', text: '看看我有哪些 bug', color: 'tag-bug' },
-  { icon: IconClip, label: '记待办', text: '记一下明天要交周报', color: 'tag-local' },
-  ...(kbEnabled
-    ? [{ icon: IconSpark, label: '知识库', text: '搜索知识库：环境配置', color: 'tag-kb' }]
-    : []),
-  {
-    icon: IconSearchWeb,
-    label: '外部调研',
-    text: reachEnabled ? '帮我调研一下 Agent Reach 能做什么' : '外部调研能力怎么启用？',
-    color: 'tag-reach',
-  },
-]
+// ============ 上下文感知动态建议 ============
+// 基于时间 + 当前浏览上下文动态生成引导问题，而非静态模板匹配。
+// 放在输入框下方作为可点击的快捷按钮，不在输入框内部做幽灵补全。
 
-// ============ 输入联想相关 ============
-/** 联想提示词库（知识库相关词条仅在已配置时给出，避免引导用户搜不到） */
-const suggestionTemplates = [
-  { prefix: '查天气', full: '查一下北京今天的天气', icon: 'weather' },
-  { prefix: '查一下', full: '查一下北京今天的天气', icon: 'weather' },
-  { prefix: '天气', full: '北京今天的天气怎么样', icon: 'weather' },
-  { prefix: '今天', full: '今天北京的天气怎么样', icon: 'weather' },
-  { prefix: '明天', full: '明天北京的天气预报', icon: 'weather' },
-  { prefix: '一周', full: '北京未来一周的天气预报', icon: 'weather' },
-  { prefix: '我的任务', full: '看看我的待办任务', icon: 'task' },
-  { prefix: '看任务', full: '看看我的待办任务', icon: 'task' },
-  { prefix: '任务', full: '查看我的任务列表', icon: 'task' },
-  { prefix: '待办', full: '查看我的待办任务', icon: 'task' },
-  { prefix: 'bug', full: '看看我有哪些 bug', icon: 'bug' },
-  { prefix: '缺陷', full: '查看我分配的缺陷', icon: 'bug' },
-  ...(kbEnabled
-    ? [
-        { prefix: '知识库', full: '搜索知识库：环境配置', icon: 'kb' },
-        { prefix: '搜一下', full: '搜索知识库：部署流程', icon: 'kb' },
-        { prefix: '搜索', full: '搜索知识库：环境域名', icon: 'kb' },
-        { prefix: '怎么', full: '怎么配置开发环境？请搜索知识库', icon: 'kb' },
-      ]
-    : []),
-  ...(reachEnabled
-    ? [
-        { prefix: '调研', full: '帮我调研一下 Agent Reach 能做什么', icon: 'reach' },
-        { prefix: '读链接', full: '帮我读一下这个链接：https://github.com/Panniantong/agent-reach', icon: 'reach' },
-        { prefix: 'github', full: '帮我分析这个 GitHub 仓库：https://github.com/Panniantong/agent-reach', icon: 'reach' },
-      ]
-    : []),
-  { prefix: '记一下', full: '记一下明天要交周报', icon: 'local' },
-  { prefix: '提醒我', full: '提醒我下午三点开会', icon: 'local' },
-  { prefix: '加个待办', full: '加个待办：周报改完发群里', icon: 'local' },
-  { prefix: '我的待办', full: '看看我的本地待办', icon: 'local' },
-]
-
-/** 当前的联想提示 */
-const autocompleteSuggestion = ref('')
-/** 是否显示联想提示 */
-const showAutocomplete = ref(false)
-/** 过滤后的联想列表（预留，未来可扩展下拉列表） */
-const filteredSuggestions = ref<typeof suggestionTemplates>([])
-
-/** 根据输入过滤联想 */
-function filterSuggestions(input: string) {
-  const trimmed = input.trim().toLowerCase()
-  if (!trimmed) {
-    filteredSuggestions.value = []
-    autocompleteSuggestion.value = ''
-    showAutocomplete.value = false
-    return
-  }
-
-  const matched = suggestionTemplates.filter(s =>
-    s.prefix.toLowerCase().includes(trimmed) ||
-    s.full.toLowerCase().includes(trimmed)
-  )
-  filteredSuggestions.value = matched.slice(0, 5)
-
-  // 幽灵补全显示的是 suggestion.slice(输入长度)，因此只有当建议
-  // 确实以当前输入开头时才能拼出连贯的句子；否则会错位成乱码。
-  const startMatch = matched.find(s => s.full.toLowerCase().startsWith(trimmed))
-  autocompleteSuggestion.value = startMatch ? startMatch.full : ''
-  showAutocomplete.value = matched.length > 0 && !!startMatch
+function pickGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 9) return '早上好'
+  if (h < 12) return '上午好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
 }
 
-/** 应用联想内容 */
-function applySuggestion(suggestion?: string) {
-  const text = suggestion || autocompleteSuggestion.value
-  if (text) {
-    input.value = text
-    autoGrow()
-    showAutocomplete.value = false
-    nextTick(() => {
-      inputEl.value?.focus()
-    })
-  }
+interface ContextSuggestion {
+  text: string
+  icon: 'weather' | 'task' | 'bug' | 'local' | 'plan' | 'reach'
 }
 
-/** 输入框失焦时延迟隐藏联想 */
-function onInputBlur() {
-  setTimeout(() => {
-    showAutocomplete.value = false
-  }, 200)
-}
+/** 响应式当前小时：让 contextSuggestions 能随时间推移自动刷新建议。
+ *  每分钟检查一次，仅在小时变化时更新（避免无意义的重渲染）。 */
+const currentHour = ref(new Date().getHours())
+let hourTimer: ReturnType<typeof setInterval> | null = null
 
-/** 输入框聚焦时显示联想（如果有内容） */
-function onInputFocus() {
-  if (input.value.trim()) {
-    filterSuggestions(input.value)
+/** 生成上下文感知的快捷提问：基于时间、当前页面等信息。 */
+const contextSuggestions = computed<ContextSuggestion[]>(() => {
+  const h = currentHour.value
+  const items: ContextSuggestion[] = []
+
+  // 早上 → 倾向问今日安排
+  if (h < 11) {
+    items.push({ text: '今天有哪些事需要处理？', icon: 'plan' })
+    items.push({ text: '今天天气怎么样，需要带伞吗？', icon: 'weather' })
+  } else if (h < 14) {
+    // 午后 → 关注进度
+    items.push({ text: '手头还有哪些没做完的？', icon: 'task' })
+    items.push({ text: '下午有什么需要优先处理的？', icon: 'plan' })
+  } else {
+    // 傍晚 → 回顾 + 收尾
+    items.push({ text: '今天还有遗漏的事吗？', icon: 'plan' })
+    items.push({ text: '明天有什么需要提前准备的？', icon: 'task' })
   }
+
+  // 始终提供快捷入口
+  items.push({ text: '帮我记一条待办', icon: 'local' })
+
+  // 外部调研可用时多给一条
+  if (reachEnabled) {
+    items.push({ text: '帮我查一下最新技术动态', icon: 'reach' })
+  }
+
+  return items.slice(0, 4)
+})
+
+function suggestionIconFor(kind: ContextSuggestion['icon']) {
+  return kind === 'weather' ? IconWeather
+    : kind === 'task' ? IconTask
+    : kind === 'bug' ? IconBug
+    : kind === 'local' ? IconClip
+    : kind === 'reach' ? IconSearchWeb
+    : IconSpark
 }
 
 // ============ 引用回复相关 ============
@@ -481,14 +420,111 @@ function isStreamingAt(i: number): boolean {
   return !!store.streaming && i === store.messages.length - 1
 }
 
+/**
+ * 等待态：只要 assistant 还没给出用户可见的文字回答，就持续显示等待动画。
+ * 方案A：工具执行期间也保持等待态（而非之前那样一旦有 tool_calls 就隐藏三个点）。
+ * 方案B：区分「思考中」和「执行中」两个阶段，给用户清晰的进度感知。
+ */
 const awaitingFirstToken = computed(() => {
   if (!store.streaming) return false
   const last = store.messages[store.messages.length - 1]
-  return last?.role === 'assistant' && !last.content && !last.activities?.length && !last.ui?.length
+  return last?.role === 'assistant' && !last.content
 })
 
-const suggestionIcon = (kind: string) =>
-  kind === 'weather' ? IconWeather : kind === 'task' ? IconTask : kind === 'bug' ? IconBug : kind === 'local' ? IconClip : IconSpark
+/** 当前正在执行工具（有活动卡但还没文字输出） */
+const isExecutingTools = computed(() => {
+  if (!store.streaming) return false
+  const last = store.messages[store.messages.length - 1]
+  if (last?.role !== 'assistant') return false
+  return !!(last.activities?.length) && !last.content
+})
+
+/** 工具执行中的进度描述 */
+const executingToolLabel = computed(() => {
+  const last = store.messages[store.messages.length - 1]
+  if (!last?.activities?.length) return ''
+  const running = last.activities.filter((a) => a.status === 'running')
+  const done = last.activities.filter((a) => a.status === 'done')
+  const error = last.activities.filter((a) => a.status === 'error')
+  const pending = last.activities.filter((a) => a.status === 'pending')
+  if (running.length > 1) return `正在并行查询（${done.length}/${last.activities.length}）…`
+  if (running.length === 1) return `正在查询${running[0].label}…`
+  if (pending.length) return `等待确认（${pending.length} 项）…`
+  if (error.length === last.activities.length) return '查询遇到问题，可点击下方活动卡重试'
+  if (error.length) return `部分查询失败（${error.length}/${last.activities.length}），可点击重试`
+  if (done.length === last.activities.length) return '正在组织回答…'
+  return ''
+})
+
+// ============ 统一错误入口（问题9·方案A）============
+// 合并 store.error（业务错误）和 connectivity.unreachable（网络问题）为一个统一入口。
+// 内部保留分类，但用户只看到一个错误条，文案和操作统一。
+
+const connectivity = useConnectivity()
+
+interface UnifiedError {
+  visible: boolean
+  message: string
+  style: string
+  iconClass: string
+  actionClass: string
+  actions: { label: string; disabled?: boolean; handler: () => void }[]
+}
+
+const unifiedError = computed<UnifiedError>(() => {
+  const conn = connectivity.unreachable.value
+  const biz = !!store.error
+
+  if (!conn && !biz) {
+    return { visible: false, message: '', style: '', iconClass: '', actionClass: '', actions: [] }
+  }
+
+  // 网络不可达优先（阻断性更强），但也合并业务错误信息
+  if (conn) {
+    const baseStyle = 'bg-amber-400/8 ring-1 ring-amber-300/20 text-amber-100/90'
+    const baseIcon = 'text-amber-300/80'
+    const baseAction = 'text-amber-200/80 hover:text-amber-100'
+
+    // 给用户看的文案（不暴露 classifyError 的内部根因）
+    let message: string
+    if (connectivity.reason.value === 'auth') {
+      message = 'API Key 可能已过期或无效，请在模型配置中更新。'
+    } else {
+      message = '小吴暂时无法回应，请检查网络或稍后再试。'
+    }
+    // 如果同时有业务错误，追加一句
+    if (biz) {
+      message += `（上次对话也出了点问题：${store.error!.slice(0, 60)}）`
+    }
+
+    return {
+      visible: true,
+      message,
+      style: baseStyle,
+      iconClass: baseIcon,
+      actionClass: baseAction,
+      actions: [
+        {
+          label: connectivity.autoRetrying.value ? '重试中…' : '重试',
+          disabled: connectivity.autoRetrying.value,
+          handler: () => connectivity.retry(),
+        },
+      ],
+    }
+  }
+
+  // 纯业务错误
+  return {
+    visible: true,
+    message: store.error!,
+    style: 'bg-rose-400/10 ring-1 ring-rose-300/25 text-rose-100/90',
+    iconClass: 'text-rose-300/80',
+    actionClass: 'text-rose-200/80 hover:text-rose-100',
+    actions: [
+      { label: '重新回答', handler: () => store.regenerate() },
+    ],
+  }
+})
 
 // 工具类型对应的颜色类
 const toolColorClass = (toolName: string) => {
@@ -579,41 +615,7 @@ function ask(text: string) {
   commitSend(text)
 }
 
-async function checkReachStatus() {
-  if (!reachEnabled || reachStatus.value === 'checking') return
-  reachStatus.value = 'checking'
-  reachStatusText.value = '正在检查外部调研工具...'
-  try {
-    const status = await fetchReachStatus()
-    if (!status.enabled || !status.installed) {
-      reachStatus.value = 'partial'
-      reachStatusText.value = '外部调研开关已开，但 Agent Reach 未安装完整；运行 npm run setup:reach 后重启 dev server。'
-      return
-    }
-    const missing = Object.entries(status.tools)
-      .filter(([, ok]) => !ok)
-      .map(([name]) => name)
-    if (missing.length) {
-      reachStatus.value = 'partial'
-      reachStatusText.value = `外部调研可用，但部分工具未就绪：${missing.join('、')}。`
-    } else {
-      reachStatus.value = 'ready'
-      reachStatusText.value = '外部调研已就绪：搜索、网页读取、GitHub 分析和视频信息读取能力可用。'
-    }
-  } catch {
-    reachStatus.value = 'partial'
-    reachStatusText.value = '外部调研状态检查失败；确认已运行 npm run setup:reach 并重启 dev server。'
-  }
-}
-
 function onEnter(e: KeyboardEvent) {
-  // Tab = 应用联想补全
-  if (e.key === 'Tab' && showAutocomplete.value && autocompleteSuggestion.value) {
-    e.preventDefault()
-    applySuggestion()
-    return
-  }
-
   // Alt+Enter = 换行（不发送）
   if (e.key === 'Enter' && e.altKey && !e.isComposing) {
     e.preventDefault()
@@ -669,6 +671,11 @@ onMounted(() => {
   initSize()
   window.addEventListener('resize', onWindowResize)
   setupCodeBlockCopy()
+  // 每分钟检查小时变化，驱动 contextSuggestions 刷新（Fix 3）
+  hourTimer = setInterval(() => {
+    const h = new Date().getHours()
+    if (h !== currentHour.value) currentHour.value = h
+  }, 60_000)
 })
 
 onUnmounted(() => {
@@ -677,6 +684,7 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onResizeEnd)
   document.removeEventListener('mouseleave', onResizeEnd)
   if (codeCopyHandler) document.removeEventListener('click', codeCopyHandler)
+  if (hourTimer) { clearInterval(hourTimer); hourTimer = null }
 })
 </script>
 
@@ -952,80 +960,80 @@ onUnmounted(() => {
                   </template>
                 </div>
 
-              <!-- 等待首个 token -->
+              <!-- 等待首个 token（工具执行中也保持显示，下方附加执行进度） -->
               <div v-if="awaitingFirstToken" class="flex gap-2.5">
                 <div class="cmd-avatar-sm shrink-0 mt-0.5">
                   <IconRobot class="w-4 h-4" />
                 </div>
-                <div class="cmd-bubble-ai inline-flex items-center gap-1 py-3">
-                  <span class="cmd-dot" style="animation-delay: 0ms" />
-                  <span class="cmd-dot" style="animation-delay: 160ms" />
-                  <span class="cmd-dot" style="animation-delay: 320ms" />
+                <div class="flex flex-col gap-1.5">
+                  <div class="cmd-bubble-ai inline-flex items-center gap-1 py-3">
+                    <span class="cmd-dot" style="animation-delay: 0ms" />
+                    <span class="cmd-dot" style="animation-delay: 160ms" />
+                    <span class="cmd-dot" style="animation-delay: 320ms" />
+                  </div>
+                  <!-- 工具执行进度提示（方案B：区分阶段） -->
+                  <div
+                    v-if="isExecutingTools && executingToolLabel"
+                    class="text-[11px] text-white/35 px-1"
+                  >
+                    {{ executingToolLabel }}
+                  </div>
                 </div>
               </div>
 
-              <!-- 错误条 -->
-              <div v-if="store.error" class="flex items-start gap-2 px-3 py-2 rounded-lg bg-rose-400/10 ring-1 ring-rose-300/25 text-xs text-rose-100/90">
-                <IconAlert class="w-4 h-4 shrink-0 mt-px text-rose-300/80" />
-                <div class="flex-1 break-words">
-                  <p>{{ store.error }}</p>
-                  <button class="mt-1 text-rose-200/80 hover:text-rose-100 underline underline-offset-2" @click="store.regenerate()">
-                    重试
-                  </button>
-                </div>
-              </div>
               </div>
             </Transition>
 
-            <!-- 空态：能力标签云 + 推荐问题（撑满中间区域，把输入栏顶到底） -->
+            <!-- 统一错误条：合并业务错误 + 连通性问题。放在两个 Transition 块之间，
+                 确保在消息态和问候空态下都可见（与旧 ConnectivityBanner 位置一致）。 -->
+            <div
+              v-if="unifiedError.visible"
+              class="relative z-10 flex items-start gap-2 mx-4 mb-2 px-3 py-2 rounded-lg text-xs"
+              :class="unifiedError.style"
+            >
+              <IconAlert class="w-4 h-4 shrink-0 mt-px" :class="unifiedError.iconClass" />
+              <div class="flex-1 min-w-0 break-words">
+                <p>{{ unifiedError.message }}</p>
+                <div v-if="unifiedError.actions.length" class="flex gap-2 mt-1.5">
+                  <button
+                    v-for="a in unifiedError.actions"
+                    :key="a.label"
+                    class="underline underline-offset-2 transition-colors"
+                    :class="unifiedError.actionClass"
+                    :disabled="a.disabled"
+                    @click="a.handler()"
+                  >
+                    {{ a.label }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 空态：对话式问候 + 上下文引导（撑满中间区域，把输入栏顶到底） -->
             <Transition name="content-fade" mode="out-in">
               <div
                 v-if="store.configured && !store.hasMessages"
                 class="relative z-10 flex-1 min-h-0 flex flex-col justify-center overflow-y-auto px-3 pb-3 pt-3 cmd-scroll"
               >
-                <!-- 能力标签云 -->
-                <div class="mb-3">
-                  <p class="px-1 pb-2 text-[11px] text-white/35">我能帮你做这些 ——</p>
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      v-for="tag in abilityTags"
-                      :key="tag.text"
-                      class="ability-tag group"
-                      :class="[tag.color]"
-                      @click="ask(tag.text)"
-                    >
-                      <component :is="tag.icon" class="w-3.5 h-3.5 shrink-0 opacity-80" />
-                      <span class="text-[12px]">{{ tag.label }}</span>
-                    </button>
-                  </div>
-                  <div
-                    class="reach-status mt-2"
-                    :class="[`is-${reachStatus}`]"
-                  >
-                    <IconSearchWeb class="w-4 h-4 shrink-0" />
-                    <span class="flex-1">{{ reachStatusText }}</span>
-                    <button
-                      v-if="reachEnabled"
-                      class="reach-status-btn"
-                      :disabled="reachStatus === 'checking'"
-                      @click="checkReachStatus"
-                    >
-                      {{ reachStatus === 'checking' ? '检查中' : '检查' }}
-                    </button>
-                  </div>
+                <!-- 对话式问候 -->
+                <div class="mb-4 px-1">
+                  <p class="text-[13px] text-white/55 leading-relaxed">
+                    {{ pickGreeting() }}，我是 {{ ASSISTANT_NAME }}。<br>
+                    <span class="text-white/35">天气、禅道、待办、知识库——直接跟我说就好。</span>
+                  </p>
                 </div>
 
-                <!-- 推荐问题 -->
+                <!-- 上下文感知的快捷提问 -->
                 <div>
-                  <p class="px-1 pb-1.5 text-[11px] text-white/35">或者直接问 ——</p>
+                  <p class="px-1 pb-1.5 text-[11px] text-white/35">或者从这里开始 ——</p>
                   <div class="grid gap-1.5">
                     <button
-                      v-for="s in suggestions"
+                      v-for="s in contextSuggestions"
                       :key="s.text"
                       class="cmd-suggestion group"
                       @click="ask(s.text)"
                     >
-                      <component :is="suggestionIcon(s.icon)" class="w-4 h-4 text-sky-300/70 shrink-0 group-hover:text-sky-200" />
+                      <component :is="suggestionIconFor(s.icon)" class="w-4 h-4 text-sky-300/70 shrink-0 group-hover:text-sky-200" />
                       <span class="flex-1 text-left">{{ s.text }}</span>
                       <IconSend class="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 -rotate-90" />
                     </button>
@@ -1058,9 +1066,6 @@ onUnmounted(() => {
                 </button>
               </div>
             </Transition>
-
-            <!-- 连通性状态条（连不上大模型时的统一琥珀提示，区别于红条业务错误） -->
-            <ConnectivityBanner v-if="store.configured" />
 
             <!-- 待发送图片预览（多模态输入；粘贴 / 拖入的图片在发送前列在这里） -->
             <Transition name="quote-fade">
@@ -1102,28 +1107,13 @@ onUnmounted(() => {
                     v-model="input"
                     rows="1"
                     :disabled="!store.configured"
-                    :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : `问${ASSISTANT_NAME}任何事，或输入指令…`"
+                    :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : `直接跟我说就好…`"
                     class="cmd-input w-full resize-none bg-transparent text-[15px] text-white/95 placeholder:text-white/35 outline-none leading-6 cmd-scroll relative z-10"
                     :style="{ maxHeight: maxInputHeight + 'px' }"
                     @keydown="onEnter"
-                    @input="autoGrow(); filterSuggestions(input)"
-                    @blur="onInputBlur"
-                    @focus="onInputFocus"
+                    @input="autoGrow"
                     @paste="onImagePaste"
                   />
-                  <!-- 输入联想提示（幽灵文字） -->
-                  <Transition name="autocomplete-fade">
-                    <div
-                      v-if="showAutocomplete && autocompleteSuggestion && input.trim()"
-                      class="cmd-autocomplete-ghost"
-                      aria-hidden="true"
-                    >
-                      <span class="invisible whitespace-pre-wrap">{{ input }}</span>
-                      <span class="text-teal-400/50 whitespace-nowrap overflow-hidden text-ellipsis">
-                        {{ autocompleteSuggestion.slice(input.trim().length) }}
-                      </span>
-                    </div>
-                  </Transition>
                 </div>
                 <button
                   v-if="store.streaming"
@@ -1145,32 +1135,12 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- 底部状态条 -->
+            <!-- 底部状态条（精简：只保留身份标识，去掉质量关注和快捷键提示） -->
             <div class="cmd-footer relative z-10">
               <div class="cmd-footer-left">
                 <IconSpark class="w-3 h-3" />
                 <span>{{ ASSISTANT_NAME }} · 天气 / 禅道 / 待办</span>
-                <span v-if="store.feedbackStats.up + store.feedbackStats.down > 0" class="cmd-feedback-counts">
-                  <span><IconThumbUpFill class="w-2.5 h-2.5" />{{ store.feedbackStats.up }}</span>
-                  <span><IconThumbDownFill class="w-2.5 h-2.5" />{{ store.feedbackStats.down }}</span>
-                </span>
               </div>
-              <span v-if="store.feedbackCategoryRows.length" class="cmd-quality-summary">
-                <span>质量关注</span>
-                <span
-                  v-for="row in store.feedbackCategoryRows.slice(0, 3)"
-                  :key="row.key"
-                  class="cmd-quality-pill"
-                  :title="`${row.label}: 赞 ${row.up} / 踩 ${row.down} / 重答 ${row.regenerations}`"
-                >
-                  {{ row.label }} {{ row.down + row.regenerations }}
-                </span>
-              </span>
-              <span class="cmd-shortcuts">
-                <span><kbd class="cmd-kbd">Enter</kbd> 发送</span>
-                <span><kbd class="cmd-kbd">Alt+Enter</kbd> 换行</span>
-                <span><kbd class="cmd-kbd">Esc</kbd> 关闭</span>
-              </span>
             </div>
 
             <!-- 右下角拖拽句柄 -->
@@ -1390,7 +1360,6 @@ onUnmounted(() => {
 .cmd-send,
 .cmd-action,
 .cmd-approval-btn,
-.ability-tag,
 .cmd-suggestion,
 .resize-handle,
 .cmd-pending-x,
@@ -1706,92 +1675,17 @@ onUnmounted(() => {
   background: rgba(255,255,255,0.1);
   outline: 0;
 }
-.cmd-quality-tag,
-.cmd-quality-pill {
+.cmd-quality-tag {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 750;
-}
-.cmd-quality-tag {
   height: 23px;
   padding: 0 7px;
   border: 1px solid color-mix(in srgb, var(--cmd-tone-2) 20%, transparent);
+  border-radius: 999px;
   background: color-mix(in srgb, var(--cmd-tone-2) 9%, transparent);
   color: rgba(199, 210, 254, 0.78);
-}
-.ability-tag {
-  --tag-tone: var(--cmd-tone);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--tag-tone) 26%, rgba(255,255,255,0.1));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--tag-tone) 8%, rgba(255,255,255,0.04));
-  color: rgba(255,255,255,0.76);
+  font-size: 10.5px;
   font-weight: 750;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-}
-.ability-tag:hover,
-.ability-tag:focus-visible {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--tag-tone) 48%, transparent);
-  background: color-mix(in srgb, var(--tag-tone) 14%, rgba(255,255,255,0.05));
-  color: white;
-  outline: 0;
-}
-.ability-tag.tag-weather { --tag-tone: #38bdf8; }
-.ability-tag.tag-task { --tag-tone: #34d399; }
-.ability-tag.tag-bug { --tag-tone: #fb7185; }
-.ability-tag.tag-kb { --tag-tone: #fbbf24; }
-.ability-tag.tag-local { --tag-tone: #2dd4bf; }
-.ability-tag.tag-reach { --tag-tone: #a78bfa; }
-.reach-status {
-  --reach-tone: #a78bfa;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--reach-tone) 20%, rgba(255,255,255,0.1));
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--reach-tone) 13%, transparent), transparent 52px),
-    rgba(2, 6, 23, 0.28);
-  color: rgba(226, 232, 240, 0.64);
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-.reach-status.is-ready { --reach-tone: #34d399; color: rgba(209, 250, 229, 0.78); }
-.reach-status.is-partial { --reach-tone: #fbbf24; color: rgba(254, 243, 199, 0.82); }
-.reach-status.is-off { --reach-tone: #94a3b8; color: rgba(226, 232, 240, 0.58); }
-.reach-status.is-checking { --reach-tone: #38bdf8; color: rgba(224, 242, 254, 0.78); }
-.reach-status-btn {
-  appearance: none;
-  -webkit-appearance: none;
-  flex-shrink: 0;
-  height: 25px;
-  padding: 0 9px;
-  border: 1px solid color-mix(in srgb, var(--reach-tone) 30%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--reach-tone) 10%, rgba(255,255,255,0.04));
-  color: color-mix(in srgb, var(--reach-tone) 78%, white);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 800;
-}
-.reach-status-btn:hover:not(:disabled),
-.reach-status-btn:focus-visible {
-  border-color: color-mix(in srgb, var(--reach-tone) 52%, transparent);
-  background: color-mix(in srgb, var(--reach-tone) 16%, rgba(255,255,255,0.05));
-  outline: 0;
-}
-.reach-status-btn:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 .cmd-suggestion {
   position: relative;
@@ -1961,18 +1855,6 @@ onUnmounted(() => {
 .cmd-input:disabled {
   cursor: not-allowed;
 }
-.cmd-autocomplete-ghost {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: flex;
-  align-items: flex-start;
-  padding: 2px 0 3px;
-  pointer-events: none;
-  color: rgba(45, 212, 191, 0.5);
-  font-size: 15px;
-  line-height: 1.5rem;
-}
 .cmd-avatar.has-content {
   animation: avatar-glow 2s ease-in-out infinite;
 }
@@ -2025,47 +1907,13 @@ onUnmounted(() => {
   color: rgba(226, 232, 240, 0.34);
   font-size: 11px;
 }
-.cmd-footer-left,
-.cmd-feedback-counts,
-.cmd-feedback-counts span,
-.cmd-quality-summary,
-.cmd-shortcuts {
+.cmd-footer-left {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 .cmd-footer-left svg { color: color-mix(in srgb, var(--cmd-tone) 70%, transparent); }
-.cmd-feedback-counts { color: rgba(255,255,255,0.3); }
-.cmd-feedback-counts span:first-child svg { color: rgba(52,211,153,0.58); }
-.cmd-feedback-counts span:last-child svg { color: rgba(251,113,133,0.58); }
-.cmd-quality-summary {
-  color: rgba(255,255,255,0.28);
-}
-.cmd-quality-pill {
-  max-width: 84px;
-  overflow: hidden;
-  padding: 1px 6px;
-  border: 1px solid rgba(251, 191, 36, 0.12);
-  background: rgba(251, 191, 36, 0.08);
-  color: rgba(253, 230, 138, 0.72);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cmd-shortcuts {
-  margin-left: auto;
-  gap: 10px;
-  white-space: nowrap;
-}
-.cmd-kbd {
-  padding: 2px 5px;
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 5px;
-  background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.52);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
-}
 .resize-handle {
   display: flex;
   width: 24px;
@@ -2113,9 +1961,7 @@ onUnmounted(() => {
 .quote-fade-enter-active,
 .quote-fade-leave-active,
 .activity-expand-enter-active,
-.activity-expand-leave-active,
-.autocomplete-fade-enter-active,
-.autocomplete-fade-leave-active {
+.activity-expand-leave-active {
   transition: all 0.2s ease;
 }
 .content-fade-enter-from,
@@ -2123,9 +1969,7 @@ onUnmounted(() => {
 .quote-fade-enter-from,
 .quote-fade-leave-to,
 .activity-expand-enter-from,
-.activity-expand-leave-to,
-.autocomplete-fade-enter-from,
-.autocomplete-fade-leave-to {
+.activity-expand-leave-to {
   opacity: 0;
   transform: translateY(-4px);
 }
@@ -2274,7 +2118,6 @@ onUnmounted(() => {
   .cmd-header { padding: 16px; flex-wrap: wrap; }
   .cmd-header-actions { width: 100%; justify-content: space-between; }
   .cmd-subtitle { white-space: normal; }
-  .cmd-shortcuts { display: none; }
   .cmd-footer { flex-wrap: wrap; min-height: auto; padding: 9px 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2292,14 +2135,11 @@ onUnmounted(() => {
   .content-fade-enter-active,
   .content-fade-leave-active,
   .activity-expand-enter-active,
-  .activity-expand-leave-active,
-  .autocomplete-fade-enter-active,
-  .autocomplete-fade-leave-active {
+  .activity-expand-leave-active {
     animation: none;
     transition: none;
   }
   .cmd-suggestion:hover,
-  .ability-tag:hover,
   .cmd-send:hover:not(:disabled) { transform: none; }
 }
 </style>
