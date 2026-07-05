@@ -16,7 +16,9 @@ import { reachEnabled } from '@/features/reach'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
+import { useChatSettings } from '../settings'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
+import ChatSettingsModal from './ChatSettingsModal.vue'
 import { useConnectivity } from '../connectivity'
 import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
@@ -41,14 +43,17 @@ import IconThumbUpFill from '~icons/mdi/thumb-up'
 import IconThumbDownFill from '~icons/mdi/thumb-down'
 import IconQuote from '~icons/mdi/format-quote-close'
 import IconCloseCircle from '~icons/mdi/close-circle'
+import IconCog from '~icons/mdi/cog-outline'
 
 const store = useChatStore()
+const { settings } = useChatSettings()
 
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
+const showSettings = ref(false)
 
 // ============ 上下文感知动态建议 ============
 // 基于时间 + 当前浏览上下文动态生成引导问题，而非静态模板匹配。
@@ -165,9 +170,8 @@ function formatMessageTime(ts: number | undefined): string {
 }
 
 // ============ 图片输入（多模态）============
-/** 单张图片上限 5MB（base64 进 HTTP 请求，过大慢且贵）；一次最多 4 张 */
+/** 单张图片上限 5MB（base64 进 HTTP 请求，过大慢且贵）；数量上限由对话参数控制 */
 const MAX_CHAT_IMAGE_SIZE = 5 * 1024 * 1024
-const MAX_CHAT_IMAGES = 4
 /** 待发送的图片（data URL，发送时随消息一起发给视觉模型） */
 interface PendingImage { id: string; url: string; name: string }
 const pendingImages = ref<PendingImage[]>([])
@@ -200,8 +204,8 @@ function fileToDataUrl(file: File): Promise<string> {
 async function addImages(files: File[]) {
   for (const file of files) {
     if (!isImage(file.type)) continue
-    if (pendingImages.value.length >= MAX_CHAT_IMAGES) {
-      flashImageError(`最多 ${MAX_CHAT_IMAGES} 张`)
+    if (pendingImages.value.length >= settings.value.maxImages) {
+      flashImageError(`最多 ${settings.value.maxImages} 张`)
       break
     }
     if (file.size > MAX_CHAT_IMAGE_SIZE) {
@@ -731,6 +735,13 @@ onUnmounted(() => {
                   {{ store.configured ? '线路就绪' : '等待配置' }}
                 </span>
                 <button
+                  class="cmd-iconbtn"
+                  title="对话参数设置"
+                  @click="showSettings = true"
+                >
+                  <IconCog class="w-4 h-4" />
+                </button>
+                <button
                   v-if="store.hasMessages"
                   class="cmd-header-btn"
                   :disabled="store.streaming"
@@ -1182,6 +1193,9 @@ onUnmounted(() => {
       </div>
     </Transition>
   </Teleport>
+
+  <!-- 对话参数设置弹窗 -->
+  <ChatSettingsModal v-model:open="showSettings" />
 </template>
 
 <style scoped>

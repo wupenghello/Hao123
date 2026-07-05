@@ -25,6 +25,7 @@ import { useWeatherStore } from '@/features/weather'
 import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/rendered-screenshot'
 import { REACH_REPORT_GUIDE, reachEnabled } from '@/features/reach'
 import { ASSISTANT_NAME } from './config'
+import { getChatSettings } from './settings'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
 import { classifyError, markSuccess, markUnreachable, probe as probeConnectivity, onRecover, useConnectivity } from './connectivity'
@@ -39,13 +40,9 @@ import {
   formatTime,
   truncateHistory,
   cleanupEmptyAssistant,
-  MAX_HISTORY_TOKENS,
 } from './utils'
 import type { ChatMessage, ChatUiBlock, ToolActivity, ToolApproval } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
-
-/** agent 循环最大轮数，防止工具调用失控 */
-const MAX_ROUNDS = 5
 
 /**
  * 工具结果用于 UI 预览的截断长度。完整结果仍保存在 tool 消息里供模型消费，
@@ -53,8 +50,9 @@ const MAX_ROUNDS = 5
  * 若存完整结果（kb.search 一次可达数十 KB），多次工具调用会把 localStorage 撑爆。
  */
 const RESULT_PREVIEW_MAX = 800
-const KB_VISION_MAX_IMAGES = 3
 const KB_VISION_MAX_BYTES = 5 * 1024 * 1024
+/** KB 知识库视觉上下文图片上限——与用户粘贴图片的 maxImages 分离，避免一个设置控制两个不同成本模型 */
+const KB_VISION_MAX_IMAGES = 3
 
 function previewResultJson(result: unknown): string {
   const json = JSON.stringify(result)
@@ -541,7 +539,7 @@ function dynamicContextMessage(): ChatMessage {
 
 /** 构造发给模型的消息序列：静态 system + 动态 system + 截断后的历史 */
 function buildApiMessages(history: ChatMessage[]): ChatMessage[] {
-  const truncated = truncateHistory(history, MAX_HISTORY_TOKENS)
+  const truncated = truncateHistory(history, getChatSettings().maxHistoryTokens)
 
   // 如果历史被截断了，插入一条提醒（让模型知道早期对话已丢失）
   const wasTruncated = truncated.length < history.length
@@ -723,7 +721,11 @@ export const useChatStore = defineStore('chat', () => {
     if (ambientKbContext) hiddenContexts.push(ambientKbContext)
 
     try {
-      for (let round = 0; round < MAX_ROUNDS; round++) {
+      const chatSettings = getChatSettings()
+      // 防御：maxRounds 至少为 1（用户在弹窗中直接键入 0 或 localStorage 残缺时兜底），
+      // 避免 for 循环条件立即为 false 导致静默 0 回复。
+      const maxRounds = Math.max(1, chatSettings.maxRounds || 5)
+      for (let round = 0; round < maxRounds; round++) {
         // 每轮新建一个 assistant 占位消息；改「数组里的响应式代理」以驱动流式重渲染
         const idx = messages.value.push({ role: 'assistant', content: '', ts: Date.now() }) - 1
         const assistant = messages.value[idx]
@@ -735,7 +737,7 @@ export const useChatStore = defineStore('chat', () => {
           // temperature: 0.3 兼顾工具调用准确性与回答自然度
           temperature: 0.3,
           // 限制单次输出长度，降低延迟和成本；工具调用轮通常很短，最终回答也够用
-          maxTokens: 2048,
+          maxTokens: chatSettings.maxOutputTokens,
           onText: (delta) => {
             if (signal.aborted) return
             assistant.content += delta
@@ -833,7 +835,7 @@ export const useChatStore = defineStore('chat', () => {
         hiddenContexts.push(...visionContexts.filter((m): m is ChatMessage => !!m))
         // 继续下一轮，让模型基于工具结果作答
       }
-      // 循环结束（用尽 MAX_ROUNDS）时若最后一条是 tool 消息，说明模型仍想调工具但已无轮次，
+      // 循环结束（用尽 maxRounds）时若最后一条是 tool 消息，说明模型仍想调工具但已无轮次，
       // 没有给出最终文本答复。补一条兜底提示，避免页面在工具活动后静默停止、
       // 看起来「答完却没有回答」。
       const tail = messages.value[messages.value.length - 1]

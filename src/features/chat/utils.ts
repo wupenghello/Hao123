@@ -36,6 +36,10 @@ export function formatTime(now: Date): string {
 // ============ Token 与历史管理 ============
 
 /**
+ * @deprecated 对话历史 token 预算已迁移到可配置的 ChatSettings（见 settings.ts），
+ * 默认值 120,000。此常量不再被 store.ts 使用，仅保留以防外部直接引用；
+ * 新代码请使用 getChatSettings().maxHistoryTokens。
+ *
  * 对话历史 token 预算上限（粗略估算）。
  * 超过此值时截断早期消息，防止超出模型 context window 导致 API 报错。
  * 预留给 system prompt + 当前轮回复的空间。
