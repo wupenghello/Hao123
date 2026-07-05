@@ -1,5 +1,6 @@
 import type { LlmTool, LlmToolDef } from './llm/types'
 import type { ChatUiBlock, ChatUiKind } from './types'
+import { reachUiBlocksFromToolResult } from '@/features/reach'
 
 type Rec = Record<string, unknown>
 
@@ -391,6 +392,7 @@ function contributors(result: Rec): ChatUiBlock[] {
 
 export function uiBlocksFromToolResult(wireName: string, result: unknown): ChatUiBlock[] {
   if (!isRecord(result) || result.error || result.approvalRequired) return []
+  if (wireName.startsWith('reach__')) return reachUiBlocksFromToolResult(wireName, result)
   switch (wireName) {
     case 'weather__current':
       return weatherCurrent(result)

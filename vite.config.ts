@@ -8,6 +8,7 @@ import { wbscfPlugin } from './vite-plugin-wbscf'
 import { gitPlugin } from './vite-plugin-git'
 import { webDocPlugin } from './vite-plugin-web-doc'
 import { deepseekFallbackPlugin } from './vite-plugin-deepseek-fallback'
+import { agentReachPlugin } from './vite-plugin-agent-reach'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
@@ -33,6 +34,8 @@ export default defineConfig(({ mode }) => {
   const wbscfRoot = env.VITE_WBSCF_WEB_ROOT || ''
   const wbscfPkgMgr = env.VITE_WBSCF_PKG_MGR || 'pnpm'
   const modaoUrl = env.VITE_MODAO_PROJECT_URL || ''
+  const agentReachEnabled = /^(1|true|yes|on)$/i.test(env.VITE_AGENT_REACH_ENABLED || '')
+  const agentReachCommand = env.VITE_AGENT_REACH_CMD || 'agent-reach'
 
   return {
     plugins: [
@@ -50,6 +53,8 @@ export default defineConfig(({ mode }) => {
       gitPlugin({ root: wbscfRoot }),
       // 外部文档只读抓取：给小吴尝试读取禅道详情里的公开文档链接（仅 dev server 中间件）
       webDocPlugin({ modaoUrl }),
+      // Agent Reach 外部调研：搜索、公开网页读取、GitHub 仓库分析、YouTube/B站字幕（仅 dev）
+      agentReachPlugin({ enabled: agentReachEnabled, command: agentReachCommand }),
       // LLM API 代理：dev 时拦截 /deepseek/chat/completions，
       // 从请求 body 提取客户端 API Key 后转发到上游
       deepseekFallbackPlugin(),

@@ -16,6 +16,7 @@ import { gitToolDefs, callGitTool } from '@/features/git'
 import { claudeToolDefs, callClaudeTool, claudeEnabled } from '@/features/claude'
 import { webDocToolDefs, callWebDocTool, webDocEnabled } from '@/features/web-doc'
 import { modaoToolDefs, callModaoTool, modaoEnabled } from '@/features/modao'
+import { reachToolDefs, callReachTool, reachEnabled } from '@/features/reach'
 import { uiToolDefs, callUiTool } from './generative-ui'
 import type { LlmToolDef } from './llm/types'
 
@@ -59,6 +60,7 @@ export const openAiTools: OpenAiTool[] = [
   ...(claudeEnabled ? toOpenAi(claudeToolDefs) : []),
   ...(modaoEnabled ? toOpenAi(modaoToolDefs) : []),
   ...(webDocEnabled ? toOpenAi(webDocToolDefs) : []),
+  ...(reachEnabled ? toOpenAi(reachToolDefs) : []),
   ...toOpenAi(uiToolDefs),
 ]
 
@@ -83,6 +85,7 @@ export async function callTool(
   if (realName.startsWith('claude.')) return callClaudeTool(realName, args, signal)
   if (realName.startsWith('modao.')) return callModaoTool(realName, args, signal)
   if (realName.startsWith('webdoc.')) return callWebDocTool(realName, args, signal)
+  if (realName.startsWith('reach.')) return callReachTool(realName, args, signal)
   if (realName.startsWith('ui.')) return callUiTool(realName, args)
   throw new Error(`未知工具：${realName}`)
 }
@@ -127,6 +130,12 @@ const TOOL_LABELS: Record<string, string> = {
   'modao__status': '查询墨刀读取状态',
   'modao__read': '读取墨刀原型',
   'webdoc__read': '读取公开文档链接',
+  'reach__status': '检查外部调研能力',
+  'reach__search': '搜索外部资料',
+  'reach__read_url': '读取外部链接',
+  'reach__github_repo': '分析 GitHub 仓库',
+  'reach__video_summary': '读取视频信息',
+  'reach__markdown_note': '生成调研记录',
   'ui__render': '渲染界面卡片',
 }
 

@@ -23,6 +23,7 @@ import { useStorage } from '@/composables/useStorage'
 import { setLocalStorageItem } from '@/features/storage-health'
 import { useWeatherStore } from '@/features/weather'
 import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/rendered-screenshot'
+import { REACH_REPORT_GUIDE, reachEnabled } from '@/features/reach'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
@@ -433,6 +434,9 @@ function buildCapabilitiesFromTools(): string[] {
   if (has('webdoc')) {
     lines.push('- 公开文档链接读取：当禅道任务/Bug 详情或用户消息里包含外部文档、Wiki、PRD 链接时，可尝试读取网页的静态标题、正文与链接；墨刀原型链接优先使用专门的 modao.read。')
   }
+  if (has('reach')) {
+    lines.push('- 外部调研：在用户明确要求查外部资料、调研公开信息、阅读网页链接、分析 GitHub 仓库或总结 YouTube/B站视频时，可搜索公开互联网、读取 Jina Reader 正文、拉取 GitHub 仓库元信息/README/近期 issue，并读取公开视频字幕或元数据。')
+  }
   if (has('ui')) {
     lines.push('- 生成式 UI：可在聊天窗口渲染白名单 Vue 卡片（天气、清单、表格、指标、状态、时间线、来源等），用于替代长段 Markdown 表格或纯文字堆叠。')
   }
@@ -471,6 +475,12 @@ function buildStaticSystemPrompt(): string {
     '- 用户可能发送图片（截图 / 照片）。你能看图：分析报错截图、识别白板或照片里的文字（必要时据此用 local.create 落成待办）。回答时先简述你从图里看到的关键信息，再给判断或行动。',
     '- 当用户消息要求进入「接手模式」或包含结构化工作项上下文时，不要只泛泛回答；必须先解释为什么优先处理，再给今天的处理步骤，最后列出可继续接手的动作选项。任何写操作仍需先确认。',
   )
+  if (reachEnabled) {
+    lines.push(
+      '- 外部调研只在用户明确要求"查/搜/调研/读链接/分析 GitHub 仓库/总结视频/最近有什么变化"等公开互联网信息时使用；不要后台自动抓取社媒或使用登录态平台。调研回答必须列出来源链接；视频工具若只返回元数据或提示缺少字幕，要明确说明限制，不要假装看完完整视频。',
+      `- 外部调研报告规则：${REACH_REPORT_GUIDE}`,
+    )
+  }
   if (kbEnabled) {
     lines.push(
       '',
@@ -486,6 +496,7 @@ function buildStaticSystemPrompt(): string {
     '典型串联：',
     '- 「今天怎么安排 / 我先做什么好」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list（必要时加 weather.current），再按紧急·逾期·今天截止排出优先级与节奏。',
     '- 「这周还有啥没做完 / 我手头多少事」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list，归类汇总，点名最该跟进的。',
+    '- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。',
   )
   if (kbEnabled) {
     lines.push('- 「这个 bug 怎么定位」→ 先 zentao.bug_detail 拿详情，再 kb.search 查相关流程/说明，综合给思路。')

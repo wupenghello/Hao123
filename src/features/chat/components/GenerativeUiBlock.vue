@@ -206,14 +206,21 @@ function cell(row: Rec, key: string): string {
     </div>
 
     <div v-else-if="block.kind === 'source-list'" class="gui-sources">
-      <div v-for="src in sources" :key="str(src.title) + str(src.subtitle)" class="gui-source">
+      <a
+        v-for="src in sources"
+        :key="str(src.title) + str(src.subtitle)"
+        class="gui-source"
+        :href="str(src.url) || undefined"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         <strong>{{ str(src.title, '来源') }}</strong>
         <em v-if="src.subtitle">{{ str(src.subtitle) }}</em>
         <p v-if="src.excerpt">{{ str(src.excerpt) }}</p>
         <small v-if="src.confidence || src.score">
           {{ str(src.confidence, 'score') }}<template v-if="src.score"> · {{ str(src.score) }}</template>
         </small>
-      </div>
+      </a>
     </div>
 
     <div v-else class="gui-summary">
@@ -563,7 +570,10 @@ function cell(row: Rec, key: string): string {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .gui-source {
+  display: block;
   padding: 9px 10px;
+  color: inherit;
+  text-decoration: none;
 }
 .gui-source small {
   display: inline-flex;

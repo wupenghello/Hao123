@@ -1,0 +1,642 @@
+/**
+ * Agent Reach · 外部调研 Vite 插件
+ *
+ * 浏览器不能安全执行本机 CLI，也不适合直接保存平台 Cookie。
+ * 本插件只在 dev server 侧提供只读调研端点：
+ *   GET /agent-reach/status        Agent Reach 与上游工具体检
+ *   GET /agent-reach/search        公开互联网搜索（Exa/mcporter 优先，DuckDuckGo 兜底）
+ *   GET /agent-reach/read-url      Jina Reader 读取公开网页
+ *   GET /agent-reach/github-repo   公开 GitHub 仓库分析素材
+ *   GET /agent-reach/video-summary YouTube/B站字幕或元数据
+ */
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn } from 'node:child_process'
+import type { ServerResponse } from 'node:http'
+import type { Plugin } from 'vite'
+import type {
+  ReachGithubRepoResponse,
+  ReachReadUrlResponse,
+  ReachSearchResponse,
+  ReachSource,
+  ReachStatusResponse,
+  ReachVideoSummaryResponse,
+} from './src/features/reach/types'
+
+interface AgentReachPluginOptions {
+  enabled: boolean
+  command?: string
+}
+
+interface CommandResult {
+  status: number
+  stdout: string
+  stderr: string
+  error?: string
+}
+
+const MAX_STDOUT = 12 * 1024 * 1024
+const MAX_TEXT = 14_000
+const MAX_TRANSCRIPT = 22_000
+const UA = 'TodayOps-AgentReach/1.0'
+const CLI_PATH = [
+  path.join(os.homedir(), '.local', 'bin'),
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  process.env.PATH || '',
+].filter(Boolean).join(path.delimiter)
+
+function sendJson(res: ServerResponse, code: number, data: unknown): void {
+  res.statusCode = code
+  res.setHeader('content-type', 'application/json; charset=utf-8')
+  res.end(JSON.stringify(data))
+}
+
+function trimText(text: string, max = MAX_TEXT): { text: string; limited: boolean } {
+  const clean = text.replace(/\r/g, '').trim()
+  if (clean.length <= max) return { text: clean, limited: false }
+  return { text: clean.slice(0, max), limited: true }
+}
+
+function htmlDecode(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+}
+
+function stripHtml(value: string): string {
+  return htmlDecode(value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+}
+
+function validHttpUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
+function spawnCapture(command: string, args: string[], timeoutMs = 20_000): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(command, args, {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PATH: CLI_PATH,
+        },
+      })
+    } catch (err) {
+      resolve({ status: -1, stdout: '', stderr: '', error: String(err) })
+      return
+    }
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.setEncoding('utf-8')
+    child.stderr?.setEncoding('utf-8')
+    child.stdout?.on('data', (d: string) => {
+      if (stdout.length < MAX_STDOUT) stdout += d
+    })
+    child.stderr?.on('data', (d: string) => {
+      if (stderr.length < MAX_STDOUT) stderr += d
+    })
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        /* noop */
+      }
+      // 2s 宽限后强制 SIGKILL，避免子进程忽略 SIGTERM 导致 Promise 永不 resolve
+      setTimeout(() => {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          /* noop */
+        }
+      }, 2_000)
+    }, timeoutMs)
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve({ status: -1, stdout, stderr, error: err.message })
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve({ status: code ?? -1, stdout, stderr })
+    })
+  })
+}
+
+async function commandOk(command: string, args: string[] = ['--version']): Promise<boolean> {
+  const r = await spawnCapture(command, args, 8_000)
+  return r.status === 0
+}
+
+async function readJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
+    headers: { accept: 'application/json', 'user-agent': UA },
+    signal,
+  })
+  if (!res.ok) throw new Error(`${url} -> ${res.status}`)
+  return res.json() as Promise<T>
+}
+
+function safeJsonParse(value: string): unknown | null {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function collectSources(input: unknown, limit: number): ReachSource[] {
+  const out: ReachSource[] = []
+  const seen = new Set<string>()
+  const visit = (node: unknown) => {
+    if (!node || out.length >= limit) return
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item)
+      return
+    }
+    if (typeof node !== 'object') return
+    const obj = node as Record<string, unknown>
+    const rawUrl = obj.url || obj.link || obj.href
+    if (typeof rawUrl === 'string') {
+      const url = validHttpUrl(rawUrl)
+      if (url && !seen.has(url)) {
+        seen.add(url)
+        out.push({
+          url,
+          title: typeof obj.title === 'string' ? obj.title : undefined,
+          snippet: typeof obj.text === 'string'
+            ? obj.text.slice(0, 700)
+            : typeof obj.snippet === 'string'
+              ? obj.snippet.slice(0, 700)
+              : undefined,
+          publishedAt: typeof obj.publishedDate === 'string' ? obj.publishedDate : undefined,
+          provider: 'exa',
+        })
+      }
+    }
+    for (const value of Object.values(obj)) visit(value)
+  }
+  visit(input)
+  return out
+}
+
+function parseDuckDuckGo(html: string, limit: number): ReachSource[] {
+  const results: ReachSource[] = []
+  const blockRe = /<div class="result results_links[\s\S]*?(?=<div class="result results_links|<\/body>)/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(html)) && results.length < limit) {
+    const block = m[0]
+    const link = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i)
+    if (!link) continue
+    const snippet = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div)>/i)
+    const raw = htmlDecode(link[1])
+    let url = raw
+    try {
+      const redirect = new URL(raw.startsWith('//') ? `https:${raw}` : raw)
+      const uddg = redirect.searchParams.get('uddg')
+      if (uddg) url = uddg
+    } catch {
+      // keep raw
+    }
+    const cleanUrl = validHttpUrl(url)
+    if (!cleanUrl) continue
+    results.push({
+      url: cleanUrl,
+      title: stripHtml(link[2]),
+      snippet: snippet ? stripHtml(snippet[1]).slice(0, 700) : undefined,
+      provider: 'duckduckgo',
+    })
+  }
+  return results
+}
+
+function parseExaText(text: string, limit: number): ReachSource[] {
+  const blocks = text.split(/\n---+\n/g)
+  const results: ReachSource[] = []
+  for (const block of blocks) {
+    if (results.length >= limit) break
+    const title = block.match(/^Title:\s*(.+)$/m)?.[1]?.trim()
+    const url = validHttpUrl(block.match(/^URL:\s*(.+)$/m)?.[1]?.trim() || '')
+    if (!url) continue
+    const publishedAt = block.match(/^Published:\s*(.+)$/m)?.[1]?.trim()
+    const highlights = block.split(/^Highlights:\s*$/m)[1]?.trim()
+    results.push({
+      title,
+      url,
+      publishedAt: publishedAt && publishedAt !== 'N/A' ? publishedAt : undefined,
+      snippet: highlights ? trimText(highlights, 700).text : undefined,
+      provider: 'exa',
+    })
+  }
+  return results
+}
+
+async function fallbackSearch(query: string, limit: number): Promise<ReachSearchResponse> {
+  const url = `https://duckduckgo.com/html/?${new URLSearchParams({ q: query })}`
+  const res = await fetch(url, {
+    headers: { 'user-agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(20_000),
+  })
+  const html = await res.text()
+  return {
+    enabled: true,
+    ok: res.ok,
+    query,
+    provider: 'duckduckgo',
+    results: parseDuckDuckGo(html, limit),
+    error: res.ok ? undefined : `DuckDuckGo fallback -> ${res.status}`,
+  }
+}
+
+async function searchWithExa(query: string, limit: number): Promise<ReachSearchResponse> {
+  const expr = `exa.web_search_exa(query: ${JSON.stringify(query)}, numResults: ${limit})`
+  const r = await spawnCapture('mcporter', ['call', expr], 35_000)
+  if (r.status !== 0) return fallbackSearch(query, limit)
+
+  const parsed = safeJsonParse(r.stdout)
+  const results = parsed ? collectSources(parsed, limit) : parseExaText(r.stdout, limit)
+  if (!results.length) return fallbackSearch(query, limit)
+  return {
+    enabled: true,
+    ok: true,
+    query,
+    provider: 'exa',
+    results,
+    raw: results.length ? undefined : trimText(r.stdout, 4000).text,
+  }
+}
+
+function jinaUrl(target: string): string {
+  return `https://r.jina.ai/${target}`
+}
+
+async function readUrl(target: string): Promise<ReachReadUrlResponse> {
+  const res = await fetch(jinaUrl(target), { headers: { 'user-agent': UA } })
+  const raw = await res.text()
+  const { text, limited } = trimText(raw)
+  const title = text.match(/^Title:\s*(.+)$/m)?.[1]?.trim()
+  return {
+    enabled: true,
+    ok: res.ok,
+    url: target,
+    title,
+    text,
+    limited,
+    source: { title, url: target, provider: 'jina-reader' },
+    error: res.ok ? undefined : `Jina Reader -> ${res.status}`,
+  }
+}
+
+function parseGithubRepo(raw: string): { owner: string; repo: string } | null {
+  const text = raw.trim()
+  const direct = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/)
+  if (direct) return { owner: direct[1], repo: direct[2].replace(/\.git$/, '') }
+  try {
+    const url = new URL(text)
+    if (!/(^|\.)github\.com$/i.test(url.hostname)) return null
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (parts.length < 2) return null
+    return { owner: parts[0], repo: parts[1].replace(/\.git$/, '') }
+  } catch {
+    return null
+  }
+}
+
+interface GithubRepoApi {
+  full_name: string
+  html_url: string
+  description: string | null
+  homepage: string | null
+  stargazers_count: number
+  forks_count: number
+  open_issues_count: number
+  watchers_count: number
+  language: string | null
+  license: { spdx_id?: string; name?: string } | null
+  topics?: string[]
+  default_branch: string
+  created_at: string
+  updated_at: string
+  pushed_at: string
+}
+
+interface GithubCommitApi {
+  sha: string
+  html_url: string
+  commit: { message: string; author?: { name?: string; date?: string } }
+}
+
+interface GithubIssueApi {
+  number: number
+  title: string
+  html_url: string
+  state: string
+  updated_at: string
+  pull_request?: unknown
+}
+
+async function githubRepo(raw: string): Promise<ReachGithubRepoResponse> {
+  const parsed = parseGithubRepo(raw)
+  if (!parsed) return { enabled: true, ok: false, sources: [], error: '无法识别 GitHub 仓库地址，请提供 owner/repo 或仓库 URL。' }
+  const { owner, repo } = parsed
+  const base = `https://api.github.com/repos/${owner}/${repo}`
+  const data = await readJson<GithubRepoApi>(base)
+
+  const [readmeRes, commitsRes, issuesRes] = await Promise.allSettled([
+    fetch(`${base}/readme`, { headers: { accept: 'application/vnd.github.raw', 'user-agent': UA } }),
+    readJson<GithubCommitApi[]>(`${base}/commits?per_page=5`),
+    readJson<GithubIssueApi[]>(`${base}/issues?state=open&sort=updated&per_page=8`),
+  ])
+
+  let readme = ''
+  if (readmeRes.status === 'fulfilled' && readmeRes.value.ok) {
+    readme = trimText(await readmeRes.value.text(), 9000).text
+  }
+  const commits = commitsRes.status === 'fulfilled' ? commitsRes.value : []
+  const issues = issuesRes.status === 'fulfilled' ? issuesRes.value.filter((i) => !i.pull_request).slice(0, 5) : []
+
+  const sources: ReachSource[] = [
+    { title: data.full_name, url: data.html_url, provider: 'github' },
+    { title: `${data.full_name} README`, url: `${data.html_url}#readme`, provider: 'github' },
+    { title: `${data.full_name} issues`, url: `${data.html_url}/issues`, provider: 'github' },
+  ]
+
+  return {
+    enabled: true,
+    ok: true,
+    repo: data.full_name,
+    url: data.html_url,
+    description: data.description || undefined,
+    homepage: data.homepage || undefined,
+    stars: data.stargazers_count,
+    forks: data.forks_count,
+    openIssues: data.open_issues_count,
+    watchers: data.watchers_count,
+    language: data.language || undefined,
+    license: data.license?.spdx_id || data.license?.name,
+    topics: data.topics || [],
+    defaultBranch: data.default_branch,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    pushedAt: data.pushed_at,
+    readme,
+    recentCommits: commits.map((c) => ({
+      sha: c.sha.slice(0, 7),
+      message: c.commit.message.split('\n')[0],
+      author: c.commit.author?.name,
+      date: c.commit.author?.date,
+      url: c.html_url,
+    })),
+    recentIssues: issues.map((i) => ({
+      number: i.number,
+      title: i.title,
+      url: i.html_url,
+      state: i.state,
+      updatedAt: i.updated_at,
+    })),
+    sources,
+  }
+}
+
+function detectPlatform(url: string): 'youtube' | 'bilibili' | 'other' {
+  try {
+    const host = new URL(url).hostname
+    if (/(^|\.)youtu\.be$|(^|\.)youtube\.com$/i.test(host)) return 'youtube'
+    if (/(^|\.)bilibili\.com$/i.test(host)) return 'bilibili'
+    return 'other'
+  } catch {
+    return 'other'
+  }
+}
+
+function extractBvid(url: string): string | null {
+  return url.match(/BV[0-9A-Za-z]{10}/)?.[0] || null
+}
+
+function cleanVtt(vtt: string): string {
+  const lines = vtt
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/<[^>]+>/g, '').trim())
+    .filter((line) => line && line !== 'WEBVTT' && !line.startsWith('NOTE') && !/^\d+$/.test(line) && !/-->/.test(line))
+
+  const deduped: string[] = []
+  for (const line of lines) {
+    if (deduped[deduped.length - 1] !== line) deduped.push(line)
+  }
+  return deduped.join('\n')
+}
+
+async function readSubtitleFiles(dir: string): Promise<string> {
+  const files = await fs.readdir(dir)
+  const vtts = files.filter((f) => f.endsWith('.vtt')).sort((a, b) => {
+    const score = (name: string) => name.includes('zh') ? 0 : name.includes('en') ? 1 : 2
+    return score(a) - score(b)
+  })
+  const chunks: string[] = []
+  for (const file of vtts.slice(0, 2)) {
+    chunks.push(cleanVtt(await fs.readFile(path.join(dir, file), 'utf-8')))
+  }
+  return chunks.filter(Boolean).join('\n')
+}
+
+async function youtubeSummary(url: string): Promise<ReachVideoSummaryResponse> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'todayops-reach-'))
+  try {
+    const out = path.join(dir, '%(id)s.%(ext)s')
+    const r = await spawnCapture('yt-dlp', [
+      '--dump-json',
+      '--write-sub',
+      '--write-auto-sub',
+      '--sub-lang',
+      'zh-Hans,zh,en',
+      '--sub-format',
+      'vtt',
+      '--skip-download',
+      '--no-warnings',
+      '-o',
+      out,
+      url,
+    ], 80_000)
+    if (r.status !== 0) {
+      return { enabled: true, ok: false, url, platform: 'youtube', sources: [{ url, provider: 'yt-dlp' }], error: r.stderr || r.error || 'yt-dlp 执行失败' }
+    }
+    const info = safeJsonParse(r.stdout.trim().split('\n').find((line) => line.trim().startsWith('{')) || '') as Record<string, unknown> | null
+    const transcriptRaw = await readSubtitleFiles(dir)
+    const { text: transcript, limited } = trimText(transcriptRaw, MAX_TRANSCRIPT)
+    return {
+      enabled: true,
+      ok: !!transcript,
+      url,
+      platform: 'youtube',
+      title: typeof info?.title === 'string' ? info.title : undefined,
+      uploader: typeof info?.uploader === 'string' ? info.uploader : undefined,
+      duration: typeof info?.duration === 'number' ? info.duration : undefined,
+      webpageUrl: typeof info?.webpage_url === 'string' ? info.webpage_url : url,
+      transcript: transcript || undefined,
+      transcriptSource: transcript ? 'yt-dlp' : 'metadata',
+      limited,
+      sources: [{ title: typeof info?.title === 'string' ? info.title : undefined, url, provider: 'yt-dlp' }],
+      fallbackActions: transcript ? [] : [
+        '该 YouTube 视频没有可用字幕；可用 agent-reach transcribe URL 做 Whisper 转写（需要先配置 Groq/OpenAI Key）。',
+        '若只是判断是否值得看，可先基于标题、作者和简介做轻量评估。',
+      ],
+      error: transcript ? undefined : '没有找到可用字幕；可配置 Agent Reach 的转录能力后手动转写音频。',
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+}
+
+async function bilibiliSummary(url: string): Promise<ReachVideoSummaryResponse> {
+  const bvid = extractBvid(url)
+  if (!bvid) return { enabled: true, ok: false, url, platform: 'bilibili', sources: [{ url }], error: '未能从 B站链接中识别 BV 号。' }
+
+  const [subtitle, metadata] = await Promise.all([
+    spawnCapture('opencli', ['bilibili', 'subtitle', bvid], 45_000),
+    spawnCapture('bili', ['video', bvid], 25_000),
+  ])
+  const transcriptRaw = subtitle.status === 0 ? subtitle.stdout : ''
+  const { text: transcript, limited } = trimText(transcriptRaw, MAX_TRANSCRIPT)
+  const meta = metadata.status === 0 ? trimText(metadata.stdout, 6000).text : ''
+  const subtitleAvailable = /subtitle:\s*\n(?:[\s\S]*?)available:\s*true/m.test(meta)
+  const subtitleItemCount = Number(meta.match(/items:\s*\n((?:\s+- .+\n?)*)/m)?.[1]?.split('\n').filter((line) => line.trim().startsWith('-')).length || 0)
+  const title = meta.match(/^\s+title:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
+  const uploader = meta.match(/^\s+name:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
+  const durationText = meta.match(/^\s+duration:\s*['"]?([^'"\n]+)['"]?/m)?.[1]?.trim()
+
+  return {
+    enabled: true,
+    ok: !!(transcript || meta),
+    url,
+    platform: 'bilibili',
+    title,
+    uploader,
+    transcript: transcript || undefined,
+    metadata: meta || undefined,
+    transcriptSource: transcript ? 'opencli' : meta ? 'metadata' : undefined,
+    subtitleAvailable,
+    subtitleItemCount,
+    limited,
+    sources: [{ title: title || bvid, url, provider: transcript ? 'opencli' : 'bili-cli' }],
+    fallbackActions: transcript ? [] : [
+      subtitleAvailable
+        ? `bili-cli 显示有字幕条目（${subtitleItemCount || '未知数量'}），但未返回正文；可安装/配置 OpenCLI 浏览器扩展后重试字幕读取。`
+        : '已读取 B站视频信息与字幕状态，但公开接口显示该视频无可用字幕正文。',
+      '若需要完整文字稿，可用 bili audio 下载音频，再用 agent-reach transcribe 做 Whisper 转写。',
+      `目前可基于 bili-cli 返回的标题${durationText ? `、时长 ${durationText}` : ''}、简介、UP 主和互动数据做轻量判断。`,
+    ],
+    error: transcript || meta ? undefined : subtitle.stderr || metadata.stderr || '未能读取 B站字幕或视频信息；请检查 opencli/bili-cli 是否已安装并可用。',
+  }
+}
+
+async function videoSummary(url: string): Promise<ReachVideoSummaryResponse> {
+  const platform = detectPlatform(url)
+  if (platform === 'youtube') return youtubeSummary(url)
+  if (platform === 'bilibili') return bilibiliSummary(url)
+  return { enabled: true, ok: false, url, platform, sources: [{ url }], error: '第一期只支持 YouTube 与 B站视频。' }
+}
+
+async function status(command: string, enabled: boolean): Promise<ReachStatusResponse> {
+  if (!enabled) {
+    return {
+      enabled: false,
+      installed: false,
+      tools: { agentReach: false, mcporter: false, ytDlp: false, gh: false, bili: false, opencli: false },
+      error: 'VITE_AGENT_REACH_ENABLED 未开启。',
+    }
+  }
+  const [version, doctor, mcporter, ytDlp, gh, bili, opencli] = await Promise.all([
+    spawnCapture(command, ['--version'], 8_000),
+    spawnCapture(command, ['doctor', '--json'], 20_000),
+    commandOk('mcporter'),
+    commandOk('yt-dlp'),
+    commandOk('gh'),
+    commandOk('bili'),
+    commandOk('opencli'),
+  ])
+  const doctorJson = doctor.status === 0 ? safeJsonParse(doctor.stdout) : null
+  return {
+    enabled: true,
+    installed: version.status === 0,
+    version: version.status === 0 ? version.stdout.trim() : undefined,
+    doctor: doctorJson || undefined,
+    tools: {
+      agentReach: version.status === 0,
+      mcporter,
+      ytDlp,
+      gh,
+      bili,
+      opencli,
+    },
+    error: version.status === 0 ? undefined : version.stderr || version.error || `未找到 ${command} 命令`,
+  }
+}
+
+export function agentReachPlugin(options: AgentReachPluginOptions): Plugin {
+  const command = options.command?.trim() || 'agent-reach'
+  const enabled = options.enabled
+
+  return {
+    name: 'todayops-agent-reach',
+    configureServer(server) {
+      server.middlewares.use('/agent-reach', async (req, res) => {
+        const base = 'http://localhost'
+        const url = new URL(req.url || '/', base)
+        const route = url.pathname
+
+        try {
+          if (route === '/status') {
+            sendJson(res, 200, await status(command, enabled))
+            return
+          }
+          if (!enabled) {
+            sendJson(res, 404, { enabled: false, error: 'Agent Reach 外部调研能力未启用。' })
+            return
+          }
+          if (route === '/search') {
+            const query = url.searchParams.get('query')?.trim() || ''
+            const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 5, 1), 5)
+            if (!query) sendJson(res, 400, { enabled: true, ok: false, error: '缺少 query' })
+            else sendJson(res, 200, await searchWithExa(query, limit))
+            return
+          }
+          if (route === '/read-url') {
+            const target = validHttpUrl(url.searchParams.get('url') || '')
+            if (!target) sendJson(res, 400, { enabled: true, ok: false, error: '缺少合法 url' })
+            else sendJson(res, 200, await readUrl(target))
+            return
+          }
+          if (route === '/github-repo') {
+            const repo = url.searchParams.get('repo')?.trim() || ''
+            if (!repo) sendJson(res, 400, { enabled: true, ok: false, error: '缺少 repo' })
+            else sendJson(res, 200, await githubRepo(repo))
+            return
+          }
+          if (route === '/video-summary') {
+            const target = validHttpUrl(url.searchParams.get('url') || '')
+            if (!target) sendJson(res, 400, { enabled: true, ok: false, error: '缺少合法 url' })
+            else sendJson(res, 200, await videoSummary(target))
+            return
+          }
+          sendJson(res, 404, { enabled, error: `未知 Agent Reach 路由：${route}` })
+        } catch (e) {
+          sendJson(res, 500, { enabled, ok: false, error: (e as Error)?.message || 'Agent Reach dev server error' })
+        }
+      })
+    },
+  }
+}

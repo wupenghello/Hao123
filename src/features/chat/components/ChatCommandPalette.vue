@@ -14,6 +14,8 @@ import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../store'
 import { useWelcomeGuide } from '../welcome-guide'
 import { kbEnabled } from '../tools'
+import { reachEnabled } from '@/features/reach'
+import { fetchReachStatus } from '@/features/reach'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
@@ -33,6 +35,7 @@ import IconRefresh from '~icons/mdi/refresh'
 import IconWeather from '~icons/mdi/weather-partly-cloudy'
 import IconTask from '~icons/mdi/checkbox-marked-circle-outline'
 import IconBug from '~icons/mdi/bug-outline'
+import IconSearchWeb from '~icons/mdi/web'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconClip from '~icons/mdi/clipboard-list-outline'
 import IconThumbUp from '~icons/mdi/thumb-up-outline'
@@ -50,6 +53,14 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
+const reachStatus = ref<'idle' | 'checking' | 'ready' | 'partial' | 'off'>(
+  reachEnabled ? 'idle' : 'off',
+)
+const reachStatusText = ref(
+  reachEnabled
+    ? '外部调研已开启，可搜索公开互联网、读网页、分析 GitHub 与视频。'
+    : '外部调研未启用；运行 npm run setup:reach，并在 .env 设置 VITE_AGENT_REACH_ENABLED=true。',
+)
 
 // ============ 能力标签云 ============
 // 知识库标签仅在已配置时出现——未配置时点击会让用户撞上「搜不了」的尴尬。
@@ -61,6 +72,12 @@ const abilityTags = [
   ...(kbEnabled
     ? [{ icon: IconSpark, label: '知识库', text: '搜索知识库：环境配置', color: 'tag-kb' }]
     : []),
+  {
+    icon: IconSearchWeb,
+    label: '外部调研',
+    text: reachEnabled ? '帮我调研一下 Agent Reach 能做什么' : '外部调研能力怎么启用？',
+    color: 'tag-reach',
+  },
 ]
 
 // ============ 输入联想相关 ============
@@ -84,6 +101,13 @@ const suggestionTemplates = [
         { prefix: '搜一下', full: '搜索知识库：部署流程', icon: 'kb' },
         { prefix: '搜索', full: '搜索知识库：环境域名', icon: 'kb' },
         { prefix: '怎么', full: '怎么配置开发环境？请搜索知识库', icon: 'kb' },
+      ]
+    : []),
+  ...(reachEnabled
+    ? [
+        { prefix: '调研', full: '帮我调研一下 Agent Reach 能做什么', icon: 'reach' },
+        { prefix: '读链接', full: '帮我读一下这个链接：https://github.com/Panniantong/agent-reach', icon: 'reach' },
+        { prefix: 'github', full: '帮我分析这个 GitHub 仓库：https://github.com/Panniantong/agent-reach', icon: 'reach' },
       ]
     : []),
   { prefix: '记一下', full: '记一下明天要交周报', icon: 'local' },
@@ -555,6 +579,33 @@ function ask(text: string) {
   commitSend(text)
 }
 
+async function checkReachStatus() {
+  if (!reachEnabled || reachStatus.value === 'checking') return
+  reachStatus.value = 'checking'
+  reachStatusText.value = '正在检查外部调研工具...'
+  try {
+    const status = await fetchReachStatus()
+    if (!status.enabled || !status.installed) {
+      reachStatus.value = 'partial'
+      reachStatusText.value = '外部调研开关已开，但 Agent Reach 未安装完整；运行 npm run setup:reach 后重启 dev server。'
+      return
+    }
+    const missing = Object.entries(status.tools)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => name)
+    if (missing.length) {
+      reachStatus.value = 'partial'
+      reachStatusText.value = `外部调研可用，但部分工具未就绪：${missing.join('、')}。`
+    } else {
+      reachStatus.value = 'ready'
+      reachStatusText.value = '外部调研已就绪：搜索、网页读取、GitHub 分析和视频信息读取能力可用。'
+    }
+  } catch {
+    reachStatus.value = 'partial'
+    reachStatusText.value = '外部调研状态检查失败；确认已运行 npm run setup:reach 并重启 dev server。'
+  }
+}
+
 function onEnter(e: KeyboardEvent) {
   // Tab = 应用联想补全
   if (e.key === 'Tab' && showAutocomplete.value && autocompleteSuggestion.value) {
@@ -945,6 +996,21 @@ onUnmounted(() => {
                     >
                       <component :is="tag.icon" class="w-3.5 h-3.5 shrink-0 opacity-80" />
                       <span class="text-[12px]">{{ tag.label }}</span>
+                    </button>
+                  </div>
+                  <div
+                    class="reach-status mt-2"
+                    :class="[`is-${reachStatus}`]"
+                  >
+                    <IconSearchWeb class="w-4 h-4 shrink-0" />
+                    <span class="flex-1">{{ reachStatusText }}</span>
+                    <button
+                      v-if="reachEnabled"
+                      class="reach-status-btn"
+                      :disabled="reachStatus === 'checking'"
+                      @click="checkReachStatus"
+                    >
+                      {{ reachStatus === 'checking' ? '检查中' : '检查' }}
                     </button>
                   </div>
                 </div>
@@ -1682,6 +1748,51 @@ onUnmounted(() => {
 .ability-tag.tag-bug { --tag-tone: #fb7185; }
 .ability-tag.tag-kb { --tag-tone: #fbbf24; }
 .ability-tag.tag-local { --tag-tone: #2dd4bf; }
+.ability-tag.tag-reach { --tag-tone: #a78bfa; }
+.reach-status {
+  --reach-tone: #a78bfa;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--reach-tone) 20%, rgba(255,255,255,0.1));
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--reach-tone) 13%, transparent), transparent 52px),
+    rgba(2, 6, 23, 0.28);
+  color: rgba(226, 232, 240, 0.64);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.reach-status.is-ready { --reach-tone: #34d399; color: rgba(209, 250, 229, 0.78); }
+.reach-status.is-partial { --reach-tone: #fbbf24; color: rgba(254, 243, 199, 0.82); }
+.reach-status.is-off { --reach-tone: #94a3b8; color: rgba(226, 232, 240, 0.58); }
+.reach-status.is-checking { --reach-tone: #38bdf8; color: rgba(224, 242, 254, 0.78); }
+.reach-status-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  height: 25px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--reach-tone) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--reach-tone) 10%, rgba(255,255,255,0.04));
+  color: color-mix(in srgb, var(--reach-tone) 78%, white);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+.reach-status-btn:hover:not(:disabled),
+.reach-status-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--reach-tone) 52%, transparent);
+  background: color-mix(in srgb, var(--reach-tone) 16%, rgba(255,255,255,0.05));
+  outline: 0;
+}
+.reach-status-btn:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
 .cmd-suggestion {
   position: relative;
   display: flex;

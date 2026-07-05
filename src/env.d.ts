@@ -27,6 +27,10 @@ interface ImportMetaEnv {
   readonly VITE_WBSCF_WEB_ROOT?: string
   /** wbscf-web 包管理器（可选，默认 pnpm）：pnpm / npm / yarn */
   readonly VITE_WBSCF_PKG_MGR?: string
+  /** Agent Reach 外部调研能力开关；dev 且 true 时暴露 reach.* 工具 */
+  readonly VITE_AGENT_REACH_ENABLED?: string
+  /** Agent Reach CLI 命令路径（可选，默认 agent-reach） */
+  readonly VITE_AGENT_REACH_CMD?: string
 }
 
 /** 知识库虚拟模块（由 vite-plugin-kb.ts 在 dev/构建时注入本地文档原文） */
