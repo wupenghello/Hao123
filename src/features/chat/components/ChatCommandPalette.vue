@@ -45,6 +45,13 @@ import IconThumbDownFill from '~icons/mdi/thumb-down'
 import IconQuote from '~icons/mdi/format-quote-close'
 import IconCloseCircle from '~icons/mdi/close-circle'
 import IconCog from '~icons/mdi/cog-outline'
+import IconArrowDown from '~icons/mdi/arrow-down'
+import IconFullscreen from '~icons/mdi/fullscreen'
+import IconFullscreenExit from '~icons/mdi/fullscreen-exit'
+import IconMessageText from '~icons/mdi/message-text-outline'
+import IconTimeline from '~icons/mdi/timeline-clock-outline'
+import IconViewDashboard from '~icons/mdi/view-dashboard-outline'
+import IconPanelRight from '~icons/mdi/page-layout-sidebar-right'
 
 const store = useChatStore()
 const { settings } = useChatSettings()
@@ -56,6 +63,15 @@ const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
 const copyFailedIdx = ref(-1)
 const showSettings = ref(false)
+const isImmersive = useStorage<boolean>('hao123-chat-immersive', false)
+const immersiveSidebarOpen = useStorage<boolean>('hao123-chat-immersive-sidebar', true)
+const activeComposerMode = ref<'ask' | 'plan' | 'write' | 'debug'>('ask')
+const isAwayFromLatest = ref(false)
+const hasNewContentWhileAway = ref(false)
+
+const FOLLOW_BOTTOM_THRESHOLD = 88
+let programmaticScrollTimer: ReturnType<typeof setTimeout> | null = null
+let isProgrammaticScroll = false
 
 // ============ 上下文感知动态建议 ============
 // 基于时间 + 当前浏览上下文动态生成引导问题，而非静态模板匹配。
@@ -108,6 +124,59 @@ const contextSuggestions = computed<ContextSuggestion[]>(() => {
   }
 
   return items.slice(0, 4)
+})
+
+const composerModes = [
+  { key: 'ask', label: '问答', placeholder: '直接跟我说就好…' },
+  { key: 'plan', label: '规划', placeholder: '说目标，我来拆步骤和优先级…' },
+  { key: 'write', label: '写作', placeholder: '给我材料，我来整理成可用文本…' },
+  { key: 'debug', label: '排查', placeholder: '描述现象、报错或代码位置…' },
+] as const
+
+const contextChips = computed(() => [
+  { key: 'dashboard', label: '工作台', prompt: '结合当前工作台上下文，帮我判断现在最该先处理什么。' },
+  { key: 'zentao', label: '禅道', prompt: '帮我看一下禅道里指派给我的任务和 Bug，排一下处理顺序。' },
+  { key: 'local', label: '待办', prompt: '帮我梳理本地待办，找出今天应该先完成的事项。' },
+  { key: 'weather', label: '天气', prompt: '结合今天的天气，提醒我是否会影响通勤或外出安排。' },
+  ...(reachEnabled ? [{ key: 'reach', label: '调研', prompt: '帮我做一次外部信息调研，并给出可执行结论。' }] : []),
+])
+
+const activeModePlaceholder = computed(() => {
+  return composerModes.find((m) => m.key === activeComposerMode.value)?.placeholder ?? '直接跟我说就好…'
+})
+
+const conversationTitle = computed(() => {
+  const firstUser = store.messages.find((m) => m.role === 'user' && m.content.trim())
+  const raw = firstUser?.content.replace(/\s+/g, ' ').trim()
+  if (!raw) return '新的协作会话'
+  return raw.length > 28 ? raw.slice(0, 28) + '…' : raw
+})
+
+const conversationStats = computed(() => {
+  const user = store.messages.filter((m) => m.role === 'user').length
+  const assistant = store.messages.filter((m) => m.role === 'assistant' && (m.content || m.activities?.length || m.ui?.length)).length
+  const activities = store.messages.flatMap((m) => m.activities ?? [])
+  const running = activities.filter((a) => a.status === 'running').length
+  const pending = activities.filter((a) => a.status === 'pending').length
+  const done = activities.filter((a) => a.status === 'done').length
+  const error = activities.filter((a) => a.status === 'error').length
+  return { user, assistant, total: user + assistant, activities: activities.length, running, pending, done, error }
+})
+
+const recentActivities = computed(() => {
+  return store.messages
+    .flatMap((m) => m.activities ?? [])
+    .slice(-7)
+    .reverse()
+})
+
+const activeToolSummary = computed(() => {
+  const stats = conversationStats.value
+  if (stats.running) return `${stats.running} 个工具执行中`
+  if (stats.pending) return `${stats.pending} 个操作待确认`
+  if (stats.error) return `${stats.error} 个工具异常`
+  if (stats.activities) return `${stats.done}/${stats.activities} 个工具完成`
+  return '暂未调用工具'
 })
 
 function suggestionIconFor(kind: ContextSuggestion['icon']) {
@@ -260,6 +329,9 @@ function commitSend(text: string) {
   const imgs = pendingImages.value.map((p) => p.url)
   quoteMessageIdx.value = null
   pendingImages.value = []
+  isAwayFromLatest.value = false
+  hasNewContentWhileAway.value = false
+  scrollToBottom()
   store.send(finalText, imgs)
 }
 
@@ -283,6 +355,22 @@ const viewportMaxWidth = () => (typeof window !== 'undefined' ? window.innerWidt
 const viewportMaxHeight = () => (typeof window !== 'undefined' ? window.innerHeight * 0.85 : 700)
 const maxWidth = ref(viewportMaxWidth())
 const maxHeight = ref(viewportMaxHeight())
+const panelStyle = computed(() => {
+  if (isImmersive.value) {
+    return {
+      width: '100vw',
+      maxWidth: '100vw',
+      height: '100dvh',
+      maxHeight: '100dvh',
+    }
+  }
+  return {
+    width: currentSize.value.width + 'px',
+    maxWidth: maxWidth.value + 'px',
+    height: currentSize.value.height > 0 ? currentSize.value.height + 'px' : 'auto',
+    maxHeight: maxHeight.value + 'px',
+  }
+})
 
 /** 默认面板高度：视口的 70%，限制在 [MIN_HEIGHT, maxHeight] 之间。
  * 用固定高度而非 auto，是为了让输入框始终钉在面板底部（中间对话区/空态区 flex-1 撑开、
@@ -302,6 +390,7 @@ function initSize() {
 
 /** 开始拖拽 */
 function onResizeStart(e: MouseEvent) {
+  if (isImmersive.value) return
   e.preventDefault()
   e.stopPropagation()
   isResizing.value = true
@@ -349,6 +438,37 @@ function onResizeEnd() {
 function onResizeDoubleClick() {
   currentSize.value = { width: 680, height: defaultPanelHeight() }
   panelSize.value = { ...currentSize.value }
+}
+
+function toggleImmersive() {
+  const shouldKeepFollowing = isNearBottom()
+  isImmersive.value = !isImmersive.value
+  if (isImmersive.value && isResizing.value) {
+    isResizing.value = false
+    document.removeEventListener('mousemove', onResizeMove)
+    document.removeEventListener('mouseup', onResizeEnd)
+    document.removeEventListener('mouseleave', onResizeEnd)
+  }
+  nextTick(() => {
+    autoGrow()
+    if (shouldKeepFollowing) scrollToBottom()
+    else syncScrollState()
+  })
+}
+
+function onImmersiveKeydown(e: KeyboardEvent) {
+  if (!store.open || e.key !== 'Escape' || e.isComposing || showSettings.value) return
+  if (previewImage.value) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    previewImage.value = null
+    return
+  }
+  if (!isImmersive.value) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  isImmersive.value = false
+  nextTick(syncScrollState)
 }
 
 // 监听窗口大小变化：先刷新最大限制，再把当前尺寸钳回新视口内
@@ -593,11 +713,44 @@ const toolColorClass = (toolName: string) => {
   return ''
 }
 
+function bottomDistance(el: HTMLElement): number {
+  return el.scrollHeight - el.scrollTop - el.clientHeight
+}
+
+function isNearBottom(el = scrollEl.value): boolean {
+  if (!el) return true
+  return bottomDistance(el) <= FOLLOW_BOTTOM_THRESHOLD
+}
+
+function syncScrollState() {
+  const el = scrollEl.value
+  if (!el) return
+  if (isNearBottom(el)) {
+    isAwayFromLatest.value = false
+    hasNewContentWhileAway.value = false
+  } else if (!isProgrammaticScroll) {
+    isAwayFromLatest.value = true
+  }
+}
+
+function markProgrammaticScroll(smooth: boolean) {
+  isProgrammaticScroll = true
+  if (programmaticScrollTimer) clearTimeout(programmaticScrollTimer)
+  programmaticScrollTimer = setTimeout(() => {
+    isProgrammaticScroll = false
+    syncScrollState()
+  }, smooth ? 420 : 80)
+}
+
 function scrollToBottom(smooth = false) {
   const done = () => {
     const el = scrollEl.value
     if (el) {
+      markProgrammaticScroll(smooth)
       el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+      isAwayFromLatest.value = false
+      hasNewContentWhileAway.value = false
+      if (!smooth) requestAnimationFrame(syncScrollState)
       return true
     }
     return false
@@ -609,7 +762,28 @@ function scrollToBottom(smooth = false) {
   })
 }
 
-// 内容变化时滚到底。用「最后一条消息内容长度 + 活动状态 + 消息总数」作廉价信号，
+function maybeScrollToBottom() {
+  const shouldFollow = !isAwayFromLatest.value || isNearBottom()
+  if (shouldFollow) {
+    scrollToBottom()
+  } else {
+    hasNewContentWhileAway.value = true
+  }
+}
+
+function onChatScroll() {
+  syncScrollState()
+}
+
+function jumpToLatest() {
+  scrollToBottom(true)
+}
+
+const showJumpToLatest = computed(() => {
+  return store.hasMessages && (hasNewContentWhileAway.value || (store.streaming && isAwayFromLatest.value))
+})
+
+// 内容变化时智能跟随到底部。用「最后一条消息内容长度 + 活动状态 + 消息总数」作廉价信号，
 // 避免每来一个 token 就把所有消息内容拼成大字符串（流式时 O(n²)）。
 watch(
   () => {
@@ -624,7 +798,7 @@ watch(
       (last?.activities?.map((a) => a.status).join('') ?? '')
     )
   },
-  () => scrollToBottom(),
+  () => maybeScrollToBottom(),
 )
 
 // 打开时聚焦输入框并滚到底
@@ -640,6 +814,7 @@ watch(
 
 /** 输入框最大高度（面板高度的 40%，最小 160px） */
 const maxInputHeight = computed(() => {
+  if (isImmersive.value) return Math.max(maxHeight.value * 0.45, 180)
   const panelHeight = currentSize.value.height > 0
     ? currentSize.value.height
     : Math.min(600, maxHeight.value) // 默认自适应高度下用 600px 作基准
@@ -670,6 +845,11 @@ function onSend() {
 function ask(text: string) {
   if (store.streaming) return
   commitSend(text)
+}
+
+function askContext(prompt: string) {
+  if (store.streaming) return
+  commitSend(prompt)
 }
 
 function onEnter(e: KeyboardEvent) {
@@ -777,6 +957,7 @@ function isLastAssistant(idx: number): boolean {
 onMounted(() => {
   initSize()
   window.addEventListener('resize', onWindowResize)
+  window.addEventListener('keydown', onImmersiveKeydown, true)
   // 每分钟检查小时变化，驱动 contextSuggestions 刷新（Fix 3）
   hourTimer = setInterval(() => {
     const h = new Date().getHours()
@@ -786,9 +967,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('keydown', onImmersiveKeydown, true)
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeEnd)
   document.removeEventListener('mouseleave', onResizeEnd)
+  if (programmaticScrollTimer) { clearTimeout(programmaticScrollTimer); programmaticScrollTimer = null }
   if (hourTimer) { clearInterval(hourTimer); hourTimer = null }
 })
 </script>
@@ -799,6 +982,7 @@ onUnmounted(() => {
       <div
         v-if="store.open"
         class="cmd-shell"
+        :class="{ 'is-immersive': isImmersive }"
       >
         <!-- 遮罩 -->
         <div class="cmd-backdrop" @click="store.close()" />
@@ -809,32 +993,60 @@ onUnmounted(() => {
             v-if="store.open"
             ref="panelEl"
             class="cmd-card relative z-10 flex flex-col overflow-hidden"
-            :class="{ 'is-resizing': isResizing }"
-            :style="{
-              width: currentSize.width + 'px',
-              maxWidth: maxWidth + 'px',
-              height: currentSize.height > 0 ? currentSize.height + 'px' : 'auto',
-              maxHeight: maxHeight + 'px',
-            }"
+            :class="{ 'is-resizing': isResizing, 'is-immersive': isImmersive }"
+            :style="panelStyle"
             @click.stop
           >
             <div class="cmd-corners" aria-hidden="true" />
             <div class="cmd-accent" />
 
             <header class="cmd-header relative z-10">
-              <div class="cmd-brand-mark">
-                <IconRobot class="w-5 h-5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="cmd-eyebrow">Assistant Operations</p>
-                <h2 class="cmd-title">{{ ASSISTANT_NAME }} 对话中枢</h2>
-                <p class="cmd-subtitle">把天气、禅道、待办和知识库串成一次工作流。</p>
-              </div>
+              <template v-if="isImmersive">
+                <div class="cmd-brand-mark">
+                  <IconRobot class="w-5 h-5" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="cmd-eyebrow">Focus Workspace</p>
+                  <h2 class="cmd-title">{{ ASSISTANT_NAME }} 工作空间</h2>
+                  <p class="cmd-subtitle">{{ conversationTitle }}</p>
+                </div>
+                <div class="cmd-immersive-head-center" aria-hidden="true">
+                  <span>{{ conversationStats.total }} 轮</span>
+                  <span>{{ activeToolSummary }}</span>
+                </div>
+              </template>
+              <template v-else>
+                <div class="cmd-brand-mark">
+                  <IconRobot class="w-5 h-5" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="cmd-eyebrow">Assistant Operations</p>
+                  <h2 class="cmd-title">{{ ASSISTANT_NAME }} 对话中枢</h2>
+                  <p class="cmd-subtitle">把天气、禅道、待办和知识库串成一次工作流。</p>
+                </div>
+              </template>
               <div class="cmd-header-actions">
                 <span class="cmd-live-pill" :class="{ 'is-ready': store.configured }">
                   <IconSpark class="w-3.5 h-3.5" />
                   {{ store.configured ? '线路就绪' : '等待配置' }}
                 </span>
+                <button
+                  v-if="isImmersive"
+                  class="cmd-iconbtn"
+                  :class="{ 'is-active': immersiveSidebarOpen }"
+                  title="上下文侧栏"
+                  @click="immersiveSidebarOpen = !immersiveSidebarOpen"
+                >
+                  <IconPanelRight class="w-4 h-4" />
+                </button>
+                <button
+                  class="cmd-iconbtn"
+                  :title="isImmersive ? '退出沉浸式' : '沉浸式对话'"
+                  @click="toggleImmersive"
+                >
+                  <IconFullscreenExit v-if="isImmersive" class="w-4 h-4" />
+                  <IconFullscreen v-else class="w-4 h-4" />
+                </button>
                 <button
                   class="cmd-iconbtn"
                   title="对话参数设置"
@@ -858,22 +1070,25 @@ onUnmounted(() => {
               </div>
             </header>
 
+            <div class="cmd-body-shell" :class="{ 'has-sidebar': isImmersive && immersiveSidebarOpen }">
+              <main class="cmd-main-stage">
             <!-- 对话流 / 空态 -->
             <Transition name="content-fade" mode="out-in">
               <div
                 v-if="store.hasMessages || store.error || !store.configured"
                 ref="scrollEl"
-                class="relative z-10 flex-1 min-h-0 overflow-y-auto px-4 py-5 cmd-scroll"
+                class="cmd-message-pane relative z-10 flex-1 min-h-0 overflow-y-auto px-4 py-5 cmd-scroll"
+                @scroll.passive="onChatScroll"
               >
                 <!-- 未配置 -->
-                <div v-if="!store.configured" class="flex flex-col items-center gap-2 py-10 text-center text-white/55">
+                <div v-if="!store.configured" class="cmd-setup-empty flex flex-col items-center gap-2 py-10 text-center text-white/55">
                   <IconAlert class="w-8 h-8 text-amber-300/70" />
                   <p class="text-sm text-white/75">尚未接入 LLM</p>
                   <p class="text-xs text-white/40 max-w-[18rem]">点击状态栏「未配置」打开模型配置面板，填写 API Key 后即可对话</p>
                 </div>
 
                 <!-- 消息列表 -->
-                <div class="space-y-5">
+                <div class="cmd-message-list space-y-5">
                   <template v-for="(m, i) in store.messages" :key="i">
                 <!-- 用户 -->
                 <div v-if="m.role === 'user'" class="flex flex-col items-end gap-1">
@@ -1131,7 +1346,7 @@ onUnmounted(() => {
                 </div>
 
               <!-- 等待首个 token（工具执行中也保持显示，下方附加执行进度） -->
-              <div v-if="awaitingFirstToken" class="flex gap-2.5">
+              <div v-if="awaitingFirstToken" class="cmd-waiting-row flex gap-2.5">
                 <div class="cmd-avatar-sm shrink-0 mt-0.5">
                   <IconRobot class="w-4 h-4" />
                 </div>
@@ -1154,11 +1369,28 @@ onUnmounted(() => {
               </div>
             </Transition>
 
+            <Transition name="cmd-jump">
+              <div
+                v-if="showJumpToLatest"
+                class="cmd-jump-latest relative z-20 flex justify-center px-4"
+              >
+                <button
+                  type="button"
+                  class="cmd-jump-latest-btn"
+                  title="回到最新回复"
+                  @click="jumpToLatest"
+                >
+                  <IconArrowDown class="w-3.5 h-3.5" />
+                  <span>{{ store.streaming ? '正在生成，查看最新' : '查看最新' }}</span>
+                </button>
+              </div>
+            </Transition>
+
             <!-- 统一错误条：合并业务错误 + 连通性问题。放在两个 Transition 块之间，
                  确保在消息态和问候空态下都可见（与旧 ConnectivityBanner 位置一致）。 -->
             <div
               v-if="unifiedError.visible"
-              class="relative z-10 flex items-start gap-2 mx-4 mb-2 px-3 py-2 rounded-lg text-xs"
+              class="cmd-error-bar relative z-10 flex items-start gap-2 mx-4 mb-2 px-3 py-2 rounded-lg text-xs"
               :class="unifiedError.style"
             >
               <IconAlert class="w-4 h-4 shrink-0 mt-px" :class="unifiedError.iconClass" />
@@ -1183,8 +1415,9 @@ onUnmounted(() => {
             <Transition name="content-fade" mode="out-in">
               <div
                 v-if="store.configured && !store.hasMessages"
-                class="relative z-10 flex-1 min-h-0 flex flex-col justify-center overflow-y-auto px-3 pb-3 pt-3 cmd-scroll"
+                class="cmd-empty-pane relative z-10 flex-1 min-h-0 flex flex-col justify-center overflow-y-auto px-3 pb-3 pt-3 cmd-scroll"
               >
+                <div class="cmd-empty-inner">
                 <!-- 对话式问候 -->
                 <div class="mb-4 px-1">
                   <p class="text-[13px] text-white/55 leading-relaxed">
@@ -1208,6 +1441,7 @@ onUnmounted(() => {
                       <IconSend class="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 -rotate-90" />
                     </button>
                   </div>
+                </div>
                 </div>
               </div>
             </Transition>
@@ -1263,6 +1497,32 @@ onUnmounted(() => {
               @dragleave.prevent="isDraggingImage = false"
               @drop.prevent="onImageDrop"
             >
+              <div v-if="isImmersive" class="cmd-composer-rail">
+                <div class="cmd-mode-tabs">
+                  <button
+                    v-for="mode in composerModes"
+                    :key="mode.key"
+                    class="cmd-mode-tab"
+                    :class="{ 'is-active': activeComposerMode === mode.key }"
+                    type="button"
+                    @click="activeComposerMode = mode.key"
+                  >
+                    {{ mode.label }}
+                  </button>
+                </div>
+                <div class="cmd-context-rail">
+                  <button
+                    v-for="chip in contextChips"
+                    :key="chip.key"
+                    class="cmd-context-chip"
+                    type="button"
+                    :disabled="store.streaming"
+                    @click="askContext(chip.prompt)"
+                  >
+                    {{ chip.label }}
+                  </button>
+                </div>
+              </div>
               <div
                 class="cmd-composer"
                 :class="{
@@ -1277,7 +1537,7 @@ onUnmounted(() => {
                     v-model="input"
                     rows="1"
                     :disabled="!store.configured"
-                    :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : `直接跟我说就好…`"
+                    :placeholder="quoteMessageIdx !== null ? '输入回复内容…' : activeModePlaceholder"
                     class="cmd-input w-full resize-none bg-transparent text-[15px] text-white/95 placeholder:text-white/35 outline-none leading-6 cmd-scroll relative z-10"
                     :style="{ maxHeight: maxInputHeight + 'px' }"
                     @keydown="onEnter"
@@ -1312,9 +1572,78 @@ onUnmounted(() => {
                 <span>{{ ASSISTANT_NAME }} · 天气 / 禅道 / 待办</span>
               </div>
             </div>
+              </main>
+
+              <aside v-if="isImmersive && immersiveSidebarOpen" class="cmd-workspace-side relative z-10">
+                <section class="cmd-side-section">
+                  <div class="cmd-side-head">
+                    <IconMessageText class="w-4 h-4" />
+                    <span>会话</span>
+                  </div>
+                  <div class="cmd-side-title">{{ conversationTitle }}</div>
+                  <div class="cmd-side-metrics">
+                    <div>
+                      <strong>{{ conversationStats.user }}</strong>
+                      <span>提问</span>
+                    </div>
+                    <div>
+                      <strong>{{ conversationStats.assistant }}</strong>
+                      <span>回复</span>
+                    </div>
+                    <div>
+                      <strong>{{ conversationStats.activities }}</strong>
+                      <span>工具</span>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="cmd-side-section">
+                  <div class="cmd-side-head">
+                    <IconViewDashboard class="w-4 h-4" />
+                    <span>上下文</span>
+                  </div>
+                  <div class="cmd-side-chipgrid">
+                    <button
+                      v-for="chip in contextChips"
+                      :key="chip.key"
+                      class="cmd-side-chip"
+                      :disabled="store.streaming"
+                      @click="askContext(chip.prompt)"
+                    >
+                      {{ chip.label }}
+                    </button>
+                  </div>
+                </section>
+
+                <section class="cmd-side-section">
+                  <div class="cmd-side-head">
+                    <IconTimeline class="w-4 h-4" />
+                    <span>工具时间线</span>
+                  </div>
+                  <div v-if="recentActivities.length" class="cmd-side-timeline">
+                    <div
+                      v-for="(a, ai) in recentActivities"
+                      :key="`${a.name}-${ai}`"
+                      class="cmd-side-activity"
+                      :class="a.status"
+                    >
+                      <span class="cmd-side-dot" />
+                      <div class="min-w-0">
+                        <div class="cmd-side-activity-title">{{ a.label }}</div>
+                        <div class="cmd-side-activity-sub">
+                          {{ a.detail || (a.status === 'running' ? '执行中' : a.status === 'pending' ? '待确认' : a.status === 'error' ? '异常' : '已完成') }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="cmd-side-empty">还没有工具调用</div>
+                </section>
+              </aside>
+            </div>
 
             <!-- 右下角拖拽句柄 -->
             <div
+              v-if="!isImmersive"
               class="resize-handle absolute right-0 bottom-0 z-20 cursor-se-resize"
               :title="'拖拽调整大小 · 双击重置'"
               @mousedown="onResizeStart"
@@ -1366,6 +1695,9 @@ onUnmounted(() => {
   justify-content: center;
   padding: 6vh 16px;
 }
+.cmd-shell.is-immersive {
+  padding: 0;
+}
 .cmd-backdrop {
   position: absolute;
   inset: 0;
@@ -1396,6 +1728,13 @@ onUnmounted(() => {
   backdrop-filter: blur(24px) saturate(145%);
   -webkit-backdrop-filter: blur(24px) saturate(145%);
 }
+.cmd-card.is-immersive {
+  border-width: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(12, 18, 32, 0.98), rgba(5, 9, 18, 1));
+  box-shadow: none;
+}
 .cmd-card::before {
   position: absolute;
   inset: 0;
@@ -1406,6 +1745,13 @@ onUnmounted(() => {
     linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
   background-size: 32px 32px;
   mask-image: linear-gradient(135deg, rgba(0,0,0,0.55), transparent 58%);
+}
+.cmd-card.is-immersive::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+  background-size: 100% 44px;
+  opacity: 0.34;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.34), transparent 68%);
 }
 .cmd-card::after {
   position: absolute;
@@ -1422,6 +1768,9 @@ onUnmounted(() => {
   pointer-events: none;
   border-radius: 14px;
   overflow: hidden;
+}
+.cmd-card.is-immersive .cmd-corners {
+  display: none;
 }
 .cmd-corners::before,
 .cmd-corners::after {
@@ -1471,6 +1820,15 @@ onUnmounted(() => {
     radial-gradient(circle at 12% 0, color-mix(in srgb, var(--cmd-tone) 15%, transparent), transparent 34%),
     rgba(15, 23, 42, 0.34);
 }
+.cmd-card.is-immersive .cmd-header {
+  min-height: 76px;
+  padding: 14px clamp(22px, 4vw, 58px);
+  border-bottom-color: rgba(148, 163, 184, 0.1);
+  background:
+    linear-gradient(180deg, rgba(12, 18, 32, 0.9), rgba(12, 18, 32, 0.66));
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+}
 .cmd-brand-mark,
 .cmd-avatar,
 .cmd-avatar-sm {
@@ -1489,6 +1847,14 @@ onUnmounted(() => {
   width: 46px;
   height: 46px;
   border-radius: 12px;
+}
+.cmd-card.is-immersive .cmd-brand-mark {
+  width: 38px;
+  height: 38px;
+  border-color: rgba(125, 211, 252, 0.2);
+  border-radius: 11px;
+  background: rgba(14, 25, 42, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .cmd-avatar {
   width: 38px;
@@ -1514,12 +1880,39 @@ onUnmounted(() => {
   font-weight: 850;
   letter-spacing: -0.01em;
 }
+.cmd-card.is-immersive .cmd-title {
+  font-size: 18px;
+  font-weight: 820;
+}
 .cmd-subtitle {
   margin: 5px 0 0;
   overflow: hidden;
   color: var(--cmd-muted);
   font-size: 12px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-card.is-immersive .cmd-subtitle {
+  max-width: 56vw;
+  color: rgba(226, 232, 240, 0.42);
+}
+.cmd-immersive-head-center {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: rgba(226, 232, 240, 0.36);
+  font-size: 11px;
+  font-weight: 760;
+}
+.cmd-immersive-head-center span {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.026);
   white-space: nowrap;
 }
 .cmd-header-actions {
@@ -1557,10 +1950,18 @@ onUnmounted(() => {
   white-space: nowrap;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
 }
+.cmd-card.is-immersive .cmd-live-pill {
+  display: none;
+}
 .cmd-live-pill.is-ready {
   border-color: color-mix(in srgb, var(--cmd-tone) 34%, transparent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 16%, transparent), color-mix(in srgb, var(--cmd-tone) 7%, transparent));
   color: color-mix(in srgb, var(--cmd-tone) 80%, white);
+}
+.cmd-card.is-immersive .cmd-live-pill.is-ready {
+  border-color: rgba(34, 211, 238, 0.16);
+  background: rgba(34, 211, 238, 0.07);
+  color: rgba(125, 211, 252, 0.78);
 }
 .cmd-header-btn,
 .cmd-iconbtn {
@@ -1573,6 +1974,13 @@ onUnmounted(() => {
   color: rgba(226, 232, 240, 0.66);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
 }
+.cmd-card.is-immersive .cmd-iconbtn,
+.cmd-card.is-immersive .cmd-header-btn {
+  border-color: rgba(148, 163, 184, 0.09);
+  background: rgba(255,255,255,0.028);
+  color: rgba(226, 232, 240, 0.5);
+  box-shadow: none;
+}
 .cmd-header-btn {
   gap: 5px;
   min-height: 32px;
@@ -1583,6 +1991,11 @@ onUnmounted(() => {
 .cmd-iconbtn {
   width: 32px;
   height: 32px;
+}
+.cmd-iconbtn.is-active {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--cmd-tone) 42%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.07));
 }
 .cmd-header-btn:hover:not(:disabled),
 .cmd-header-btn:focus-visible,
@@ -1605,6 +2018,276 @@ onUnmounted(() => {
 .cmd-scroll::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.24);
   border-radius: 999px;
+}
+.cmd-body-shell,
+.cmd-main-stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.cmd-card.is-immersive .cmd-body-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.cmd-card.is-immersive .cmd-body-shell.has-sidebar {
+  grid-template-columns: minmax(0, 1fr) minmax(286px, 320px);
+}
+.cmd-card.is-immersive .cmd-main-stage {
+  min-width: 0;
+  background:
+    radial-gradient(circle at 36% 4%, rgba(125, 211, 252, 0.07), transparent 32%),
+    linear-gradient(180deg, rgba(10, 16, 29, 0.46), rgba(5, 9, 18, 0.08));
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+}
+.cmd-workspace-side {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 20px 22px 20px 18px;
+  border-left: 0;
+  background:
+    linear-gradient(180deg, rgba(12, 18, 32, 0.72), rgba(7, 11, 20, 0.84));
+}
+.cmd-side-section {
+  padding: 2px 0 16px;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 0;
+  background:
+    transparent;
+  box-shadow: none;
+}
+.cmd-side-section:last-child {
+  border-bottom: 0;
+}
+.cmd-side-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(125, 211, 252, 0.7);
+  font-size: 11px;
+  font-weight: 850;
+}
+.cmd-side-title {
+  margin-top: 9px;
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+.cmd-side-metrics {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 14px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+.cmd-side-metrics div {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.cmd-side-metrics div:last-child {
+  border-right: 0;
+}
+.cmd-side-metrics strong {
+  display: block;
+  color: rgba(255,255,255,0.94);
+  font-size: 15px;
+  line-height: 1;
+}
+.cmd-side-metrics span {
+  display: block;
+  margin-top: 4px;
+  color: rgba(226, 232, 240, 0.38);
+  font-size: 10px;
+}
+.cmd-side-chipgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+.cmd-side-chip,
+.cmd-context-chip,
+.cmd-mode-tab {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.cmd-side-chip {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.075);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.54);
+  font-size: 11px;
+  font-weight: 800;
+}
+.cmd-side-chip:hover:not(:disabled),
+.cmd-side-chip:focus-visible {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--cmd-tone) 36%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 10%, rgba(255,255,255,0.06));
+  outline: 0;
+}
+.cmd-side-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.cmd-side-timeline {
+  display: grid;
+  gap: 10px;
+  margin-top: 13px;
+}
+.cmd-side-activity {
+  display: grid;
+  grid-template-columns: 11px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.cmd-side-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.5);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.08);
+}
+.cmd-side-activity.running .cmd-side-dot {
+  background: #22d3ee;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12), 0 0 14px rgba(34, 211, 238, 0.28);
+}
+.cmd-side-activity.done .cmd-side-dot {
+  background: #34d399;
+}
+.cmd-side-activity.error .cmd-side-dot {
+  background: #fb7185;
+}
+.cmd-side-activity.pending .cmd-side-dot {
+  background: #fbbf24;
+}
+.cmd-side-activity-title {
+  overflow: hidden;
+  color: rgba(248, 250, 252, 0.76);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-side-activity-sub,
+.cmd-side-empty {
+  margin-top: 2px;
+  color: rgba(226, 232, 240, 0.36);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cmd-message-list,
+.cmd-waiting-row {
+  width: 100%;
+}
+.cmd-empty-inner {
+  width: 100%;
+}
+.cmd-card.is-immersive .cmd-message-pane {
+  padding: clamp(28px, 4vw, 56px) clamp(18px, 6vw, 96px);
+}
+.cmd-card.is-immersive .cmd-message-list,
+.cmd-card.is-immersive .cmd-waiting-row,
+.cmd-card.is-immersive .cmd-empty-inner {
+  max-width: 980px;
+  margin-right: auto;
+  margin-left: auto;
+}
+.cmd-card.is-immersive .cmd-empty-pane {
+  padding: clamp(28px, 4vw, 56px) clamp(18px, 6vw, 96px);
+}
+.cmd-card.is-immersive .cmd-empty-inner {
+  max-width: 680px;
+}
+.cmd-card.is-immersive .cmd-setup-empty {
+  min-height: 42vh;
+  justify-content: center;
+  gap: 9px;
+}
+.cmd-card.is-immersive .cmd-setup-empty svg {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  color: rgba(251, 191, 36, 0.72);
+}
+.cmd-card.is-immersive .cmd-setup-empty p:first-of-type {
+  color: rgba(248, 250, 252, 0.88);
+  font-size: 18px;
+  font-weight: 820;
+}
+.cmd-card.is-immersive .cmd-setup-empty p:last-of-type {
+  max-width: 30rem;
+  color: rgba(226, 232, 240, 0.42);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.cmd-card.is-immersive .cmd-bubble-user {
+  max-width: min(72%, 720px);
+}
+.cmd-card.is-immersive .cmd-bubble-ai,
+.cmd-card.is-immersive .cmd-ui-stack {
+  max-width: min(100%, 860px);
+}
+.cmd-jump-latest {
+  margin-top: -44px;
+  margin-bottom: 8px;
+  pointer-events: none;
+}
+.cmd-jump-latest-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  max-width: min(100%, 220px);
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--cmd-tone) 32%, rgba(255,255,255,0.08));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 18%, rgba(15,23,42,0.9)), rgba(2,6,23,0.82));
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: auto;
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+.cmd-jump-latest-btn:hover,
+.cmd-jump-latest-btn:focus-visible {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--cmd-tone) 52%, rgba(255,255,255,0.18));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cmd-tone) 24%, rgba(15,23,42,0.92)), rgba(2,6,23,0.86));
+  outline: 0;
+  transform: translateY(-1px);
+}
+.cmd-jump-enter-active,
+.cmd-jump-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.cmd-jump-enter-from,
+.cmd-jump-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 .cmd-bubble-user,
 .cmd-bubble-ai,
@@ -1655,10 +2338,25 @@ onUnmounted(() => {
   font-size: 14px;
   word-break: break-word;
 }
+.cmd-card.is-immersive .cmd-bubble-ai {
+  padding: 16px 18px;
+  border-color: rgba(148, 163, 184, 0.1);
+  background:
+    radial-gradient(circle at 18px 14px, color-mix(in srgb, var(--cmd-tone) 9%, transparent), transparent 64px),
+    rgba(15, 23, 42, 0.42);
+  font-size: 15px;
+}
+.cmd-card.is-immersive .cmd-bubble-ai::before {
+  opacity: 0.46;
+}
 .cmd-ui-stack {
   display: grid;
   gap: 10px;
   max-width: min(100%, 680px);
+}
+.cmd-card.is-immersive .cmd-activity {
+  border-color: rgba(255,255,255,0.075);
+  background: rgba(15, 23, 42, 0.34);
 }
 .cmd-caret {
   display: inline-block;
@@ -1986,6 +2684,95 @@ onUnmounted(() => {
   padding: 13px 16px 12px;
   transition: background 0.2s;
 }
+.cmd-card.is-immersive .quote-preview,
+.cmd-card.is-immersive .cmd-pending-bar,
+.cmd-card.is-immersive .cmd-input-wrapper {
+  padding-right: clamp(16px, 6vw, 96px);
+  padding-left: clamp(16px, 6vw, 96px);
+}
+.cmd-card.is-immersive .cmd-input-wrapper {
+  padding-top: 12px;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+  background:
+    linear-gradient(180deg, rgba(5, 9, 18, 0), rgba(5, 9, 18, 0.56) 28%, rgba(5, 9, 18, 0.92));
+  backdrop-filter: blur(20px) saturate(118%);
+  -webkit-backdrop-filter: blur(20px) saturate(118%);
+}
+.cmd-card.is-immersive .cmd-input-wrapper:focus-within {
+  background:
+    linear-gradient(180deg, rgba(5, 9, 18, 0), rgba(5, 9, 18, 0.56) 28%, rgba(5, 9, 18, 0.92));
+}
+.cmd-composer-rail {
+  display: flex;
+  max-width: 980px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 auto 10px;
+}
+.cmd-mode-tabs,
+.cmd-context-rail {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.cmd-context-rail {
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+.cmd-mode-tab,
+.cmd-context-chip {
+  display: inline-flex;
+  min-height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.52);
+  font-size: 11px;
+  font-weight: 850;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.cmd-mode-tab.is-active {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(34, 211, 238, 0.085);
+  color: rgba(186, 230, 253, 0.92);
+}
+.cmd-context-chip:hover:not(:disabled),
+.cmd-context-chip:focus-visible,
+.cmd-mode-tab:hover,
+.cmd-mode-tab:focus-visible {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--cmd-tone) 30%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 9%, rgba(255,255,255,0.06));
+  outline: 0;
+}
+.cmd-context-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.cmd-card.is-immersive .cmd-composer {
+  max-width: 980px;
+  min-height: 62px;
+  margin-right: auto;
+  margin-left: auto;
+  border-color: rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+  background: rgba(13, 20, 34, 0.78);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.cmd-card.is-immersive .cmd-error-bar {
+  width: calc(100% - 32px);
+  max-width: 980px;
+  margin-right: auto;
+  margin-left: auto;
+}
 .cmd-input-wrapper:focus-within {
   background: transparent;
 }
@@ -2125,11 +2912,21 @@ onUnmounted(() => {
   color: rgba(226, 232, 240, 0.34);
   font-size: 11px;
 }
+.cmd-card.is-immersive .cmd-footer {
+  justify-content: center;
+  padding-right: clamp(16px, 6vw, 96px);
+  padding-left: clamp(16px, 6vw, 96px);
+  background: rgba(2, 6, 23, 0.86);
+}
 .cmd-footer-left {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+.cmd-card.is-immersive .cmd-footer-left {
+  width: 100%;
+  max-width: 980px;
 }
 .cmd-footer-left svg { color: color-mix(in srgb, var(--cmd-tone) 70%, transparent); }
 .resize-handle {
@@ -2347,10 +3144,38 @@ onUnmounted(() => {
 .cmd-md :deep(tr:hover) { background: color-mix(in srgb, var(--cmd-tone) 8%, transparent); }
 @media (max-width: 760px) {
   .cmd-shell { padding: 14px 10px; }
+  .cmd-shell.is-immersive { padding: 0; }
   .cmd-header { padding: 16px; flex-wrap: wrap; }
   .cmd-header-actions { width: 100%; justify-content: space-between; }
   .cmd-subtitle { white-space: normal; }
   .cmd-footer { flex-wrap: wrap; min-height: auto; padding: 9px 14px; }
+  .cmd-card.is-immersive .cmd-header { padding: 12px 14px; }
+  .cmd-card.is-immersive .cmd-subtitle { max-width: none; }
+  .cmd-immersive-head-center { display: none; }
+  .cmd-card.is-immersive .cmd-body-shell.has-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cmd-workspace-side { display: none; }
+  .cmd-card.is-immersive .cmd-message-pane,
+  .cmd-card.is-immersive .cmd-empty-pane {
+    padding: 18px 14px;
+  }
+  .cmd-composer-rail {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+  }
+  .cmd-mode-tabs,
+  .cmd-context-rail {
+    width: 100%;
+    overflow-x: auto;
+  }
+  .cmd-card.is-immersive .quote-preview,
+  .cmd-card.is-immersive .cmd-pending-bar,
+  .cmd-card.is-immersive .cmd-input-wrapper {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .cmd-accent,

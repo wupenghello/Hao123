@@ -89,6 +89,7 @@ function spawnCapture(command: string, args: string[], timeoutMs = 20_000): Prom
     try {
       child = spawn(command, args, {
         windowsHide: true,
+        shell: process.platform === 'win32',
         env: {
           ...process.env,
           PATH: CLI_PATH,
