@@ -12,7 +12,7 @@
  */
 import { ref, nextTick, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../store'
-import { reachEnabled } from '@/features/reach'
+import { reachEnabled, summarizeReachResult } from '@/features/reach'
 import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
@@ -21,7 +21,7 @@ import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import ToolActivityRow from './ToolActivityRow.vue'
 import ChatSettingsModal from './ChatSettingsModal.vue'
 import { useConnectivity } from '../connectivity'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
 import IconSend from '~icons/mdi/arrow-up'
@@ -498,6 +498,26 @@ function formatJsonPreview(jsonStr: string): string {
 }
 
 /**
+ * 把 agent 循环中间步骤的多条活动标签合并为可读摘要。
+ * - 单条有详情时显示「标签（详情）」
+ * - 多条同标签时合并为「标签（N 项）」避免「读取外部链接 · 读取外部链接」这种无意义重复
+ * - 多条不同标签时用「→」连接
+ */
+function formatLoopLabel(activities: ToolActivity[]): string {
+  if (!activities?.length) return ''
+  if (activities.length === 1) {
+    const a = activities[0]
+    return a.detail ? `${a.label}（${a.detail}）` : a.label
+  }
+  const firstLabel = activities[0].label
+  const allSame = activities.every((a) => a.label === firstLabel)
+  if (allSame) {
+    return `${firstLabel}（${activities.length} 项）`
+  }
+  return activities.map((a) => a.label).join(' → ')
+}
+
+/**
  * Markdown 渲染缓存：历史消息按 content 命中；流式中的消息限频解析。
  * 这样既避免结束时从纯文本跳到富文本，也不会每个 token 都跑一次 markdown-it。
  */
@@ -563,7 +583,16 @@ const isExecutingTools = computed(() => {
   return !!(last.activities?.length) && !last.content
 })
 
-/** 工具执行中的进度描述 */
+/** 当前 agent 循环已进行的轮数（多轮调研进度感；> 1 时显示「步骤 N」前缀） */
+const currentLoopStep = computed(() => {
+  if (!store.streaming) return 0
+  // 复用 loopMeta 已算好的分组轮次，避免再过滤一遍 messages（口径漂移风险）。
+  // loopMeta 在下方定义；computed getter 懒执行，渲染时 loopMeta 已就绪。
+  const lastIdx = store.messages.length - 1
+  return loopMeta.value.get(lastIdx)?.round ?? 0
+})
+
+/** 工具执行中的进度描述（含多轮步骤前缀） */
 const executingToolLabel = computed(() => {
   const last = store.messages[store.messages.length - 1]
   if (!last?.activities?.length) return ''
@@ -571,12 +600,14 @@ const executingToolLabel = computed(() => {
   const done = last.activities.filter((a) => a.status === 'done')
   const error = last.activities.filter((a) => a.status === 'error')
   const pending = last.activities.filter((a) => a.status === 'pending')
-  if (running.length > 1) return `正在并行查询（${done.length}/${last.activities.length}）…`
-  if (running.length === 1) return `正在查询${running[0].label}…`
+  // 多轮调研时给「步骤 N ·」前缀，让用户知道这是第几步、还要继续
+  const stepPrefix = currentLoopStep.value > 1 ? `步骤 ${currentLoopStep.value} · ` : ''
+  if (running.length > 1) return `${stepPrefix}正在并行查询（${done.length}/${last.activities.length}）…`
+  if (running.length === 1) return `${stepPrefix}正在查询${running[0].label}…`
   if (pending.length) return `等待确认（${pending.length} 项）…`
   if (error.length === last.activities.length) return '查询遇到问题，可点击下方活动卡重试'
   if (error.length) return `部分查询失败（${error.length}/${last.activities.length}），可点击重试`
-  if (done.length === last.activities.length) return '正在组织回答…'
+  if (done.length === last.activities.length) return `${stepPrefix}正在组织回答…`
   return ''
 })
 
@@ -740,6 +771,61 @@ function markProgrammaticScroll(smooth: boolean) {
     isProgrammaticScroll = false
     syncScrollState()
   }, smooth ? 420 : 80)
+}
+
+// ============ 外部调研可视化（S3 徽标 / S6 继续调研 / S9 活动卡可读摘要）============
+
+/**
+ * 一条 reach__* 活动是否算「成功的外部来源」——徽标 / 来源计数 / 继续调研 chip 统一口径。
+ * 必须 status === 'done'：否则全失败的 reach 会显示「基于 0 个来源」徽标，并给出无意义的
+ * 「整理成文档」chip。
+ */
+function isDoneReach(a: ToolActivity): boolean {
+  return a.name.startsWith('reach__') && a.status === 'done'
+}
+
+/**
+ * 该消息（或其所属 agent 循环分组）是否用到成功的外部调研——决定是否挂「基于公开网络信息」徽标。
+ * 关键：最终回答消息本身没有 activities（activities 在工具轮的中间消息上），因此必须回溯同组
+ * 工具轮，否则多轮 reach 调研的最终答案永远不会挂徽标。
+ */
+function usesExternalResearch(m: ChatMessage): boolean {
+  if (m.activities?.some(isDoneReach)) return true
+  if (m._loopGroup) {
+    return store.messages.some(
+      (mm) => mm._loopGroup === m._loopGroup && mm.activities?.some(isDoneReach),
+    )
+  }
+  return false
+}
+
+/** 估算外部来源数（同组内成功 reach 活动数；hover 提示用，不需精确到条） */
+function externalSourceCount(m: ChatMessage): number {
+  const group = m._loopGroup
+    ? store.messages.filter((mm) => mm._loopGroup === m._loopGroup)
+    : [m]
+  return group.flatMap((mm) => mm.activities ?? []).filter(isDoneReach).length
+}
+
+/** reach 答案后的「继续调研」快捷选项（模块级常量，避免每次渲染重新分配） */
+const REACH_FOLLOW_UPS: { label: string; text: string }[] = [
+  { label: '再深入一些', text: '针对刚才的调研，挑最重要的发现再深入展开，必要时补充新来源。' },
+  { label: '换来源再查', text: '换一批来源重新查一下刚才的问题，看看有没有不同结论。' },
+  { label: '整理成文档', text: '把刚才的调研结果整理成一份 Markdown 记录，方便我存到知识库或周报。' },
+]
+
+/** 是否为 reach 答案末尾渲染「继续调研」chip（仅在成功 reach 后、非流式时） */
+function showReachFollowUps(m: ChatMessage): boolean {
+  return usesExternalResearch(m) && !store.streaming
+}
+
+/**
+ * 把工具活动卡的结果渲染成人类可读摘要。reach 工具的字段排版下沉到 reach 模块的
+ * summarizeReachResult（与 UI 卡复用同一套字段读取，避免漂移）；非 reach 工具回退 pretty JSON。
+ */
+function formatActivityResult(a: ToolActivity): string {
+  if (!a.result) return ''
+  return summarizeReachResult(a.name, a.result) ?? formatJsonPreview(a.result)
 }
 
 function scrollToBottom(smooth = false) {
@@ -1127,7 +1213,7 @@ onUnmounted(() => {
                       <div class="flex items-center gap-2">
                         <span class="cmd-loop-step-num">步骤 {{ loopMeta.get(i)!.round }}</span>
                         <span class="cmd-loop-step-label truncate text-[11px] text-white/45">
-                          {{ m.activities!.map(a => a.label).join(' · ') }}
+                          {{ formatLoopLabel(m.activities!) }}
                         </span>
                         <span class="ml-auto flex items-center gap-1 shrink-0">
                           <template v-if="m.activities!.every(a => a.status === 'done')">
@@ -1168,6 +1254,11 @@ onUnmounted(() => {
                         :class="[toolColorClass(a.label), a.status, { 'is-error': a.status === 'error' }]"
                       >
                         <ToolActivityRow :activity="a" compact />
+                        <!-- 展开时显示按工具类型排版的结果摘要（reach 工具人类可读，其它回退 JSON）。
+                             reach 工具的活动卡就在中间步骤上，这里正是它该出现的地方。 -->
+                        <div v-if="a.result" class="mt-1 pt-1 border-t border-white/10">
+                          <pre class="text-[11px] text-white/70 bg-black/30 p-2 rounded-md max-h-[220px] overflow-auto whitespace-pre-wrap break-all">{{ formatActivityResult(a) }}</pre>
+                        </div>
                       </div>
                     </div>
                     <!-- 中间步骤的生成式 UI 块（reach/天气等工具在中间轮也可能产出卡片） -->
@@ -1267,11 +1358,11 @@ onUnmounted(() => {
                           </div>
                         </div>
 
-                        <!-- 展开的结果预览 -->
+                        <!-- 展开的结果预览（按工具类型人类可读；未知工具回退 JSON） -->
                         <Transition name="activity-expand">
                           <div v-if="a.expanded && a.result" class="mt-2 pt-2 border-t border-white/10">
                             <div class="text-[10px] text-white/40 mb-1.5">返回结果预览</div>
-                            <pre class="text-[11px] text-white/70 bg-black/30 p-2 rounded-md max-h-[180px] overflow-auto whitespace-pre-wrap break-all">{{ formatJsonPreview(a.result) }}</pre>
+                            <pre class="text-[11px] text-white/70 bg-black/30 p-2 rounded-md max-h-[220px] overflow-auto whitespace-pre-wrap break-all">{{ formatActivityResult(a) }}</pre>
                           </div>
                         </Transition>
                       </div>
@@ -1287,6 +1378,15 @@ onUnmounted(() => {
 
                     <!-- 正文：流式中也走 Markdown 渲染，避免结束时从纯文本跳变到富文本 -->
                     <div v-if="m.content" class="cmd-bubble-ai cmd-md group" @click="onMarkdownClick">
+                      <!-- S3：外部调研答案挂「基于公开网络信息」徽标，与内部数据答案做信任分层 -->
+                      <div
+                        v-if="usesExternalResearch(m)"
+                        class="cmd-ext-badge"
+                        :title="`基于 ${externalSourceCount(m)} 个外部公开来源 · 网络信息可能过时或片面，关键结论请核实`"
+                      >
+                        <IconSearchWeb class="w-3 h-3 shrink-0" />
+                        <span>基于公开网络信息 · 请核实</span>
+                      </div>
                       <div v-html="renderMd(m, isStreamingAt(i))" class="md-content" />
                       <span v-if="isStreamingAt(i)" class="cmd-caret" />
 
@@ -1340,6 +1440,18 @@ onUnmounted(() => {
                       </div>
                     </div>
                     <span class="text-[10px] text-white/25">{{ formatMessageTime(m.ts) }}</span>
+                    <!-- S6：reach 答案末尾追加「继续调研」快捷键（深挖 / 换来源 / 沉淀），非 reach 不渲染 -->
+                    <div v-if="showReachFollowUps(m)" class="cmd-followups">
+                      <button
+                        v-for="fu in REACH_FOLLOW_UPS"
+                        :key="fu.label"
+                        class="cmd-followup-chip"
+                        :title="fu.text"
+                        @click="ask(fu.text)"
+                      >
+                        {{ fu.label }}
+                      </button>
+                    </div>
                   </div>
                 </div>
                   </template>
@@ -2326,7 +2438,8 @@ onUnmounted(() => {
 }
 .cmd-bubble-ai {
   position: relative;
-  max-width: min(100%, 680px);
+  /* 自适应面板宽度：92% 保证呼吸边距，800px 兜底避免超宽行降低可读性 */
+  max-width: min(92%, 800px);
   overflow: hidden;
   padding: 13px 16px;
   border: 1px solid rgba(148, 163, 184, 0.15);
@@ -2352,7 +2465,8 @@ onUnmounted(() => {
 .cmd-ui-stack {
   display: grid;
   gap: 10px;
-  max-width: min(100%, 680px);
+  /* 与 AI 气泡同宽，让生成式 UI 卡片跟随面板自适应 */
+  max-width: min(92%, 800px);
 }
 .cmd-card.is-immersive .cmd-activity {
   border-color: rgba(255,255,255,0.075);
@@ -2602,6 +2716,47 @@ onUnmounted(() => {
   color: rgba(199, 210, 254, 0.78);
   font-size: 10.5px;
   font-weight: 750;
+}
+/* S3：「基于公开网络信息」徽标——把外部调研答案与内部数据答案做信任分层 */
+.cmd-ext-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 9px;
+  padding: 3px 9px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.13), rgba(251, 191, 36, 0.06));
+  color: rgba(253, 230, 138, 0.92);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+/* S6：「继续调研」快捷键 */
+.cmd-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.cmd-followup-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 4px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.15s;
+}
+.cmd-followup-chip:hover {
+  border-color: color-mix(in srgb, var(--cmd-tone) 36%, transparent);
+  background: color-mix(in srgb, var(--cmd-tone) 12%, rgba(255, 255, 255, 0.05));
+  color: #fff;
+  transform: translateY(-1px);
 }
 .cmd-suggestion {
   position: relative;
@@ -3197,6 +3352,7 @@ onUnmounted(() => {
     transition: none;
   }
   .cmd-suggestion:hover,
-  .cmd-send:hover:not(:disabled) { transform: none; }
+  .cmd-send:hover:not(:disabled),
+  .cmd-followup-chip:hover { transform: none; }
 }
 </style>

@@ -99,6 +99,7 @@ npm run preview
 | `VITE_WBSCF_PKG_MGR` | 启动 wbscf-web dev 脚本的包管理器，默认 `pnpm` | 可选 |
 | `VITE_AGENT_REACH_ENABLED` | 是否启用 Agent Reach 外部调研工具，仅 dev 生效，设为 `true` 后暴露 `reach.*` 工具 | 使用外部调研时必填 |
 | `VITE_AGENT_REACH_CMD` | Agent Reach CLI 命令或路径，默认 `agent-reach` | 可选 |
+| `VITE_PROJECT_PROFILE` | 项目画像一句话（技术栈 / 阶段 / 约束），reachEnabled 时注入对话上下文，供「对本项目的影响」落地；不配回退通用评估维度 | 可选 |
 
 开发环境下，天气、禅道、LLM、wbscf 和 Git 相关能力通过 Vite 代理或 Vite 插件完成。改动 `.env` 后通常需要重启 dev server。
 
@@ -117,6 +118,8 @@ npm run setup:reach
 ```env
 VITE_AGENT_REACH_ENABLED=true
 # VITE_AGENT_REACH_CMD=agent-reach
+# 可选：项目画像一句话，让「对本项目的影响」有落地锚点
+# VITE_PROJECT_PROFILE=Vue3 + TS + Vite 工作台，前端单体，无 SSR
 ```
 
 开启后，小吴会在用户明确要求“查一下 / 调研 / 读链接 / 分析 GitHub 仓库 / 总结视频”时使用这些工具：
@@ -132,11 +135,18 @@ VITE_AGENT_REACH_ENABLED=true
 
 第二期体验增强：
 
-- 调研类回复遵循「结论 / 关键发现 / 对本项目的影响 / 风险 / 下一步 / 来源」模板。
-- 搜索、网页、GitHub、视频、诊断结果会自动渲染 UI 卡片，并把来源做成可点击链接。
-- GitHub 仓库评估固定输出适配点、集成成本、维护风险和引入建议。
+- 调研类回复遵循「结论 / 关键发现（每条带证据强度 [证据:强/中/弱]）/ 对本项目的影响 / 风险 / 下一步 / 来源」模板。
+- 搜索、网页、GitHub、视频、诊断结果会自动渲染 UI 卡片，并把来源做成可点击链接；结论中的 `[1] [2]` 编号与来源卡严格对应。
+- 时效红线：优先引用近 12 个月来源；超过 24 个月的来源会标注「来源较旧(YYYY)，请核实」。
+- GitHub 仓库评估固定输出适配点、集成成本、维护风险和引入建议；已 archived 或近 6 个月无提交会点明「已停止维护」。
+- 对比 / 选型类问题用对比矩阵卡片（data-table）输出，而非流水文字。
+- 失败模式（付费墙 / 404 / 0 结果 / 来源冲突）会如实说明并跳过，不假装有数据。
 - 视频无字幕时会明确说明限制，并给出 OpenCLI 或 `agent-reach transcribe` 的兜底路径。
 - 用户说“沉淀一下 / 整理成文档 / 生成 Markdown”时，小吴可生成 Markdown 调研记录。
+- 外部调研答案顶部挂「基于公开网络信息 · 请核实」徽标，与查询禅道 / 天气等内部数据的答案做信任分层。
+- 答案末尾提供「再深入一些 / 换来源再查 / 整理成文档」三个继续调研快捷键。
+- 工具活动卡展开时显示按工具类型排版的人类可读摘要（而非 raw JSON）。
+- 多轮调研执行中显示「步骤 N · 正在查询…」进度前缀。
 
 ## AI 助手与工具
 

@@ -34,29 +34,30 @@ function metric(label: string, value: unknown, tone = 'info'): Rec {
   return { label, value: value ?? '-', tone }
 }
 
-function item(title: unknown, meta?: unknown, description?: unknown, badges?: unknown[], tone = 'info'): Rec {
-  return {
+function item(
+  title: unknown,
+  meta?: unknown,
+  description?: unknown,
+  badges?: unknown[],
+  tone = 'info',
+  url?: unknown,
+): Rec {
+  const base: Rec = {
     title: text(title, '未命名', 120),
     meta: text(meta, '', 120),
     description: longText(description, '', 320),
     badges: (badges ?? []).map((b) => text(b, '', 40)).filter(Boolean).slice(0, 4),
     tone,
   }
+  // 原生携带 url：供 GenerativeUiBlock 把 item-list 标题渲染为可点击超链接。
+  // 不再让调用方走 (it as any).url 旁路注入——那会绕过类型系统。
+  if (url != null) base.url = text(url, '', 500)
+  return base
 }
 
-function sourceCards(sources: Rec[], title = '外部来源'): ChatUiBlock[] {
-  if (!sources.length) return []
-  return [
-    block('source-list', title, {
-      sources: sources.slice(0, 6).map((source, i) => ({
-        title: `[${i + 1}] ${text(source.title || source.url, '来源', 100)}`,
-        subtitle: [source.provider, source.publishedAt].filter(Boolean).join(' · '),
-        excerpt: longText(source.snippet, '', 260),
-        url: source.url,
-        confidence: source.provider ? 'source' : undefined,
-      })),
-    }),
-  ]
+/** 字符串值的真实长度（非字符串记 0）——摘要里报告「正文 N 字」用 */
+function len(v: unknown): number {
+  return typeof v === 'string' ? v.length : 0
 }
 
 function reachStatus(result: Rec): ChatUiBlock[] {
@@ -76,22 +77,27 @@ function reachStatus(result: Rec): ChatUiBlock[] {
 function reachSearch(result: Rec): ChatUiBlock[] {
   const results = list(result.results)
   if (!results.length) return []
+  // 搜索结果本身就是来源——标题渲染为可点击超链接（url 字段），不再另出 source-list 卡，
+  // 也不再把 url 重复塞进 badges（之前会标题可点 + badge 又显示一遍同一 URL）。
   return [
     block('item-list', '外部搜索结果', {
-      items: results.slice(0, 5).map((r, i) => item(
-        `[${i + 1}] ${r.title || r.url}`,
-        [r.provider, r.publishedAt].filter(Boolean).join(' · '),
-        r.snippet,
-        [r.url],
-      )),
+      items: results.slice(0, 5).map((r, i) =>
+        item(
+          `[${i + 1}] ${r.title || r.url}`,
+          [r.provider, r.publishedAt].filter(Boolean).join(' · '),
+          r.snippet,
+          [],
+          'info',
+          r.url,
+        ),
+      ),
     }, text(result.query, '', 100)),
-    ...sourceCards(results, '搜索来源'),
   ]
 }
 
 function reachReadUrl(result: Rec): ChatUiBlock[] {
   if (!result.ok) return []
-  const source = isRecord(result.source) ? result.source : { url: result.url, title: result.title, provider: 'jina-reader' }
+  // 不再单独出 source-list 卡——URL 已在副标题展示，底部附可点击的「打开原文」链接。
   return [
     block('summary', '网页读取结果', {
       body: longText(result.text, '已读取网页内容。', 520),
@@ -99,8 +105,9 @@ function reachReadUrl(result: Rec): ChatUiBlock[] {
         metric('标题', result.title || '未识别'),
         metric('裁剪', result.limited ? '已裁剪' : '完整'),
       ],
+      sourceUrl: String(result.url || ''),
+      sourceLabel: '打开原文',
     }, text(result.url, '', 120)),
-    ...sourceCards([source], '网页来源'),
   ]
 }
 
@@ -109,7 +116,13 @@ function reachGithub(result: Rec): ChatUiBlock[] {
   const commits = list(result.recentCommits)
   const issues = list(result.recentIssues)
   const sources = list(result.sources)
-  return [
+  // 来源链接不再塞进 sections 的纯文本（那会丢掉 provider/发布日/摘要，且只显示 4 条）——
+  // 改为单独一张 item-list 卡，标题可点击、保留完整元信息，与「外部搜索结果」同款渲染。
+  const sections = [
+    commits.length ? { title: '近期提交', items: commits.slice(0, 4).map((c) => `${text(c.sha, '', 12)} · ${text(c.message, '', 120)}`) } : null,
+    issues.length ? { title: '近期 Issue', items: issues.slice(0, 4).map((i) => `#${i.number} · ${text(i.title, '', 120)}`) } : null,
+  ].filter(Boolean)
+  const blocks: ChatUiBlock[] = [
     block('summary', 'GitHub 仓库评估素材', {
       body: text(result.description, '已读取公开仓库元信息与 README。', 320),
       metrics: [
@@ -120,19 +133,34 @@ function reachGithub(result: Rec): ChatUiBlock[] {
         metric('Language', result.language || '-'),
         metric('Updated', result.pushedAt || result.updatedAt || '-'),
       ],
-      sections: [
-        commits.length ? { title: '近期提交', items: commits.slice(0, 4).map((c) => `${text(c.sha, '', 12)} · ${text(c.message, '', 120)}`) } : null,
-        issues.length ? { title: '近期 Issue', items: issues.slice(0, 4).map((i) => `#${i.number} · ${text(i.title, '', 120)}`) } : null,
-      ].filter(Boolean),
+      sections,
+      sourceUrl: String(result.url || ''),
+      sourceLabel: '打开仓库',
     }, text(result.repo, '', 100)),
-    ...sourceCards(sources, '仓库来源'),
   ]
+  if (sources.length) {
+    blocks.push(
+      block('item-list', '相关来源', {
+        items: sources.slice(0, 6).map((s) =>
+          item(
+            s.title || s.url,
+            [s.provider, s.publishedAt].filter(Boolean).join(' · '),
+            s.snippet,
+            [],
+            'info',
+            s.url,
+          ),
+        ),
+      }),
+    )
+  }
+  return blocks
 }
 
 function reachVideo(result: Rec): ChatUiBlock[] {
   if (!result.ok) return []
-  const sources = list(result.sources)
   const hasTranscript = !!text(result.transcript, '', 20)
+  // 不再单独出 source-list 卡——视频链接以底部「打开原视频」呈现。
   return [
     block('summary', '视频读取结果', {
       body: hasTranscript
@@ -148,8 +176,9 @@ function reachVideo(result: Rec): ChatUiBlock[] {
       sections: Array.isArray(result.fallbackActions) && result.fallbackActions.length
         ? [{ title: '兜底建议', items: result.fallbackActions.slice(0, 4).map((v) => text(v, '', 160)) }]
         : [],
+      sourceUrl: String(result.url || ''),
+      sourceLabel: '打开原视频',
     }, text(result.title || result.url, '', 120)),
-    ...sourceCards(sources, '视频来源'),
   ]
 }
 
@@ -164,6 +193,83 @@ function reachMarkdown(result: Rec): ChatUiBlock[] {
       ],
     }, '可复制到知识库或任务备注'),
   ]
+}
+
+/**
+ * 把 reach 工具的活动卡结果（JSON 字符串）渲染成人类可读摘要。
+ * 与 reachUiBlocksFromToolResult 复用同一套 text/longText/list 字段读取，避免两处字段映射漂移。
+ * 返回 null 表示不是 reach 工具、或结果不可解析——调用方回退 pretty JSON 预览。
+ */
+export function summarizeReachResult(wireName: string, resultJson: string): string | null {
+  if (!wireName.startsWith('reach__')) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(resultJson)
+  } catch {
+    return null
+  }
+  const result = isRecord(parsed) ? parsed : {}
+  if (result.error) return `出错：${text(result.error, '', 200)}`
+  switch (wireName) {
+    case 'reach__search': {
+      const results = list(result.results)
+      const lines = [`共 ${results.length} 条结果`]
+      results.forEach((r, i) => {
+        lines.push(`[${i + 1}] ${text(r.title || r.url, '', 80)}`)
+        if (r.url) lines.push(`    ${text(r.url, '', 200)}`)
+        const meta = [r.provider, r.publishedAt].filter(Boolean).map((v) => text(v, '', 60)).join(' · ')
+        if (meta) lines.push(`    ${meta}`)
+        if (r.snippet) lines.push(`    ${longText(r.snippet, '', 140)}`)
+      })
+      return lines.join('\n')
+    }
+    case 'reach__read_url': {
+      const lines = [
+        `标题：${text(result.title, '-', 120)}`,
+        result.url ? `URL：${text(result.url, '', 200)}` : '',
+        `裁剪：${result.limited ? '已裁剪' : '完整'}`,
+        `正文（${len(result.text)} 字）：`,
+        longText(result.text, '', 600),
+      ].filter(Boolean)
+      return lines.join('\n')
+    }
+    case 'reach__github_repo': {
+      const lines = [`仓库：${text(result.repo, '-', 120)}`]
+      const metrics = [
+        `Stars ${result.stars ?? '-'}`,
+        `Forks ${result.forks ?? '-'}`,
+        `Issues ${result.openIssues ?? '-'}`,
+        result.license ? `License ${text(result.license, '', 40)}` : '',
+        result.language ? `Language ${text(result.language, '', 40)}` : '',
+        result.pushedAt || result.updatedAt ? `Updated ${text(result.pushedAt || result.updatedAt, '', 30)}` : '',
+      ].filter(Boolean)
+      lines.push(metrics.join(' · '))
+      const desc = longText(result.description, '', 200)
+      if (desc) lines.push(`描述：${desc}`)
+      const commits = list(result.recentCommits)
+      if (commits.length) {
+        lines.push('近期提交：')
+        commits.slice(0, 4).forEach((c) => lines.push(`  ${text(c.sha, '', 8)} ${text(c.message, '', 100)}`))
+      }
+      return lines.join('\n')
+    }
+    case 'reach__video_summary': {
+      const lines = [
+        `标题：${text(result.title, '-', 120)}`,
+        `平台：${text(result.platform, '-', 40)}`,
+        `字幕：${result.subtitleAvailable === true ? '有' : result.subtitleAvailable === false ? '无' : '-'}`,
+        result.duration ? `时长：${result.duration}s` : '',
+      ].filter(Boolean)
+      const body = longText(result.transcript || result.metadata, '', 600)
+      if (body) lines.push(`内容（${len(result.transcript || result.metadata)} 字）：`, body)
+      return lines.join('\n')
+    }
+    case 'reach__markdown_note': {
+      return `字数：${len(result.markdown)}\n${longText(result.markdown, '', 800)}`
+    }
+    default:
+      return null
+  }
 }
 
 export function reachUiBlocksFromToolResult(wireName: string, result: unknown): ChatUiBlock[] {

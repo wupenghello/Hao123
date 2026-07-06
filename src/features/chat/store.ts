@@ -46,18 +46,62 @@ import type { ChatMessage, ChatUiBlock, ToolActivity, ToolApproval } from './typ
 import type { FeedbackCategory, FeedbackStats } from './types'
 
 /**
- * 工具结果用于 UI 预览的截断长度。完整结果仍保存在 tool 消息里供模型消费，
- * 这里只截断挂在 activity 上的预览——activity 随消息一起被 useStorage 深监听持久化，
- * 若存完整结果（kb.search 一次可达数十 KB），多次工具调用会把 localStorage 撑爆。
+ * activity.result 持久化时的截断长度。内存里 activity.result 持有完整 JSON（供活动卡
+ * 按工具类型解析排版，见 reach.summarizeReachResult）；但完整结果（read_url 整页正文、
+ * kb.search 命中片段）可达数十 KB，activity 又随消息一起被深监听持久化——多次工具调用
+ * 会把 localStorage 撑爆。因此只在写盘前裁剪；刷新后历史活动只能看到截断预览，可接受。
  */
-const RESULT_PREVIEW_MAX = 800
+const RESULT_STORAGE_MAX = 800
 const KB_VISION_MAX_BYTES = 5 * 1024 * 1024
 /** KB 知识库视觉上下文图片上限——与用户粘贴图片的 maxImages 分离，避免一个设置控制两个不同成本模型 */
 const KB_VISION_MAX_IMAGES = 3
 
-function previewResultJson(result: unknown): string {
-  const json = JSON.stringify(result)
-  return json.length > RESULT_PREVIEW_MAX ? json.slice(0, RESULT_PREVIEW_MAX) + '\n…（已截断，完整结果已带入上下文）' : json
+/** activity.result 的内存值：完整 JSON（不截断），供活动卡解析展示 */
+function stringifyToolResult(result: unknown): string {
+  return JSON.stringify(result)
+}
+
+/** 持久化前把单条 activity.result 裁剪到预览长度，控制 localStorage 体积 */
+function clipActivityResultForStorage(json: string): string {
+  return json.length > RESULT_STORAGE_MAX
+    ? json.slice(0, RESULT_STORAGE_MAX) + '\n…（已截断，仅保留预览）'
+    : json
+}
+
+/** 单个字符串字段的最大长度——read_url 整页正文 / video 字幕单条可达数万字符 */
+const TOOL_RESULT_FIELD_MAX = 4_000
+/** 回灌给模型的工具结果整体体积上限 */
+const TOOL_RESULT_MAX_CHARS = 16_000
+
+/** 递归裁剪超长字符串字段（保持结构，输出仍是合法 JSON）；短字段 title/url/metrics 完整保留 */
+function trimLongStrings(value: unknown, max: number): unknown {
+  if (typeof value === 'string') {
+    return value.length > max ? value.slice(0, max) + `…（已截断 ${value.length - max} 字符）` : value
+  }
+  if (Array.isArray(value)) return value.map((v) => trimLongStrings(v, max))
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = trimLongStrings(v, max)
+    return out
+  }
+  return value
+}
+
+/**
+ * 回灌给模型的工具结果体积控制：先递归裁剪超长字符串字段（保证输出是合法 JSON，
+ * 关键字段 title/url/metrics 短小、完整保留，尾部字段如 sources 不再被整段切掉），
+ * 再整体校验；极端情况（字段极多）整体仍超限时返回合法 JSON 的提示对象，
+ * 而非切断字符串产出非法 JSON。
+ */
+function clipForModel(result: unknown): string {
+  const trimmed = trimLongStrings(result, TOOL_RESULT_FIELD_MAX)
+  const json = JSON.stringify(trimmed)
+  if (json.length <= TOOL_RESULT_MAX_CHARS) return json
+  return JSON.stringify({
+    error: '工具结果体积过大，已整体跳过',
+    detail: `序列化后 ${json.length} 字符，超过 ${TOOL_RESULT_MAX_CHARS} 上限。请缩小查询范围或换更具体的来源。`,
+    preview: json.slice(0, 2000),
+  })
 }
 
 function appendUiBlocks(message: ChatMessage, blocks: ChatUiBlock[]): void {
@@ -520,6 +564,7 @@ function buildStaticSystemPrompt(): string {
     lines.push(
       '- 外部调研只在用户明确要求"查/搜/调研/读链接/分析 GitHub 仓库/总结视频/最近有什么变化"等公开互联网信息时使用；不要后台自动抓取社媒或使用登录态平台。调研回答必须列出来源链接；视频工具若只返回元数据或提示缺少字幕，要明确说明限制，不要假装看完完整视频。',
       `- 外部调研报告规则：${REACH_REPORT_GUIDE}`,
+      '- 回答「对本项目的影响」时，必须结合下方「当前上下文」里的「项目画像」（技术栈 / 阶段 / 约束）；若未提供项目画像，给出通用的引入评估维度（兼容性 / 体积 / 维护风险）即可，不要凭空编造本项目的细节。',
     )
   }
   if (kbEnabled) {
@@ -539,7 +584,10 @@ function buildStaticSystemPrompt(): string {
     '- 「这周还有啥没做完 / 我手头多少事」→ 并行 zentao.my_tasks + zentao.my_bugs + local.list，归类汇总，点名最该跟进的。',
   )
   if (reachEnabled) {
-    lines.push('- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。')
+    lines.push(
+      '- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。',
+      '- 「对比 X 和 Y / 选哪个库 / 选型」→ 并行多个 reach.github_repo（或 reach.search）收集证据，再用 ui.render 的 data-table 卡输出对比矩阵（维度 × 候选），文字只给最终推荐和取舍理由。',
+    )
   }
   if (kbEnabled) {
     lines.push('- 「这个 bug 怎么定位」→ 先 zentao.bug_detail 拿详情，再 kb.search 查相关流程/说明，综合给思路。')
@@ -571,13 +619,24 @@ function dynamicContextMessage(): ChatMessage {
   // 仅在 cityName 为空（未初始化）时回退默认「北京」。
   const city = weather.cityName || '北京'
 
+  const lines = [
+    '# 当前上下文（实时刷新）',
+    `- 现在是 ${dateStr} ${timeStr}（${dp}）。用户说「今天 / 现在 / 明天 / 几点」等，一律以此为基准，不要使用训练数据里的旧时间。`,
+    `- 用户默认所在城市：${city}。用户问天气、空气、穿衣等却没指明城市时，直接默认查询「${city}」，不要反问「哪里」。`,
+  ]
+
+  // 项目画像（可选 env）：外部调研「对本项目的影响」段落的落地依据。
+  // 未配置时不影响其它能力——模型会回退到通用引入评估维度。
+  if (reachEnabled) {
+    const profile = import.meta.env.VITE_PROJECT_PROFILE?.trim()
+    if (profile) {
+      lines.push(`- 项目画像：${profile}。回答外部调研的「对本项目的影响」时以此为基准。`)
+    }
+  }
+
   return {
     role: 'system',
-    content: [
-      '# 当前上下文（实时刷新）',
-      `- 现在是 ${dateStr} ${timeStr}（${dp}）。用户说「今天 / 现在 / 明天 / 几点」等，一律以此为基准，不要使用训练数据里的旧时间。`,
-      `- 用户默认所在城市：${city}。用户问天气、空气、穿衣等却没指明城市时，直接默认查询「${city}」，不要反问「哪里」。`,
-    ].join('\n'),
+    content: lines.join('\n'),
   }
 }
 
@@ -627,6 +686,12 @@ export const useChatStore = defineStore('chat', () => {
       const slim = val.map((m) => {
         // 剥离不持久化的内部字段：图片 data URL（体积过大）+ agent 循环标记
         const { _loopGroup, _loopFinal, images, ...rest } = m
+        // activity.result 内存里持有完整结果供活动卡解析；写盘前裁剪，避免 localStorage 撑爆
+        if (rest.activities?.length) {
+          rest.activities = rest.activities.map((a) =>
+            a.result ? { ...a, result: clipActivityResultForStorage(a.result) } : a,
+          )
+        }
         return rest as ChatMessage
       })
       setLocalStorageItem('hao123-chat-history', JSON.stringify(slim))
@@ -765,8 +830,10 @@ export const useChatStore = defineStore('chat', () => {
     // 不再做关键词意图筛选（脆弱且易漏）：现代模型的 function-calling 路由已足够可靠，
     // 全量工具的 token 开销也远小于一次误判带来的多轮往返。
     const toolsForThisTurn = openAiTools
-    const toolsWithoutUiRender = toolsForThisTurn.filter((t) => t.function.name !== 'ui__render')
-    let autoUiGenerated = false
+    // 注意：曾经会在此剥掉 ui__render（autoUiGenerated），但 reach/zentao 等工具一执行就翻标志，
+    // 导致后续轮次永远拿不到 ui__render——而 system prompt 又要求「对比/选型用 ui.render
+    // data-table」。两者冲突会让对比矩阵永远无法输出。因此始终下发全量工具，让模型在 reach
+    // 调研后仍能主动调 ui.render 画对比表（重复渲染至多是冗余，appendUiBlocks 只追加不覆盖）。
     const hiddenContexts: ChatMessage[] = [...extraHiddenContexts]
     const latestUser = [...messages.value].reverse().find((m) => m.role === 'user')
     const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
@@ -787,7 +854,7 @@ export const useChatStore = defineStore('chat', () => {
         const { toolCalls } = await llm.chatStream({
           messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts]),
           signal,
-          tools: autoUiGenerated ? toolsWithoutUiRender : toolsForThisTurn,
+          tools: toolsForThisTurn,
           // temperature: 0.3 兼顾工具调用准确性与回答自然度
           temperature: 0.3,
           // 限制单次输出长度，降低延迟和成本；工具调用轮通常很短，最终回答也够用
@@ -857,24 +924,23 @@ export const useChatStore = defineStore('chat', () => {
               } else {
                 const autoBlocks = uiBlocksFromToolResult(call.function.name, rawResult)
                 appendUiBlocks(assistant, autoBlocks)
-                if (autoBlocks.length) autoUiGenerated = true
               }
               const messageResult = omitRenderedScreenshot(result)
-              activity.result = previewResultJson(messageResult)
+              activity.result = stringifyToolResult(messageResult)
               visionContexts[i] = await visionContextFromToolResult(call.function.name, rawResult, signal)
               result = messageResult
             } catch (e) {
               result = { error: (e as Error)?.message || '工具执行失败' }
               activity.status = 'error'
-              activity.result = previewResultJson(result)
+              activity.result = stringifyToolResult(result)
               visionContexts[i] = null
             }
             // 记录结束时间和耗时
             activity.endTime = Date.now()
             activity.duration = activity.endTime - activity.startTime!
-            // 工具结果原样返回（不截断），保证信息完整；如个别工具结果过大，
-            // 后续在切片层控制片段大小，而非在工具层丢数据。
-            return JSON.stringify(result)
+            // 超大结果（如 read_url 的整页正文）做体积裁剪，避免多轮把上下文撑爆；
+            // 常规结果完整保留。完整结果仍在活动卡里可供用户展开查看。
+            return clipForModel(result)
           }),
         )
 
@@ -892,14 +958,25 @@ export const useChatStore = defineStore('chat', () => {
       }
       // 循环结束（用尽 maxRounds）时若最后一条是 tool 消息，说明模型仍想调工具但已无轮次，
       // 没有给出最终文本答复。补一条兜底提示，避免页面在工具活动后静默停止、
-      // 看起来「答完却没有回答」。
+      // 看起来「答完却没有回答」。兜底文案带上本轮已执行的查询，让用户知道小吴做了什么。
       const tail = messages.value[messages.value.length - 1]
       if (tail?.role === 'tool') {
+        // 只统计成功（done）的 reach 查询——与活动卡徽标的口径一致；失败/中止的不算「已执行」。
+        const reachActivities = messages.value
+          .filter((m) => m._loopGroup === loopGroup && m.role === 'assistant' && m.activities?.length)
+          .flatMap((m) => m.activities!)
+          .filter((a) => a.name.startsWith('reach__') && a.status === 'done')
+        const tried = reachActivities.map((a) => `${a.label}${a.detail ? `（${a.detail}）` : ''}`)
+        const content = reachActivities.length
+          ? `已达到工具调用轮数上限。本轮已执行 ${reachActivities.length} 次外部查询：${tried.join('、')}，但仍未能形成最终结论。建议缩小到某个具体方面，或换个角度追问。`
+          : '（已达到工具调用轮数上限，未能给出最终答复，请缩小问题范围或继续追问。）'
         messages.value.push({
           role: 'assistant',
-          content: '（已达到工具调用轮数上限，未能给出最终答复，请缩小问题范围或继续追问。）',
+          content,
           ts: Date.now(),
           qualityCategory: 'general',
+          // 兜底消息本身不带 activities——活动卡徽标 / 「继续调研」chip 在 palette 侧按
+          // _loopGroup 归属判定（usesExternalResearch 会回溯同组工具轮），因此这里无需挂活动。
           _loopGroup: loopGroup,
           _loopFinal: true,
         })
@@ -1035,7 +1112,7 @@ export const useChatStore = defineStore('chat', () => {
       args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {}
     } catch {
       activity.status = 'error'
-      activity.result = previewResultJson({ error: '工具参数解析失败，原始内容已不可用' })
+      activity.result = stringifyToolResult({ error: '工具参数解析失败，原始内容已不可用' })
       activity.endTime = Date.now()
       activity.duration = activity.endTime - activity.startTime!
       return
@@ -1060,7 +1137,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       const visionContext = await visionContextFromToolResult(toolCall.function.name, rawResult, retryController.signal)
       result = omitRenderedScreenshot(result)
-      activity.result = previewResultJson(result)
+      activity.result = stringifyToolResult(result)
       activity.endTime = Date.now()
       activity.duration = activity.endTime - activity.startTime!
 
@@ -1091,7 +1168,7 @@ export const useChatStore = defineStore('chat', () => {
     } catch (e) {
       result = { error: (e as Error)?.message || '工具执行失败' }
       activity.status = 'error'
-      activity.result = previewResultJson(result)
+      activity.result = stringifyToolResult(result)
       activity.endTime = Date.now()
       activity.duration = activity.endTime - activity.startTime!
     }
@@ -1127,7 +1204,7 @@ export const useChatStore = defineStore('chat', () => {
       args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {}
     } catch {
       activity.status = 'error'
-      activity.result = previewResultJson({ error: '工具参数解析失败，无法执行审批动作' })
+      activity.result = stringifyToolResult({ error: '工具参数解析失败，无法执行审批动作' })
       return
     }
 
@@ -1159,11 +1236,11 @@ export const useChatStore = defineStore('chat', () => {
       }
       visionContext = await visionContextFromToolResult(toolCall.function.name, rawResult, approvalController.signal)
       result = omitRenderedScreenshot(result)
-      activity.result = previewResultJson(result)
+      activity.result = stringifyToolResult(result)
     } catch (e) {
       result = { error: (e as Error)?.message || '工具执行失败' }
       activity.status = 'error'
-      activity.result = previewResultJson(result)
+      activity.result = stringifyToolResult(result)
     } finally {
       activity.endTime = Date.now()
       activity.duration = activity.endTime - activity.startTime!
@@ -1200,7 +1277,7 @@ export const useChatStore = defineStore('chat', () => {
       title: activity.approval.title,
       note: '用户拒绝执行该动作；工具未执行。',
     }
-    activity.result = previewResultJson(result)
+    activity.result = stringifyToolResult(result)
 
     const toolMsgIndex = findToolMessageIndex(toolCall.id, messageIndex)
     if (toolMsgIndex < 0) return

@@ -26,7 +26,9 @@ export interface ChatSettings {
 // ============ 默认值 ============
 
 export const CHAT_SETTINGS_DEFAULTS: ChatSettings = {
-  maxRounds: 50,
+  // 12 轮覆盖深度调研 / 选型对比（github×2 → read×N → search 替代 → 综合作答，
+  // 每轮还可并行多工具），又不至于让失控的工具调用一路烧到几十轮。用户可在设置弹窗调高。
+  maxRounds: 12,
   maxHistoryTokens: 120_000,
   maxOutputTokens: 40_960,
   maxImages: 9,

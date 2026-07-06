@@ -31,6 +31,8 @@ interface ImportMetaEnv {
   readonly VITE_AGENT_REACH_ENABLED?: string
   /** Agent Reach CLI 命令路径（可选，默认 agent-reach） */
   readonly VITE_AGENT_REACH_CMD?: string
+  /** 项目画像一句话（可选，如「Vue3 + TS + Vite 工作台，前端单体」）；reachEnabled 时注入动态上下文，供「对本项目的影响」落地 */
+  readonly VITE_PROJECT_PROFILE?: string
 }
 
 /** 知识库虚拟模块（由 vite-plugin-kb.ts 在 dev/构建时注入本地文档原文） */

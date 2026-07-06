@@ -151,7 +151,16 @@ function cell(row: Rec, key: string): string {
     <div v-else-if="block.kind === 'item-list'" class="gui-list">
       <div v-for="it in items" :key="str(it.title) + str(it.meta)" class="gui-item" :class="toneClass(it.tone)">
         <div class="min-w-0">
-          <strong>{{ str(it.title, '未命名') }}</strong>
+          <a
+            v-if="it.url"
+            :href="str(it.url)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="gui-item-link"
+          >
+            <strong>{{ str(it.title, '未命名') }}</strong>
+          </a>
+          <strong v-else>{{ str(it.title, '未命名') }}</strong>
           <em v-if="it.meta">{{ str(it.meta) }}</em>
           <p v-if="it.description">{{ str(it.description) }}</p>
         </div>
@@ -237,6 +246,20 @@ function cell(row: Rec, key: string): string {
           <li v-for="line in strings(section.items)" :key="line">{{ line }}</li>
         </ul>
       </section>
+      <a
+        v-if="data.sourceUrl"
+        :href="str(data.sourceUrl)"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="gui-source-link"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+        {{ str(data.sourceLabel, '打开原文') }}
+      </a>
     </div>
   </article>
 </template>
@@ -452,6 +475,7 @@ function cell(row: Rec, key: string): string {
   border-color: color-mix(in srgb, var(--gui-tone) 27%, transparent);
 }
 .gui-item strong,
+.gui-item-link strong,
 .gui-step strong,
 .gui-source strong,
 .gui-section strong {
@@ -459,6 +483,19 @@ function cell(row: Rec, key: string): string {
   font-size: 12.5px;
   font-weight: 750;
   color: rgba(248, 250, 252, 0.92);
+}
+.gui-item-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.gui-item-link strong {
+  transition: color 0.15s;
+}
+.gui-item-link:hover strong {
+  color: color-mix(in srgb, var(--gui-tone) 84%, white);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .gui-item p,
 .gui-step p,
@@ -597,6 +634,26 @@ function cell(row: Rec, key: string): string {
 }
 .gui-section li::marker {
   color: var(--gui-tone);
+}
+.gui-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 11px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--gui-tone) 78%, white 10%);
+  background: color-mix(in srgb, var(--gui-tone) 8%, rgba(255, 255, 255, 0.03));
+  border: 1px solid color-mix(in srgb, var(--gui-tone) 18%, transparent);
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.gui-source-link:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--gui-tone) 18%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in srgb, var(--gui-tone) 34%, transparent);
 }
 .gui-empty {
   margin: 0;

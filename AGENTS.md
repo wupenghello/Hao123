@@ -135,7 +135,7 @@ App.vue (router-view)
 | `config.ts` | 助手身份（`ASSISTANT_NAME`）+ LLM 接入参数（OpenAI 兼容，当前接 DeepSeek，env 驱动；API Key 由 vite 代理注入，客户端不碰密钥，用非敏感开关 `VITE_DEEPSEEK_CONFIGURED` 表达「已配置」） |
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
-| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，最多 5 轮）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；abort / retry / 重新生成；👍/👎 反馈统计 |
+| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果按字段裁剪（`clipForModel` 保持合法 JSON）；abort / retry / 重新生成；👍/👎 反馈统计 |
 | `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
 | `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次）；首页「行动建议」已合并进晨报，不再产 headline |
 | `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |

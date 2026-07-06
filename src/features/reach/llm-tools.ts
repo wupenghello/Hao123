@@ -40,7 +40,7 @@ const searchTool: LlmTool<{ query: string; limit?: number }> = {
   description:
     '搜索公开互联网资料，优先使用 Agent Reach 配置的 Exa/mcporter，失败时 dev server 会尝试公开搜索兜底。' +
     '【适用】用户明确要求“查一下/搜索/调研/最近/最新/网上怎么说/找资料”等外部世界信息。' +
-    '返回标题、链接、摘要和来源；回答必须基于来源，不要编造。',
+    '返回标题、链接、摘要（含发布日期 publishedAt）和来源；回答必须基于来源，引用时使用与返回列表完全相同的 [n] 编号，不要编造。',
   parameters: {
     type: 'object',
     properties: {
@@ -84,7 +84,7 @@ const githubRepoTool: LlmTool<{ repo: string }> = {
   description:
     '分析公开 GitHub 仓库：读取仓库元信息、README、最近提交、近期 issue，并返回来源。' +
     '【适用】用户发 GitHub 仓库链接，或问“这个仓库是干嘛的/靠不靠谱/适不适合引进我们项目”。' +
-    '回答时从产品价值、技术成熟度、活跃度、风险和引入建议几个角度判断。',
+    '回答时从产品价值、技术成熟度、活跃度、风险和引入建议几个角度判断；若仓库已 archived 或近 6 个月无提交，必须在结论里点明“已停止维护”。',
   parameters: {
     type: 'object',
     properties: {
