@@ -22,6 +22,7 @@ import { defineStore } from 'pinia'
 import { useStorage } from '@/composables/useStorage'
 import { setLocalStorageItem } from '@/features/storage-health'
 import { useWeatherStore } from '@/features/weather'
+import { useLocalTaskStore } from '@/features/local-tasks/store'
 import { omitRenderedScreenshot, renderedScreenshotDataUrl } from '@/features/rendered-screenshot'
 import { REACH_REPORT_GUIDE, reachEnabled } from '@/features/reach'
 import { ASSISTANT_NAME } from './config'
@@ -256,6 +257,24 @@ const APPROVAL_TOOL_LABELS: Record<string, string> = {
   claude__launch: '启动 Claude Code',
 }
 
+function localTaskTarget(args: Record<string, unknown>): string {
+  const title = typeof args.title === 'string' ? args.title.trim() : ''
+  if (title) return `「${title}」`
+
+  const id = typeof args.id === 'string' ? args.id : ''
+  if (id) {
+    try {
+      const task = useLocalTaskStore().tasks.find((t) => t.id === id)
+      if (task?.title) return `「${task.title}」`
+    } catch {
+      // 审批文案不应影响工具流转；拿不到 store 时回退到 id。
+    }
+    return `#${id}`
+  }
+
+  return '指定待办'
+}
+
 function approvalPolicy(wireName: string, args: Record<string, unknown>): ApprovalPolicy | null {
   const label = APPROVAL_TOOL_LABELS[wireName]
   if (!label) return null
@@ -268,10 +287,34 @@ function approvalPolicy(wireName: string, args: Record<string, unknown>): Approv
     }
   }
   if (wireName === 'local__delete') {
+    const target = localTaskTarget(args)
     return {
       title: label,
-      description: `将删除本地待办 ${args.id ? `#${String(args.id)}` : ''}，并清理其附件。`,
+      description: `将删除本地待办 ${target}，并清理其附件。`,
       risk: '删除不可恢复，请确认这不是误删。',
+    }
+  }
+  if (wireName === 'local__create') {
+    return {
+      title: label,
+      description: `将新建本地待办 ${localTaskTarget(args)}。`,
+      risk: '确认后会立即写入本地清单。',
+    }
+  }
+  if (wireName === 'local__update') {
+    return {
+      title: label,
+      description: `将修改本地待办 ${localTaskTarget(args)}。`,
+      risk: '确认后会立即更新本地清单。',
+    }
+  }
+  if (wireName === 'local__complete') {
+    const done = typeof args.done === 'boolean' ? args.done : null
+    const verb = done === true ? '标记为完成' : done === false ? '改回未完成' : '切换完成状态'
+    return {
+      title: label,
+      description: `将把本地待办 ${localTaskTarget(args)} ${verb}。`,
+      risk: '确认后会立即更新本地清单。',
     }
   }
   if (wireName.startsWith('local__')) {
@@ -506,6 +549,7 @@ function buildStaticSystemPrompt(): string {
     '',
     '# 回答风格',
     '- 简体中文，口吻自然亲切、简洁不啰嗦，像一位靠谱的同事。',
+    '- 遇到需要用户确认的操作时，工具会返回 approvalRequired。此时只能说明“我已准备好，等你确认”，不要说动作已经完成；用户确认或取消后，会收到新的工具结果，再继续给结论。',
     '- 善用生成式 UI 与 Markdown：已有 UI 卡片时，文字只补结论、取舍理由和下一步，避免重复罗列卡片内容。',
     '- 数据型回答先给结论/概览，再列细节；天气可适当加一句贴心提示（如带伞、添衣）。',
     '- 不要暴露工具名、接口、字段等技术细节，用户只关心结果。',

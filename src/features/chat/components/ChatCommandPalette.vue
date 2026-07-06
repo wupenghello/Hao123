@@ -54,6 +54,7 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
+const copyFailedIdx = ref(-1)
 const showSettings = ref(false)
 
 // ============ 上下文感知动态建议 ============
@@ -381,44 +382,42 @@ function formatJsonPreview(jsonStr: string): string {
  * 这样既避免结束时从纯文本跳到富文本，也不会每个 token 都跑一次 markdown-it。
  */
 const STREAM_MD_RENDER_INTERVAL = 80
-const mdCache = new WeakMap<ChatMessage, { content: string; html: string; renderedAt: number }>()
+const mdCache = new WeakMap<ChatMessage, { content: string; html: string; renderedAt: number; streaming: boolean }>()
 function renderMd(m: ChatMessage, streaming = false): string {
   const cached = mdCache.get(m)
-  if (cached && cached.content === m.content) return cached.html
+  if (cached && cached.content === m.content && cached.streaming === streaming) return cached.html
   const now = Date.now()
-  if (streaming && cached && now - cached.renderedAt < STREAM_MD_RENDER_INTERVAL) {
+  if (streaming && cached && cached.streaming === streaming && now - cached.renderedAt < STREAM_MD_RENDER_INTERVAL) {
     return cached.html
   }
-  const html = renderMarkdown(m.content)
-  mdCache.set(m, { content: m.content, html, renderedAt: now })
+  const html = renderMarkdown(m.content, { streaming })
+  mdCache.set(m, { content: m.content, html, renderedAt: now, streaming })
   return html
 }
 
 // 代码块复制：markdown 经 v-html 注入的「复制」按钮不归 Vue 管事件，
-// 用 document 上的事件委托处理。代码内容从相邻 <pre> 的 textContent 读回，
+// 在 Markdown 容器上做局部事件委托。代码内容从同一代码块里的 <pre><code> 读回，
 // 避免把代码内联进 HTML 属性（会触发换行/引号语法错误与注入）。
-let codeCopyHandler: ((e: MouseEvent) => void) | null = null
-function setupCodeBlockCopy() {
-  codeCopyHandler = (e: MouseEvent) => {
-    const btn = (e.target as HTMLElement)?.closest<HTMLButtonElement>('.code-copy-btn')
-    if (!btn) return
-    const code = btn.closest('.code-block-wrapper')?.querySelector('pre')?.textContent ?? ''
-    const originalText = btn.textContent
-    btn.textContent = '已复制'
-    btn.classList.add('copied')
-    navigator.clipboard.writeText(code)
-      .catch(() => {
-        btn.textContent = '复制失败'
-        btn.classList.remove('copied')
-      })
-      .finally(() => {
-        setTimeout(() => {
-          btn.textContent = originalText
-          btn.classList.remove('copied')
-        }, 1500)
-      })
-  }
-  document.addEventListener('click', codeCopyHandler)
+async function onMarkdownClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement)?.closest<HTMLButtonElement>('.code-copy-btn')
+  if (!btn) return
+
+  e.preventDefault()
+  e.stopPropagation()
+  if (btn.disabled || btn.dataset.copyDisabled === 'true') return
+
+  const wrapper = btn.closest('.code-block-wrapper')
+  const code = wrapper?.querySelector('pre code')?.textContent ?? wrapper?.querySelector('pre')?.textContent ?? ''
+  const originalText = btn.textContent || '复制'
+  const ok = await writeClipboardText(code)
+
+  btn.textContent = ok ? '已复制' : '复制失败'
+  btn.classList.toggle('copied', ok)
+  btn.classList.toggle('copy-failed', !ok)
+  setTimeout(() => {
+    btn.textContent = originalText
+    btn.classList.remove('copied', 'copy-failed')
+  }, 1500)
 }
 /** 当前是否正在流式生成第 i 条消息（该条 content 仍在增长，用纯文本渲染避免每 token 重解析） */
 function isStreamingAt(i: number): boolean {
@@ -701,15 +700,68 @@ function onEnter(e: KeyboardEvent) {
 }
 
 async function copy(text: string, idx: number) {
-  try {
-    await navigator.clipboard.writeText(text)
+  const ok = await writeClipboardText(text)
+  if (ok) {
     copiedIdx.value = idx
+    copyFailedIdx.value = -1
     setTimeout(() => {
       if (copiedIdx.value === idx) copiedIdx.value = -1
     }, 1600)
-  } catch {
-    /* 忽略剪贴板失败 */
+  } else {
+    copyFailedIdx.value = idx
+    setTimeout(() => {
+      if (copyFailedIdx.value === idx) copyFailedIdx.value = -1
+    }, 1600)
   }
+}
+
+async function writeClipboardText(text: string): Promise<boolean> {
+  if (!text) return false
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 非安全上下文、权限拒绝或 WebView 限制时继续走传统降级。
+    }
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.top = '-1000px'
+  ta.style.left = '-1000px'
+  ta.style.opacity = '0'
+
+  const selection = document.getSelection()
+  const ranges: Range[] = []
+  if (selection) {
+    for (let i = 0; i < selection.rangeCount; i++) ranges.push(selection.getRangeAt(i))
+  }
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  ta.setSelectionRange(0, ta.value.length)
+
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+
+  document.body.removeChild(ta)
+  active?.focus?.()
+  if (selection) {
+    selection.removeAllRanges()
+    for (const range of ranges) selection.addRange(range)
+  }
+
+  return ok
 }
 
 function isLastAssistant(idx: number): boolean {
@@ -725,7 +777,6 @@ function isLastAssistant(idx: number): boolean {
 onMounted(() => {
   initSize()
   window.addEventListener('resize', onWindowResize)
-  setupCodeBlockCopy()
   // 每分钟检查小时变化，驱动 contextSuggestions 刷新（Fix 3）
   hourTimer = setInterval(() => {
     const h = new Date().getHours()
@@ -738,7 +789,6 @@ onUnmounted(() => {
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeEnd)
   document.removeEventListener('mouseleave', onResizeEnd)
-  if (codeCopyHandler) document.removeEventListener('click', codeCopyHandler)
   if (hourTimer) { clearInterval(hourTimer); hourTimer = null }
 })
 </script>
@@ -1021,8 +1071,8 @@ onUnmounted(() => {
                     </div>
 
                     <!-- 正文：流式中也走 Markdown 渲染，避免结束时从纯文本跳变到富文本 -->
-                    <div v-if="m.content" class="cmd-bubble-ai cmd-md group">
-                      <span v-html="renderMd(m, isStreamingAt(i))" class="md-content" />
+                    <div v-if="m.content" class="cmd-bubble-ai cmd-md group" @click="onMarkdownClick">
+                      <div v-html="renderMd(m, isStreamingAt(i))" class="md-content" />
                       <span v-if="isStreamingAt(i)" class="cmd-caret" />
 
                       <div
@@ -1032,8 +1082,13 @@ onUnmounted(() => {
                         <span class="cmd-quality-tag" :title="`反馈归因：${store.categoryLabel(m.qualityCategory)}`">
                           {{ store.categoryLabel(m.qualityCategory) }}
                         </span>
-                        <button class="cmd-action" :title="copiedIdx === i ? '已复制' : '复制'" @click="copy(m.content, i)">
+                        <button
+                          class="cmd-action"
+                          :title="copiedIdx === i ? '已复制' : copyFailedIdx === i ? '复制失败' : '复制'"
+                          @click="copy(m.content, i)"
+                        >
                           <IconCheck v-if="copiedIdx === i" class="w-3.5 h-3.5 text-emerald-300/80" />
+                          <IconAlert v-else-if="copyFailedIdx === i" class="w-3.5 h-3.5 text-rose-300/80" />
                           <IconCopy v-else class="w-3.5 h-3.5" />
                         </button>
                         <button
@@ -2156,8 +2211,8 @@ onUnmounted(() => {
 .cmd-pop-leave-to { opacity: 0; transform: translateY(-8px) scale(0.98); }
 .cmd-md { line-height: 1.65; position: relative; }
 .cmd-md-raw { white-space: pre-wrap; word-break: break-word; }
-.cmd-md :deep(> span > :first-child) { margin-top: 0; }
-.cmd-md :deep(> span > :last-child) { margin-bottom: 0; }
+.cmd-md :deep(.md-content > :first-child) { margin-top: 0; }
+.cmd-md :deep(.md-content > :last-child) { margin-bottom: 0; }
 .cmd-md :deep(p) { margin: 0.45em 0; }
 .cmd-md :deep(h1),
 .cmd-md :deep(h2),
@@ -2224,9 +2279,23 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--cmd-tone) 16%, transparent);
   color: rgba(255,255,255,0.92);
 }
+.cmd-md :deep(.code-copy-btn:disabled) {
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.08);
+  background: rgba(148, 163, 184, 0.07);
+  color: rgba(226, 232, 240, 0.34);
+}
+.cmd-md :deep(.code-copy-btn:disabled:hover) {
+  background: rgba(148, 163, 184, 0.07);
+  color: rgba(226, 232, 240, 0.34);
+}
 .cmd-md :deep(.code-copy-btn.copied) {
   background: rgba(74,222,128,0.15);
   color: rgb(74 222 128);
+}
+.cmd-md :deep(.code-copy-btn.copy-failed) {
+  background: rgba(251,113,133,0.14);
+  color: rgb(253 164 175);
 }
 .cmd-md :deep(pre) {
   margin: 0;
