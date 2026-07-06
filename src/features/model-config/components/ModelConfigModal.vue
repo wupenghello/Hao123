@@ -59,7 +59,6 @@ const {
   newModelName,
   providers,
   readiness,
-  selectedModelName,
   selectedProvider,
   selectedProviderTone,
   showImport,
@@ -228,7 +227,7 @@ const {
                         <IconCheck class="w-3.5 h-3.5" />
                         {{ isCreating ? '保存线路' : '保存修改' }}
                       </button>
-                      <button type="button" class="mm-ghost-btn" :disabled="testing || isCreating || draftDirty || !selectedModelName" @click="testSelectedProvider">
+                      <button type="button" class="mm-ghost-btn" :disabled="testing" @click="testSelectedProvider">
                         <IconLoading v-if="testing" class="w-3.5 h-3.5 mm-spin" />
                         <IconTestTube v-else class="w-3.5 h-3.5" />
                         {{ testing ? '测试中' : '测试连接' }}
@@ -282,7 +281,7 @@ const {
                       </div>
                       <div class="mm-model-actions">
                         <code>{{ maskApiKey(draft.apiKey) }}</code>
-                        <button type="button" class="mm-ghost-btn" :disabled="discovering || isCreating || draftDirty" :title="modelSyncCopy" @click="discoverSelectedModels">
+                        <button type="button" class="mm-ghost-btn" :disabled="discovering" :title="discovering ? '' : modelSyncCopy" @click="discoverSelectedModels">
                           <IconLoading v-if="discovering" class="w-3.5 h-3.5 mm-spin" />
                           <IconRefresh v-else class="w-3.5 h-3.5" />
                           {{ discovering ? '获取中' : '获取可用模型' }}

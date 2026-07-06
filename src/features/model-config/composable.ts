@@ -100,7 +100,13 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     const provider = editableProvider.value
     if (!provider) return ''
     const model = provider.models.find((item) => item.id === provider.activeModelId)
-    return model?.name ?? provider.models[0]?.name ?? ''
+    const name = model?.name ?? provider.models[0]?.name ?? ''
+    if (name) return name
+    if (isCreating.value) {
+      const draftModel = draft.models.find((item) => item.id === draft.activeModelId)
+      return draftModel?.name ?? draft.models[0]?.name ?? ''
+    }
+    return ''
   })
 
   const selectedPreset = computed(() => presetForProvider(editableProvider.value))
@@ -301,10 +307,25 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     discoveryResult.value = null
   }
 
+  /**
+   * 有 Key + baseUrl 就直接用：若还没保存则先落盘，返回可操作的 provider。
+   * 落盘后SelectedProvider 才会从 null 变实值，后续 recordTestResult / mergeDiscoveredModels 才有 id。
+   */
+  async function ensureTestableProvider(): Promise<ProviderConfig | null> {
+    if (!draft.apiKey.trim() || !draft.baseUrl.trim()) return null
+    if (isCreating.value || !selectedProvider.value) {
+      if (!canSaveDraft.value) return null
+      saveDraft()
+      // 等 Vue 把 providers / selectedProvider 响应式更新，再取最新的实体
+      await nextTick()
+    }
+    return selectedProvider.value
+  }
+
   async function testSelectedProvider() {
-    const provider = selectedProvider.value
+    if (!draft.apiKey.trim() || !draft.baseUrl.trim()) return
+    const provider = await ensureTestableProvider()
     if (!provider) return
-    saveDraft()
     testing.value = true
     testResult.value = null
     const ctrl = new AbortController()
@@ -317,7 +338,8 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
         signal: ctrl.signal,
       })
       testResult.value = result
-      recordTestResult(provider.id, result.ok, result.message, selectedModelName.value)
+      const saved = selectedProvider.value
+      if (saved) recordTestResult(saved.id, result.ok, result.message, selectedModelName.value)
     } finally {
       clearTimeout(timeout)
       testing.value = false
@@ -325,9 +347,9 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
   }
 
   async function discoverSelectedModels() {
-    const provider = selectedProvider.value
+    if (!draft.apiKey.trim() || !draft.baseUrl.trim()) return
+    const provider = await ensureTestableProvider()
     if (!provider) return
-    saveDraft()
     discovering.value = true
     discoveryResult.value = null
     const ctrl = new AbortController()
