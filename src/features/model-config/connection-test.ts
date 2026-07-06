@@ -100,6 +100,7 @@ export async function discoverLlmModels(input: {
   apiKey: string
   baseUrl: string
   signal?: AbortSignal
+  modelsUrl?: string
 }): Promise<ModelDiscoveryResult> {
   const apiKey = input.apiKey.trim()
   const baseUrl = input.baseUrl.trim().replace(/\/+$/, '')
@@ -111,7 +112,7 @@ export async function discoverLlmModels(input: {
     const res = await fetch('/deepseek/models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, models_url: input.modelsUrl }),
       signal: input.signal,
     })
 
@@ -127,6 +128,12 @@ export async function discoverLlmModels(input: {
       const detail = typeof parsed === 'object' && parsed && 'error' in parsed
         ? String((parsed as { error?: unknown }).error || raw)
         : raw
+
+      // 后端在「所有候选端点都 404/405」时返回「所有候选端点均失败」，
+      // 通常意味着该线路未开放 /models 接口，或 Base URL 不支持 OpenAI 兼容取模型。
+      if (/所有候选端点均失败|All candidates failed/i.test(detail)) {
+        return { ok: false, status: res.status, message: '该线路未开放模型列表接口（或 Base URL 不支持自动获取），请手动添加模型', models: [] }
+      }
       if (res.status === 401 || res.status === 403) {
         return { ok: false, status: res.status, message: `认证失败（${res.status}）：Key 无效或无权限`, models: [] }
       }

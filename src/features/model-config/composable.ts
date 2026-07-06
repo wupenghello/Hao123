@@ -45,12 +45,14 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     name: string
     baseUrl: string
     apiKey: string
+    modelsUrl: string
     models: ModelEntry[]
     activeModelId: string | null
   }>({
     name: '',
     baseUrl: '',
     apiKey: '',
+    modelsUrl: '',
     models: [],
     activeModelId: null,
   })
@@ -69,6 +71,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     draft.name = provider?.name ?? ''
     draft.baseUrl = provider?.baseUrl ?? ''
     draft.apiKey = provider?.apiKey ?? ''
+    draft.modelsUrl = provider?.modelsUrl ?? ''
     draft.models = provider ? cloneModels(provider.models) : []
     draft.activeModelId = provider?.activeModelId ?? draft.models[0]?.id ?? null
   }
@@ -86,6 +89,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
       name: draft.name.trim() || (isCreating.value ? '未保存线路' : selectedProvider.value?.name ?? '未命名 Provider'),
       apiKey: draft.apiKey,
       baseUrl: draft.baseUrl,
+      modelsUrl: draft.modelsUrl.trim() || undefined,
       models: draft.models,
       activeModelId: draft.activeModelId,
       createdAt: selectedProvider.value?.createdAt ?? Date.now(),
@@ -115,13 +119,11 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
   const modelSyncCopy = computed(() => {
     const provider = editableProvider.value
     if (!provider) return ''
-    const baseUrl = draft.baseUrl.trim().replace(/\/+$/, '')
-    const endpoint = baseUrl ? `${baseUrl}/models` : '/models'
-    if (discovering.value) return `正在请求 ${endpoint}`
-    if (discoveryResult.value?.ok) return `已按 ${endpoint} 刷新可用模型，手动添加的模型已保留。`
+    if (discovering.value) return `正在自动探测候选端点（/v1/models、/models 等）`
+    if (discoveryResult.value?.ok) return `已刷新可用模型，手动添加的模型已保留。`
     if (discoveryResult.value && !discoveryResult.value.ok) return `同步失败：${discoveryResult.value.message}`
-    if (!draft.apiKey.trim()) return `同步会请求 ${endpoint}，需要先填写 API Key。`
-    return `同步会请求 ${endpoint}；成功后会刷新服务端可用模型，并保留手动添加的模型。`
+    if (!draft.apiKey.trim()) return `同步会自动探测 /v1/models、/models 等候选端点，需要先填写 API Key。`
+    return `同步会自动探测候选端点（/v1/models、/models，含剥离兼容子路径）；成功后刷新可用模型，并保留手动添加的模型。`
   })
 
   const statusCopy = computed(() => {
@@ -196,6 +198,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     draft.name = preset.name
     draft.baseUrl = preset.baseUrl
     draft.apiKey = ''
+    draft.modelsUrl = ''
     draft.models = []
     draft.activeModelId = null
     testResult.value = null
@@ -209,6 +212,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     draft.name = '自定义 Provider'
     draft.baseUrl = 'https://api.example.com/v1'
     draft.apiKey = ''
+    draft.modelsUrl = ''
     draft.models = []
     draft.activeModelId = null
     testResult.value = null
@@ -224,6 +228,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
         name: draft.name,
         baseUrl: draft.baseUrl,
         apiKey: draft.apiKey,
+        modelsUrl: draft.modelsUrl.trim() || undefined,
         models: draft.models,
       })
       selectedId.value = provider.id
@@ -242,6 +247,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
       name: draft.name,
       baseUrl: draft.baseUrl,
       apiKey: draft.apiKey,
+      modelsUrl: draft.modelsUrl.trim() || undefined,
       models: draft.models,
       activeModelId: draft.activeModelId,
     })
@@ -358,6 +364,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
       const result = await discoverLlmModels({
         apiKey: draft.apiKey,
         baseUrl: draft.baseUrl,
+        modelsUrl: draft.modelsUrl.trim() || undefined,
         signal: ctrl.signal,
       })
       discoveryResult.value = result

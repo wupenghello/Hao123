@@ -28,6 +28,8 @@ export interface ProviderConfig {
   apiKey: string
   /** OpenAI compatible API 根地址，不含 /chat/completions */
   baseUrl: string
+  /** 可选：精确指定模型列表端点（用户自定义完整 URL，绕过候选探测） */
+  modelsUrl?: string
   /** 该 Provider 下可选的模型列表 */
   models: ModelEntry[]
   /** 当前激活的模型 id */

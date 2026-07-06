@@ -39,6 +39,93 @@ function filterHeaders(headers: Record<string, string | string[] | undefined>): 
   return out
 }
 
+// ============ 模型列表端点候选生成（对齐 cc-switch build_models_url_candidates） ============
+
+/**
+ * 已知的「Anthropic 协议兼容子路径」后缀；按长度降序，最长前缀优先匹配。
+ * baseURL 命中这些后缀时，候选列表会追加「剥离后缀再拼 /v1/models / /models」的版本。
+ */
+const KNOWN_COMPAT_SUFFIXES: readonly string[] = [
+  '/api/claudecode',
+  '/api/anthropic',
+  '/apps/anthropic',
+  '/api/coding',
+  '/claudecode',
+  '/anthropic',
+  '/step_plan',
+  '/coding',
+  '/claude',
+].sort((a, b) => b.length - a.length)
+
+/** 404/405 响应体截断长度：避免把几十 KB HTML 404 页整页保留到错误串里。 */
+const ERROR_BODY_MAX_CHARS = 512
+
+function truncateBody(body: string): string {
+  const trimmed = body.trim()
+  if ([...trimmed].length <= ERROR_BODY_MAX_CHARS) return trimmed
+  return [...trimmed].slice(0, ERROR_BODY_MAX_CHARS).join('') + '…'
+}
+
+/** 判断 baseURL 是否以 OpenAI 风格的版本段 `/v{N}` 结尾（`/v1`、`.../paas/v4`）。 */
+function endsWithVersionSegment(url: string): boolean {
+  const last = url.split('/').pop() ?? ''
+  if (!last.startsWith('v')) return false
+  const digits = last.slice(1)
+  return digits.length > 0 && [...digits].every((c) => c >= '0' && c <= '9')
+}
+
+/** 若 baseURL 以任一已知兼容子路径结尾，返回剥离后的剩余部分；否则 null。 */
+function stripCompatSuffix(baseUrl: string): string | null {
+  for (const suffix of KNOWN_COMPAT_SUFFIXES) {
+    if (baseUrl.endsWith(suffix)) {
+      return baseUrl.slice(0, baseUrl.length - suffix.length)
+    }
+  }
+  return null
+}
+
+/**
+ * 构造「模型列表端点」的候选 URL 列表，按序探测（404/405 自动 fallback）。
+ *
+ * 候选顺序：
+ * 1. `modelsUrlOverride` 非空 → 只返回它
+ * 2. baseURL 以版本段 `/v{N}` 结尾 → 拼 `/models`；非 `/v1` 时再追加 `/v1/models` 兜底
+ * 3. 其它 → 拼 `/v1/models`
+ * 4. baseURL 命中兼容子路径 → 追加剥离后的根 `/v1/models`、`/models`
+ */
+function buildModelsUrlCandidates(baseUrl: string, modelsUrlOverride?: string | null): string[] {
+  if (modelsUrlOverride) {
+    const trimmed = modelsUrlOverride.trim()
+    if (trimmed) return [trimmed]
+  }
+
+  const trimmed = baseUrl.trim().replace(/\/+$/, '')
+  if (!trimmed) return []
+
+  const candidates: string[] = []
+
+  if (endsWithVersionSegment(trimmed)) {
+    candidates.push(`${trimmed}/models`)
+    if (!trimmed.endsWith('/v1')) {
+      candidates.push(`${trimmed}/v1/models`)
+    }
+  } else {
+    candidates.push(`${trimmed}/v1/models`)
+  }
+
+  const stripped = stripCompatSuffix(trimmed)
+  if (stripped) {
+    const root = stripped.replace(/\/+$/, '')
+    if (root && /^[a-z]+:\/\//i.test(root)) {
+      candidates.push(`${root}/v1/models`)
+      candidates.push(`${root}/models`)
+    }
+  }
+
+  // 线性去重，保持首次出现顺序
+  return candidates.filter((url, idx, arr) => arr.indexOf(url) === idx)
+}
+
 // ============ 插件 ============
 
 export function deepseekFallbackPlugin(): Plugin {
@@ -76,6 +163,7 @@ export function deepseekFallbackPlugin(): Plugin {
         // 从 body 中提取客户端配置的 api_key 和 base_url
         let apiKey: string | null = null
         let baseUrl = 'https://api.deepseek.com'
+        let modelsUrl: string | null = null
         try {
           const parsed = JSON.parse(body)
           if (parsed.api_key && typeof parsed.api_key === 'string') {
@@ -85,6 +173,11 @@ export function deepseekFallbackPlugin(): Plugin {
           if (parsed.base_url && typeof parsed.base_url === 'string') {
             baseUrl = parsed.base_url.replace(/\/+$/, '')
             delete parsed.base_url
+          }
+          // 可选：精确指定模型列表端点（用户自定义完整 URL）
+          if (parsed.models_url && typeof parsed.models_url === 'string') {
+            modelsUrl = parsed.models_url.trim()
+            delete parsed.models_url
           }
           body = JSON.stringify(parsed)
         } catch {
@@ -100,7 +193,7 @@ export function deepseekFallbackPlugin(): Plugin {
           return
         }
 
-        return { apiKey, baseUrl, body }
+        return { apiKey, baseUrl, body, modelsUrl }
       }
 
       async function handleChatRequest(req: IncomingMessage, res: ServerResponse) {
@@ -157,35 +250,57 @@ export function deepseekFallbackPlugin(): Plugin {
         const auth = await readClientAuth(req, res)
         if (!auth) return
 
-        try {
-          const upstreamRes = await fetch(`${auth.baseUrl}/models`, {
-            method: 'GET',
-            headers: {
-              accept: 'application/json',
-              authorization: `Bearer ${auth.apiKey}`,
-            },
-          })
+        // 生成候选模型列表端点，按序探测：404/405 自动 fallback 到下一个。
+        // 对齐 cc-switch：/v1·/v4 版本段结尾改拼 /models；/anthropic·/claudecode 等
+        // 兼容子路径追加剥离后的根候选。
+        const candidates = buildModelsUrlCandidates(auth.baseUrl, auth.modelsUrl)
+        let lastErr: string | null = null
 
-          const raw = await upstreamRes.text().catch(() => '')
-          res.statusCode = upstreamRes.status
-          res.setHeader('Content-Type', 'application/json; charset=utf-8')
-          if (!upstreamRes.ok) {
+        for (const url of candidates) {
+          try {
+            const upstreamRes = await fetch(url, {
+              method: 'GET',
+              headers: {
+                accept: 'application/json',
+                authorization: `Bearer ${auth.apiKey}`,
+              },
+            })
+
+            const raw = await upstreamRes.text().catch(() => '')
+
+            if (upstreamRes.ok) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json; charset=utf-8')
+              res.end(raw || JSON.stringify({ data: [] }))
+              return
+            }
+
+            // 404/405：该端点不存在模型接口，尝试下一个候选
+            if (upstreamRes.status === 404 || upstreamRes.status === 405) {
+              lastErr = `HTTP ${upstreamRes.status}（${url}）：${truncateBody(raw)}`
+              continue
+            }
+
+            // 401/403 或其它错误：立即返回，不再尝试候选
+            res.statusCode = upstreamRes.status
+            res.setHeader('Content-Type', 'application/json; charset=utf-8')
             res.end(JSON.stringify({
               error: upstreamRes.status === 401 || upstreamRes.status === 403
                 ? 'API Key 无效或无权限读取模型列表'
-                : `上游返回 ${upstreamRes.status}：${raw.slice(0, 200)}`,
+                : `上游返回 ${upstreamRes.status}：${truncateBody(raw)}`,
             }))
             return
+          } catch (e) {
+            lastErr = `请求 ${url} 失败：${(e as Error).message || '未知错误'}`
+            continue
           }
-
-          res.end(raw || JSON.stringify({ data: [] }))
-        } catch (e) {
-          res.statusCode = 502
-          res.setHeader('Content-Type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify({
-            error: `请求模型列表失败：${(e as Error).message || '未知错误'}`,
-          }))
         }
+
+        res.statusCode = 502
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({
+          error: `所有候选端点均失败：${lastErr ?? '无可用候选'}`,
+        }))
       }
     },
   }

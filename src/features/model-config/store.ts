@@ -54,6 +54,7 @@ function normalizeProvider(input: Partial<ProviderConfig>): ProviderConfig | nul
     name,
     apiKey: String(input.apiKey ?? '').trim(),
     baseUrl,
+    modelsUrl: input.modelsUrl?.trim() || undefined,
     models: finalModels,
     activeModelId,
     createdAt: Number(input.createdAt) || Date.now(),
@@ -149,6 +150,7 @@ export function addProvider(cfg: {
   name: string
   apiKey?: string
   baseUrl: string
+  modelsUrl?: string
   models?: Array<string | Partial<ModelEntry>>
 }): ProviderConfig {
   const baseUrl = normalizeBaseUrl(cfg.baseUrl)
@@ -172,6 +174,7 @@ export function addProvider(cfg: {
     name: cfg.name.trim() || preset?.name || '未命名 Provider',
     apiKey: cfg.apiKey?.trim() || '',
     baseUrl,
+    modelsUrl: cfg.modelsUrl?.trim() || undefined,
     models: finalModels,
     activeModelId: finalModels[0]?.id ?? null,
     createdAt: Date.now(),
@@ -193,7 +196,7 @@ export function addProviderFromPreset(presetId: string, apiKey = ''): ProviderCo
   })
 }
 
-export function updateProvider(id: string, updates: Partial<Pick<ProviderConfig, 'name' | 'apiKey' | 'baseUrl' | 'models' | 'activeModelId'>>): void {
+export function updateProvider(id: string, updates: Partial<Pick<ProviderConfig, 'name' | 'apiKey' | 'baseUrl' | 'modelsUrl' | 'models' | 'activeModelId'>>): void {
   const idx = state.providers.findIndex((provider) => provider.id === id)
   if (idx < 0) return
   const previous = state.providers[idx]
@@ -289,22 +292,34 @@ export function mergeDiscoveredModels(providerId: string, models: Array<string |
     .filter((model): model is DiscoveredModel => !!model)
   const uniqueByName = new Map(discovered.map((model) => [model.name, model]))
   const previousByName = new Map(provider.models.map((model) => [model.name, model]))
-  const nextModels: ModelEntry[] = [...uniqueByName.keys()].map((name) => {
-    const latest = uniqueByName.get(name)
-    const previous = previousByName.get(name)
-    const manual = previous?.source === 'manual'
+  // 增量合并：保留所有已有模型（预设 / 手动 / 上次发现的），不因本次未返回就清空。
+  // 已存在的模型若本次再次出现 → 标记可用并刷新 lastSeenAt；
+  // 本次新发现的 → 追加为 discovered；本次未出现的已有模型 → 原样保留。
+  const nextModels: ModelEntry[] = provider.models.map((model) => {
+    const latest = uniqueByName.get(model.name)
+    if (!latest) return model
     return {
-      id: previous?.id ?? genId('m'),
-      name,
-      description: latest?.description ?? previous?.description,
-      role: latest?.role ?? previous?.role,
+      ...model,
+      description: latest.description ?? model.description,
+      role: latest.role ?? model.role,
       available: true,
-      source: manual ? 'manual' : 'discovered',
       lastSeenAt: now,
     }
   })
-  const retainedManualModels = provider.models.filter((model) => model.source === 'manual' && !uniqueByName.has(model.name))
-  nextModels.push(...retainedManualModels)
+  const existingNames = new Set(previousByName.keys())
+  for (const name of uniqueByName.keys()) {
+    if (existingNames.has(name)) continue
+    const latest = uniqueByName.get(name)
+    nextModels.push({
+      id: genId('m'),
+      name,
+      description: latest?.description,
+      role: latest?.role,
+      available: true,
+      source: 'discovered',
+      lastSeenAt: now,
+    })
+  }
 
   provider.models.splice(0, provider.models.length, ...nextModels)
   provider.lastModelsSyncedAt = now
