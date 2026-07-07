@@ -113,9 +113,11 @@ interface OrbitVisual {
   speed: number
   radiusX: number
   radiusY: number
+  baseOpacity: number
+  kind: ConstellationKind
 }
 const nodeOrbits = new Map<string, OrbitVisual>()
-const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; drifts: boolean }>()
+const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; kind: ConstellationKind; drifts: boolean }>()
 
 // 程序生成的贴图（星点、星体光晕、星云背景），卸载时统一释放
 let starTex: THREE.CanvasTexture | null = null
@@ -233,10 +235,85 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
   return tex
 }
 
+const SOURCE_TINTS: Record<ConstellationKind, THREE.Color> = {
+  task: new THREE.Color('#58c7f4'),
+  bug: new THREE.Color('#ff7f99'),
+  local: new THREE.Color('#4ee1cf'),
+}
+
+const RISK_TINTS: Partial<Record<ConstellationRisk, THREE.Color>> = {
+  overdue: new THREE.Color('#ff5b78'),
+  'due-soon': new THREE.Color('#f7c65a'),
+  stalled: new THREE.Color('#b7a3ff'),
+}
+
+const FIELD_PLANE = { opacity: 0.18 }
+const SOURCE_BIASES: Record<ConstellationKind, { tiltX: number; tiltY: number; tiltZ: number }> = {
+  task: { tiltX: -0.04, tiltY: -0.02, tiltZ: -0.05 },
+  bug: { tiltX: 0.06, tiltY: 0.03, tiltZ: 0.04 },
+  local: { tiltX: -0.01, tiltY: 0.02, tiltZ: 0.02 },
+}
+const ORBIT_FAMILIES = [
+  { tiltX: 0.72, tiltY: -0.1, tiltZ: -0.36, jitterX: 0.34, jitterY: 0.34, jitterZ: 0.7, ellipseBase: 0.34, ellipseRange: 0.22 },
+  { tiltX: 1.28, tiltY: -0.2, tiltZ: 0.24, jitterX: 0.24, jitterY: 0.36, jitterZ: 0.48, ellipseBase: 0.5, ellipseRange: 0.2 },
+  { tiltX: 1.18, tiltY: 0.18, tiltZ: 0.42, jitterX: 0.38, jitterY: 0.42, jitterZ: 0.84, ellipseBase: 0.38, ellipseRange: 0.24 },
+  { tiltX: 0.18, tiltY: 0.22, tiltZ: 1.32, jitterX: 0.34, jitterY: 0.32, jitterZ: 0.22, ellipseBase: 0.5, ellipseRange: 0.2 },
+]
+
 function sourceColorOf(kind: ConstellationKind): THREE.Color {
-  if (kind === 'task') return new THREE.Color('#38bdf8')
-  if (kind === 'bug') return new THREE.Color('#fb7185')
-  return new THREE.Color('#2dd4bf')
+  return new THREE.Color('#b9d7ff').lerp(SOURCE_TINTS[kind], 0.68)
+}
+
+function spectralColorOf(it: ConstellationItem): THREE.Color {
+  const color = sourceColorOf(it.kind)
+  const risk = RISK_TINTS[it.riskLevel]
+  return risk ? color.lerp(risk, it.riskLevel === 'overdue' ? 0.18 : 0.12) : color
+}
+
+function orbitFamilyOf(index: number): (typeof ORBIT_FAMILIES)[number] {
+  return ORBIT_FAMILIES[index % ORBIT_FAMILIES.length]
+}
+
+function hashUnit(input: string): number {
+  let h = 2166136261
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 10000) / 10000
+}
+
+function stableJitter(seed: string, range: number): number {
+  return (hashUnit(seed) - 0.5) * range
+}
+
+function riskOrder(it: ConstellationItem): number {
+  if (it.riskLevel === 'overdue') return 0
+  if (it.riskLevel === 'due-soon') return 1
+  if (it.urgent) return 2
+  if (it.riskLevel === 'stalled') return 3
+  return 4
+}
+
+function riskRadiusOffset(it: ConstellationItem): number {
+  if (it.riskLevel === 'overdue') return -0.42
+  if (it.riskLevel === 'due-soon') return -0.22
+  if (it.urgent) return -0.12
+  if (it.riskLevel === 'stalled') return 0.1
+  return 0.28
+}
+
+function orbitRadiusOf(it: ConstellationItem, index: number): number {
+  const shells = it.riskLevel === 'overdue' || it.urgent
+    ? [4.45, 5.15, 5.85]
+    : [4.75, 5.45, 6.15]
+  const shell = shells[(index + Math.floor(hashUnit(`${it.key}:shell`) * shells.length)) % shells.length]
+  const riskPull = riskRadiusOffset(it) * 0.34
+  return Math.max(4.15, Math.min(6.55, shell + riskPull + stableJitter(`${it.key}:radius`, 0.62)))
+}
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n))
 }
 
 function disposeMaterial(material: THREE.Material | THREE.Material[]) {
@@ -400,21 +477,24 @@ function makeOrbitRing(
   radiusX: number,
   radiusY: number,
   tiltX: number,
+  tiltY: number,
   tiltZ: number,
   color: THREE.Color,
+  opacity: number,
 ): THREE.LineLoop {
   const curve = new THREE.EllipseCurve(0, 0, radiusX, radiusY, 0, Math.PI * 2)
   const points = curve.getPoints(160)
   const geometry = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, 0, p.y)))
   const material = new THREE.LineBasicMaterial({
-    color: color.clone().lerp(new THREE.Color('#ffffff'), 0.3),
+    color: color.clone().lerp(new THREE.Color('#d9ecff'), 0.18),
     transparent: true,
-    opacity: 0.42,
+    opacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   })
   const ring = new THREE.LineLoop(geometry, material)
   ring.rotation.x = tiltX
+  ring.rotation.y = tiltY
   ring.rotation.z = tiltZ
   return ring
 }
@@ -426,6 +506,7 @@ function writeOrbitPosition(
 ): THREE.Vector3 {
   target.set(Math.cos(o.angle) * o.radiusX, 0, Math.sin(o.angle) * o.radiusY)
   target.applyQuaternion(o.ring.quaternion)
+  target.add(o.ring.position)
   return target
 }
 
@@ -438,26 +519,34 @@ function rebuildNodes() {
   nodeOrbits.clear()
   nodeBase.clear()
 
-  const orbitingItems = props.items
+  const orbitingItems = [...props.items].sort((a, b) =>
+    riskOrder(a) - riskOrder(b) || hashUnit(a.key) - hashUnit(b.key) || a.title.localeCompare(b.title),
+  )
 
   // 所有工作项：每个工作项一条专属轨道，节点沿轨道运行
   // 半径动态拟合：不管几个轨道项都落在 [rMin, rMax] 内，避免最外圈跑出视口
-  const N = orbitingItems.length
-  const rMin = 3.4
-  const rMax = 7.6
-  const spacing = N > 1 ? (rMax - rMin) / (N - 1) : 0
   orbitingItems.forEach((it, index) => {
-    const color = sourceColorOf(it.kind)
-    const radiusX = N === 1 ? (rMin + rMax) / 2 : rMin + index * spacing
-    const radiusY = radiusX * (0.32 + Math.random() * 0.16)
-    const tiltX = 1.05 + Math.random() * 0.35
-    const tiltZ = -0.4 + Math.random() * 0.8
-    const ring = makeOrbitRing(radiusX, radiusY, tiltX, tiltZ, color)
+    const color = spectralColorOf(it)
+    const bias = SOURCE_BIASES[it.kind]
+    const family = orbitFamilyOf(index)
+    const radiusX = orbitRadiusOf(it, index)
+    const radiusY = radiusX * (family.ellipseBase + hashUnit(`${it.key}:ellipse`) * family.ellipseRange)
+    const tiltX = family.tiltX + bias.tiltX + stableJitter(`${it.key}:tilt-x`, family.jitterX)
+    const tiltY = family.tiltY + bias.tiltY + stableJitter(`${it.key}:tilt-y`, family.jitterY)
+    const tiltZ = family.tiltZ + bias.tiltZ + stableJitter(`${it.key}:tilt-z`, family.jitterZ)
+    const baseOpacity = Math.max(0.1, Math.min(
+      0.46,
+      FIELD_PLANE.opacity
+        + stableJitter(`${it.key}:opacity`, 0.06)
+        + (it.riskLevel === 'overdue' ? 0.1 : it.riskLevel === 'due-soon' ? 0.06 : it.riskLevel === 'stalled' ? 0.04 : 0),
+    ))
+    const ring = makeOrbitRing(radiusX, radiusY, tiltX, tiltY, tiltZ, color, baseOpacity)
     nodesGroup!.add(ring)
 
-    const angle = Math.random() * Math.PI * 2
-    const speed = (0.05 + Math.random() * 0.07) * (Math.random() < 0.5 ? -1 : 1)
-    const orbit = { ring, angle, speed, radiusX, radiusY }
+    const angle = hashUnit(`${it.key}:angle`) * Math.PI * 2
+    const direction = hashUnit(`${it.key}:direction`) < 0.5 ? -1 : 1
+    const speed = (0.025 + hashUnit(`${it.key}:speed`) * 0.055) * direction
+    const orbit = { ring, angle, speed, radiusX, radiusY, baseOpacity, kind: it.kind }
     nodeOrbits.set(it.key, orbit)
 
     const pos = writeOrbitPosition(orbit, new THREE.Vector3())
@@ -473,7 +562,7 @@ function rebuildNodes() {
     nodesGroup!.add(coreMesh)
     nodeCores.set(it.key, coreMesh)
 
-    nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, drifts: false })
+    nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, kind: it.kind, drifts: false })
   })
 
 }
@@ -549,6 +638,7 @@ function animate() {
 
   const activeKey = hoveredKey.value
   const hasActive = !!activeKey
+  const activeBase = activeKey ? nodeBase.get(activeKey) ?? null : null
 
   for (const [key, sprite] of nodeSprites) {
     const base = nodeBase.get(key)
@@ -568,12 +658,15 @@ function animate() {
 
     const pulse = slow ? 0 : Math.sin(t * 2.4 + (sprite.userData.index ?? 0)) * 0.06
     // 被指向的节点放大爆亮，其余在指向时压暗到 20%——一眼锁定
-    const dim = hasActive && !isActive ? 0.2 : 1
+    const affinity = activeBase ? 1 - clamp01(sprite.position.distanceTo(activeBase.position) / 7.5) : 0
+    const dim = hasActive && !isActive ? 0.16 + affinity * 0.34 : 1
+    const depthGlow = 0.8 + clamp01((sprite.position.z + 5.5) / 11) * 0.24
     const boost = isActive ? 2.1 : 1
     const target = base.scale * boost * dim * (1 + (slow ? 0 : Math.max(0, pulse) * 0.5))
     sprite.scale.set(target, target, 1)
     if (sprite.material instanceof THREE.SpriteMaterial) {
-      sprite.material.opacity = isActive ? 1 : base.risk === 'calm' ? 0.85 * dim : dim
+      const riskOpacity = base.risk === 'calm' ? 0.82 : 0.98
+      sprite.material.opacity = isActive ? 1 : riskOpacity * dim * depthGlow
     }
     const coreMesh = nodeCores.get(key)
     if (coreMesh) {
@@ -583,7 +676,18 @@ function animate() {
     }
     // 工作项轨道环：hover 时该轨道高亮，其余变暗
     if (orbit?.ring.material instanceof THREE.LineBasicMaterial) {
-      orbit.ring.material.opacity = isActive ? 0.95 : hasActive ? 0.1 : 0.42
+      const riskPulse = slow
+        ? 0
+        : base.risk === 'overdue'
+          ? Math.max(0, Math.sin(t * 3.8 + (sprite.userData.index ?? 0))) * 0.16
+          : base.risk === 'due-soon'
+            ? Math.max(0, Math.sin(t * 2.4 + (sprite.userData.index ?? 0))) * 0.08
+            : 0
+      orbit.ring.material.opacity = isActive
+        ? 0.74
+        : hasActive
+          ? orbit.baseOpacity * (0.22 + affinity * 0.46)
+          : Math.min(0.5, orbit.baseOpacity + riskPulse)
     }
   }
 
