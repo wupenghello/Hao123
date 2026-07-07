@@ -19,6 +19,7 @@ import { computed } from 'vue'
 import { useChatStore } from '../store'
 import { useConnectivity } from '../connectivity'
 import { ASSISTANT_NAME } from '../config'
+import { activeModel, activeProvider, configured as modelConfigured, hasUiConfig } from '@/features/model-config'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 
 const store = useChatStore()
@@ -37,12 +38,22 @@ const dotTitle = computed(() => {
   if (dotState.value === 'down') return connectivityMsg.value || `${ASSISTANT_NAME} 暂时连不上`
   return `${ASSISTANT_NAME} 在线`
 })
+const modelTitle = computed(() => {
+  if (!hasUiConfig.value) return '模型未配置'
+  const provider = activeProvider.value?.name || '未命名 Provider'
+  const model = activeModel.value || '未选择模型'
+  return `当前模型：${provider} / ${model}${modelConfigured.value ? '' : '（等待配置）'}`
+})
+const launcherTitle = computed(() => {
+  const status = dotState.value === 'down' ? `｜${connectivityMsg.value || '连不上'}` : ''
+  return `${ASSISTANT_NAME} · AI 助手（${keyHint.value}）｜${modelTitle.value}${status}`
+})
 </script>
 
 <template>
   <button
     class="group fixed left-4 bottom-4 z-40 inline-flex items-center gap-[7px] py-[7px] pl-2.5 pr-3 rounded-full bg-white/[0.06] backdrop-blur-md ring-1 ring-white/10 shadow-lg transition-colors hover:bg-white/[0.1] hover:ring-teal-300/40"
-    :title="`${ASSISTANT_NAME} · AI 助手（${keyHint}）${dotState === 'down' ? '｜' + (connectivityMsg || '连不上') : ''}`"
+    :title="launcherTitle"
     @click="store.show()"
   >
     <span class="relative shrink-0">

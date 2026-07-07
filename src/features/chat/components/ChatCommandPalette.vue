@@ -17,6 +17,7 @@ import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
 import { useChatSettings } from '../settings'
+import { activeModel, activeProvider, configured as modelConfigured, hasUiConfig } from '@/features/model-config'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import ToolActivityRow from './ToolActivityRow.vue'
 import ChatSettingsModal from './ChatSettingsModal.vue'
@@ -55,6 +56,17 @@ import IconPanelRight from '~icons/mdi/page-layout-sidebar-right'
 
 const store = useChatStore()
 const { settings } = useChatSettings()
+
+const currentModelProvider = computed(() => activeProvider.value?.name?.trim() || '未命名 Provider')
+const currentModelName = computed(() => activeModel.value || '未选择模型')
+const currentModelLabel = computed(() => {
+  if (!hasUiConfig.value) return '模型未配置'
+  return `${currentModelProvider.value} / ${currentModelName.value}`
+})
+const currentModelTitle = computed(() => {
+  if (!hasUiConfig.value) return '当前未配置模型'
+  return `当前模型：${currentModelProvider.value} / ${currentModelName.value}${modelConfigured.value ? '' : '（等待配置）'}`
+})
 
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
@@ -1093,7 +1105,17 @@ onUnmounted(() => {
                 </div>
                 <div class="min-w-0 flex-1">
                   <p class="cmd-eyebrow">Focus Workspace</p>
-                  <h2 class="cmd-title">{{ ASSISTANT_NAME }} 工作空间</h2>
+                  <div class="cmd-title-row">
+                    <h2 class="cmd-title">{{ ASSISTANT_NAME }} 工作空间</h2>
+                    <span
+                      class="cmd-model-pill"
+                      :class="{ 'is-unconfigured': !modelConfigured }"
+                      :title="currentModelTitle"
+                    >
+                      <span v-if="hasUiConfig" class="cmd-model-provider">{{ currentModelProvider }}</span>
+                      <span class="cmd-model-name">{{ hasUiConfig ? currentModelName : currentModelLabel }}</span>
+                    </span>
+                  </div>
                   <p class="cmd-subtitle">{{ conversationTitle }}</p>
                 </div>
                 <div class="cmd-immersive-head-center" aria-hidden="true">
@@ -1107,7 +1129,17 @@ onUnmounted(() => {
                 </div>
                 <div class="min-w-0 flex-1">
                   <p class="cmd-eyebrow">Assistant Operations</p>
-                  <h2 class="cmd-title">{{ ASSISTANT_NAME }} 对话中枢</h2>
+                  <div class="cmd-title-row">
+                    <h2 class="cmd-title">{{ ASSISTANT_NAME }} 对话中枢</h2>
+                    <span
+                      class="cmd-model-pill"
+                      :class="{ 'is-unconfigured': !modelConfigured }"
+                      :title="currentModelTitle"
+                    >
+                      <span v-if="hasUiConfig" class="cmd-model-provider">{{ currentModelProvider }}</span>
+                      <span class="cmd-model-name">{{ hasUiConfig ? currentModelName : currentModelLabel }}</span>
+                    </span>
+                  </div>
                   <p class="cmd-subtitle">把天气、禅道、待办和知识库串成一次工作流。</p>
                 </div>
               </template>
@@ -1992,6 +2024,13 @@ onUnmounted(() => {
   font-weight: 850;
   letter-spacing: -0.01em;
 }
+.cmd-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  min-width: 0;
+}
 .cmd-card.is-immersive .cmd-title {
   font-size: 18px;
   font-weight: 820;
@@ -2029,8 +2068,10 @@ onUnmounted(() => {
 }
 .cmd-header-actions {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 9px;
+  min-width: 0;
 }
 .cmd-live-pill,
 .cmd-header-btn,
@@ -2046,6 +2087,46 @@ onUnmounted(() => {
   -webkit-appearance: none;
   border: 0;
   cursor: pointer;
+}
+.cmd-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  min-width: max-content;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.42);
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
+}
+.cmd-model-pill.is-unconfigured {
+  border-color: rgba(251, 191, 36, 0.2);
+  color: rgba(251, 191, 36, 0.82);
+}
+.cmd-card.is-immersive .cmd-model-pill {
+  border-color: rgba(148, 163, 184, 0.1);
+  background: rgba(255,255,255,0.03);
+  color: rgba(226, 232, 240, 0.54);
+  box-shadow: none;
+}
+.cmd-model-provider,
+.cmd-model-name {
+  overflow: visible;
+  text-overflow: clip;
+}
+.cmd-model-provider {
+  color: rgba(125, 211, 252, 0.82);
+}
+.cmd-model-provider::after {
+  margin-left: 6px;
+  color: rgba(148, 163, 184, 0.38);
+  content: '/';
 }
 .cmd-live-pill {
   display: inline-flex;
@@ -2078,6 +2159,7 @@ onUnmounted(() => {
 .cmd-header-btn,
 .cmd-iconbtn {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(255,255,255,0.085);
@@ -2099,6 +2181,7 @@ onUnmounted(() => {
   padding: 0 10px;
   font-size: 11px;
   font-weight: 800;
+  white-space: nowrap;
 }
 .cmd-iconbtn {
   width: 32px;
@@ -3302,6 +3385,12 @@ onUnmounted(() => {
   .cmd-shell.is-immersive { padding: 0; }
   .cmd-header { padding: 16px; flex-wrap: wrap; }
   .cmd-header-actions { width: 100%; justify-content: space-between; }
+  .cmd-title-row { flex-wrap: wrap; row-gap: 6px; }
+  .cmd-model-pill { max-width: min(58vw, 260px); min-width: 0; }
+  .cmd-model-provider,
+  .cmd-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .cmd-model-provider { max-width: 74px; }
+  .cmd-model-name { max-width: 128px; }
   .cmd-subtitle { white-space: normal; }
   .cmd-footer { flex-wrap: wrap; min-height: auto; padding: 9px 14px; }
   .cmd-card.is-immersive .cmd-header { padding: 12px 14px; }
