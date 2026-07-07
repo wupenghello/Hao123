@@ -58,8 +58,8 @@ const navItems: NavItem[] = [
           test: 'https://erp-test.wbscf.tech/console/#/auth/login',
           pre: 'https://erp-pre.wbscf.tech/console/#/auth/login' } },
       { label: '老ERP', envs: {
-          dev: 'https://erp-dev.wbscf.com',
-          test: 'https://erp-test.wbscf.com' } },
+          dev: 'http://erp-dev.wbscf.com',
+          test: 'http://erp-test.wbscf.com' } },
     ] },
   { label: '水星', url: 'http://admin-dev.wbscf.tech/login' },
   { label: 'GitLab Tags', url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags' },
