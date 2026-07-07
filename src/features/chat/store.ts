@@ -12,7 +12,7 @@
  * - System prompt 拆为静态（能力/风格）+ 动态（时间/城市）两条消息，让 DeepSeek 的
  *   prompt caching 命中静态前缀，减少重复计费。
  * - 能力列表从已注册的 openAiTools 动态生成，而非手写；新增/删除工具时 prompt 自动同步。
- * - Agent 循环使用 temperature=0.3（工具调用更准确）+ max_tokens=2048（控制成本和延迟）。
+ * - Agent 循环使用 temperature=0.3（工具调用更准确）+ 可配置 max_tokens（控制成本和延迟）。
  * - 工具结果在 JSON 边界处截断，避免模型收到残缺 JSON。
  * - 轻量意图分类：时间/UI 操作类问题直接本地回答，省去不必要的 LLM 调用。
  * - 反馈系统：用户可对 assistant 消息 👍/👎，用于质量追踪与 prompt 迭代。
@@ -29,7 +29,7 @@ import { ASSISTANT_NAME } from './config'
 import { getChatSettings } from './settings'
 import { llm } from './llm'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
-import { classifyError, markSuccess, markUnreachable, probe as probeConnectivity, onRecover, useConnectivity } from './connectivity'
+import { classifyError, clearConnectivityIssue, markSuccess, markUnreachable, probe as probeConnectivity, onRecover, useConnectivity } from './connectivity'
 import {
   summarizeUiRenderResult,
   uiBlocksFromRenderResult,
@@ -1004,6 +1004,7 @@ export const useChatStore = defineStore('chat', () => {
       if (reason) {
         markUnreachable(reason)
       } else {
+        clearConnectivityIssue()
         error.value = (e as Error)?.message || '对话出错了，请稍后重试'
       }
       // 移除空的尾部 assistant 占位（避免残留空气泡）

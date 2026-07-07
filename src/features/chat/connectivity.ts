@@ -105,6 +105,15 @@ export function markSuccess(): void {
   if (wasDown) fireRecover()
 }
 
+/** 清理过期的连通性错误，但不触发恢复回调。用于 4xx 业务错误已证明 dev 代理可达的场景。 */
+export function clearConnectivityIssue(): void {
+  state.status = 'healthy'
+  state.reason = null
+  state.message = null
+  state.autoRetrying = false
+  stopAutoRetry()
+}
+
 /** 标记连不上 —— 仅对网络类根因调用（classifyError 非 null） */
 export function markUnreachable(reason: ConnectivityReason): void {
   state.status = 'unreachable'
@@ -112,8 +121,8 @@ export function markUnreachable(reason: ConnectivityReason): void {
   state.message = messageForReason(reason)
   state.lastErrorAt = Date.now()
   state.autoRetrying = false
-  // 离线时不发起 probe（无意义）；在线时启动自动重试
-  if (reason !== 'offline') startAutoRetry()
+  // 离线 / 鉴权失败都不发起自动 probe；网络和上游瞬态错误才重试。
+  if (reason === 'proxy' || reason === 'provider' || reason === 'unknown') startAutoRetry()
 }
 
 // ============ 自动重试（指数退避） ============
@@ -192,19 +201,27 @@ export async function probe(): Promise<boolean> {
         stopAutoRetry()
         return true
       }
+      if (res.status > 0 && res.status < 500 && res.status !== 401 && res.status !== 403) {
+        // 429 / 400 等说明 TodayOps dev 代理已经接通，上游也返回了业务错误；
+        // 它们不属于“无法连接开发服务器”，应交给具体调用方展示原始错误。
+        clearConnectivityIssue()
+        return true
+      }
       const reason: ConnectivityReason =
         res.status === 401 || res.status === 403 ? 'auth' : res.status >= 500 ? 'provider' : 'proxy'
       markUnreachable(reason)
       scheduleRetry()
       return false
     } catch (e) {
-      if ((e as Error)?.name === 'AbortError') {
-        // 超时 → provider 没响应
-        markUnreachable('provider')
+      const reason = (e as Error)?.name === 'AbortError'
+        ? 'provider'
+        : classifyError(e)
+      if (reason) {
+        markUnreachable(reason)
+        scheduleRetry()
       } else {
-        markUnreachable(classifyError(e) ?? 'proxy')
+        clearConnectivityIssue()
       }
-      scheduleRetry()
       return false
     } finally {
       clearTimeout(timeout)

@@ -22,7 +22,7 @@ import { useLocalTaskStore } from '@/features/local-tasks'
 import { llm } from './llm'
 import { ASSISTANT_NAME } from './config'
 import { buildDashboardContext } from './dashboard-context'
-import { classifyError, markUnreachable, onRecover } from './connectivity'
+import { classifyError, clearConnectivityIssue, markUnreachable, onRecover } from './connectivity'
 
 /** localStorage 键：持久化的晨报状态 */
 const BRIEFING_KEY = 'hao123-morning-briefing'
@@ -118,6 +118,9 @@ async function generate(force = false): Promise<void> {
 
   generating.value = true
   error.value = null
+  const generationLocationSignature = currentLocationSignature()
+  const generationDataSignature = currentDataSignature()
+  let generated = false
   try {
     const context = await buildDashboardContext({ force })
     const raw = await llm.complete({
@@ -134,24 +137,25 @@ async function generate(force = false): Promise<void> {
       content,
       date: todayStr(),
       generatedAt: Date.now(),
-      locationSignature: currentLocationSignature(),
-      dataSignature: currentDataSignature(),
+      locationSignature: generationLocationSignature,
+      dataSignature: generationDataSignature,
     }
+    generated = true
   } catch (e) {
     // 网络类错误归连通性层（让首页/状态栏统一降级）；非网络错误保留给组件 error 态
     const reason = classifyError(e)
     if (reason) {
       markUnreachable(reason)
-      error.value = null
+      error.value = (e as Error)?.message || '简报生成失败'
     } else {
+      clearConnectivityIssue()
       error.value = (e as Error)?.message || '简报生成失败'
     }
   } finally {
     generating.value = false
-    // 兜底：generate 期间若有数据变更被 generating guard 跳过，完成时签名已不一致 → 再触发一次。
-    // 不会无限循环：generate 里先置 generating=true，本次 finally 跑完后才会进入下一次 async 流程；
-    // 下一次正常写 briefing 后签名匹配，stale 变 false，不再触发。
-    if (!force && stale.value) void generate(false)
+    // 兜底：只有本次成功写入简报后，才检查生成期间是否有数据变化需要再跑一次。
+    // 如果 LLM 请求失败，缓存仍然 stale，此处不能自触发，否则会无限重试并让 UI 一直停在 loading。
+    if (generated && !force && stale.value) void generate(false)
   }
 }
 

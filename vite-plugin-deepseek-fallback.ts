@@ -66,6 +66,41 @@ function truncateBody(body: string): string {
   return [...trimmed].slice(0, ERROR_BODY_MAX_CHARS).join('') + '…'
 }
 
+function isZhipuQuotaError(status: number, body: string): boolean {
+  return status === 429 && (
+    /"code"\s*:\s*"1113"/.test(body)
+    || /余额不足或无可用资源包/.test(body)
+  )
+}
+
+function isZhipuBaseUrl(baseUrl: string): boolean {
+  return /^https:\/\/(open\.bigmodel\.cn|api\.z\.ai)\//i.test(baseUrl)
+}
+
+function isZhipuCodingBaseUrl(baseUrl: string): boolean {
+  return /\/api\/coding\/paas\/v\d+$/i.test(baseUrl)
+}
+
+function zhipuQuotaHint(baseUrl: string, status: number, body: string): string {
+  const normalized = baseUrl.replace(/\/+$/, '')
+  if (!isZhipuBaseUrl(normalized) || !isZhipuQuotaError(status, body)) return ''
+
+  if (!isZhipuCodingBaseUrl(normalized)) {
+    return [
+      '提示：当前智谱 Base URL 是普通 API 入口，不会使用 GLM Coding Plan 套餐额度。',
+      '如果你买的是 Coding Plan，请改用 https://api.z.ai/api/coding/paas/v4',
+      '或 https://open.bigmodel.cn/api/coding/paas/v4，并使用 Coding Plan 对应的 API Key。',
+      '若仍失败，请把“对话参数”的单次输出上限先降到 8192 左右再试。',
+    ].join('')
+  }
+
+  return [
+    '提示：当前已是智谱 Coding 入口，请检查 API Key 是否来自 Coding Plan、',
+    '5 小时/周额度是否已用尽，以及当前工具是否在 Coding Plan 支持范围内。',
+    '若只是普通对话，也可以先降低“对话参数”的单次输出上限。',
+  ].join('')
+}
+
 /** 判断 baseURL 是否以 OpenAI 风格的版本段 `/v{N}` 结尾（`/v1`、`.../paas/v4`）。 */
 function endsWithVersionSegment(url: string): boolean {
   const last = url.split('/').pop() ?? ''
@@ -215,12 +250,13 @@ export function deepseekFallbackPlugin(): Plugin {
 
           if (!upstreamRes.ok) {
             const errBody = await upstreamRes.text().catch(() => '')
+            const hint = zhipuQuotaHint(auth.baseUrl, upstreamRes.status, errBody)
             res.statusCode = upstreamRes.status
             res.setHeader('Content-Type', 'application/json; charset=utf-8')
             res.end(JSON.stringify({
               error: upstreamRes.status === 401 || upstreamRes.status === 403
                 ? 'API Key 无效或已过期，请在模型配置面板中更新 Key'
-                : `上游返回 ${upstreamRes.status}：${errBody.slice(0, 200)}`,
+                : `上游返回 ${upstreamRes.status}：${errBody.slice(0, 200)}${hint ? `。${hint}` : ''}`,
             }))
             return
           }

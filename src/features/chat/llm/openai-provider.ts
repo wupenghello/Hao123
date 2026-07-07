@@ -99,14 +99,25 @@ const RETRY_DELAYS = [1000, 2000, 4000]
 /** 可重试的 HTTP 状态码 */
 const RETRYABLE = new Set([429, 500, 502, 503, 504])
 
+function isQuotaOrPermissionBody(body: string): boolean {
+  return /余额不足|无可用资源包|insufficient|quota|billing|资源包|套餐额度|"code"\s*:\s*"1113"/i.test(body)
+}
+
+function shouldRetryHttp(status: number, body: string): boolean {
+  if (status === 429) {
+    return !isQuotaOrPermissionBody(body)
+  }
+  return RETRYABLE.has(status)
+}
+
 /**
  * 判断一个错误是否「可重试」。
  * - 主动中止：绝不重试，直接抛。
  * - 网络/连接级错误（fetch 抛出的 TypeError：Failed to fetch / NetworkError 等）：重试——
  *   这正是瞬态错误最该被重试兜住的场景。
- * - HTTP 状态码错误：仅 RETRYABLE 集合内的才重试。
+ * - HTTP 状态码错误：仅 RETRYABLE 集合内的才重试；429 中的余额/资源包/配额错误不重试。
  */
-function shouldRetry(e: unknown, status: number | undefined): boolean {
+function shouldRetry(e: unknown, status: number | undefined, body = ''): boolean {
   if ((e as Error)?.name === 'AbortError') return false
   if (status == null) {
     // fetch 本身抛错（没有 Response）——典型的网络瞬态错误，重试
@@ -114,7 +125,7 @@ function shouldRetry(e: unknown, status: number | undefined): boolean {
     if (/Failed to fetch|NetworkError|fetch failed|ECONNRESET|ETIMEDOUT|ERR_NETWORK/i.test(msg)) return true
     return false
   }
-  return RETRYABLE.has(status)
+  return shouldRetryHttp(status, body)
 }
 
 /**
@@ -130,25 +141,27 @@ async function fetchWithRetry(
 ): Promise<Response> {
   let lastErr: unknown
   let lastStatus: number | undefined
+  let lastBody = ''
   for (let attempt = 0; ; attempt++) {
     let res: Response | undefined
     try {
       res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal })
       if (res.ok) return res
       lastStatus = res.status
+      lastBody = await res.text().catch(() => '')
       lastErr = new Error(`${res.status}`)
     } catch (e) {
       lastErr = e
       lastStatus = undefined // fetch 抛错时没有 Response
+      lastBody = ''
     }
     // 决定是否重试：基于「本次抛错」而非上一次残留的 lastStatus，避免用过期状态误判
-    const canRetry = attempt < RETRY_DELAYS.length && shouldRetry(lastErr, lastStatus)
+    const canRetry = attempt < RETRY_DELAYS.length && shouldRetry(lastErr, lastStatus, lastBody)
     if (!canRetry) {
       // 主动中止：原样抛出原始错误，保留 .name === 'AbortError'，供上层识别后静默处理
       if ((lastErr as Error)?.name === 'AbortError') throw lastErr
       if (lastStatus != null) {
-        const text = await (res?.text().catch(() => '') ?? Promise.resolve(''))
-        throw new Error(`${provider} 请求失败（${lastStatus}）${text ? '：' + text.slice(0, 200) : ''}`)
+        throw new Error(`${provider} 请求失败（${lastStatus}）${lastBody ? '：' + lastBody.slice(0, 500) : ''}`)
       }
       // fetch 本身抛错：透传原始错误信息（如 'Failed to fetch'），便于上层诊断
       const msg = (lastErr as Error)?.message || '网络请求失败'

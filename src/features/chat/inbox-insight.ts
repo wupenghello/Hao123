@@ -18,7 +18,7 @@
 import { ref, computed, watch } from 'vue'
 import { useStorage } from '@/composables/useStorage'
 import { llm } from './llm'
-import { classifyError, markUnreachable, onRecover } from './connectivity'
+import { classifyError, clearConnectivityIssue, markUnreachable, onRecover } from './connectivity'
 import { useInboxInsights } from '@/features/insights'
 import type { Insight } from '@/features/insights'
 
@@ -89,6 +89,7 @@ async function generate(insights: Insight[]): Promise<void> {
     // 失败仍静默——组件侧回退检测模板，不抛错、不留错态干扰首页
     const reason = classifyError(e)
     if (reason) markUnreachable(reason)
+    else clearConnectivityIssue()
   } finally {
     generating.value = false
   }

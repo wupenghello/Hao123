@@ -20,7 +20,7 @@ import { ref, computed, type ComputedRef } from 'vue'
 import { ASSISTANT_NAME } from './config'
 import { llm } from './llm'
 import { buildDashboardContext } from './dashboard-context'
-import { classifyError, markUnreachable, onRecover } from './connectivity'
+import { classifyError, clearConnectivityIssue, markUnreachable, onRecover } from './connectivity'
 
 export interface Suggestion {
   icon: 'weather' | 'task' | 'bug' | 'local'
@@ -102,7 +102,7 @@ async function generate() {
     const raw = await llm.complete({
       messages: [sys, user],
       temperature: 0.7,
-      responseFormat: { type: 'json_object' },
+      maxTokens: 320,
     })
     const parsed = parseSuggestions(raw)
     if (parsed) {
@@ -116,6 +116,7 @@ async function generate() {
     // 网络类错误同时归连通性层，让命令面板空态能提示「快捷问题为默认推荐（AI 未连接）」
     const reason = classifyError(e)
     if (reason) markUnreachable(reason)
+    else clearConnectivityIssue()
   } finally {
     generating = false
   }
