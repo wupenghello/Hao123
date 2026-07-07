@@ -110,6 +110,24 @@ function appendUiBlocks(message: ChatMessage, blocks: ChatUiBlock[]): void {
   message.ui = [...(message.ui ?? []), ...blocks]
 }
 
+function isIrrelevantKbMetaLine(line: string): boolean {
+  const normalized = line
+    .trim()
+    .replace(/^[>\s\-*+•·\d.、，,：:（(【[]+/, '')
+    .replace(/[。！？!?）)】\]\s]+$/, '')
+
+  if (!/(知识库|RAG|rag|候选证据|检索结果)/i.test(normalized)) return false
+  if (!/(无关|不相关|没有关系|关联不大|置信不足|低置信)/.test(normalized)) return false
+  return /(忽略|已忽略|不引用|不使用|无需引用|不必引用|不展示|不显示)/.test(normalized)
+}
+
+function stripIrrelevantKbMeta(text: string): string {
+  if (!text || !/(知识库|RAG|rag|候选证据|检索结果)/i.test(text)) return text
+  const lines = text.split(/\r?\n/)
+  const kept = lines.filter((line) => !isIrrelevantKbMetaLine(line))
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
 interface KbVisionHit {
   doc?: string
   docTitle?: string
@@ -276,7 +294,7 @@ async function ambientKbContextFromUser(text: string, signal: AbortSignal): Prom
     role: 'user',
     content: [
       '（系统自动补充的 RAG 候选证据）',
-      '下面是用用户原话进行知识库检索后得到的高置信候选。请只在它们确实相关时使用；如果使用，请标明来源。若它们与用户问题无关，可以忽略。',
+      '下面是用用户原话进行知识库检索后得到的高置信候选。请只在它们确实相关时使用；如果使用，请标明来源。若它们与用户问题无关，请静默忽略，不要在最终回答里提到“知识库内容无关”或“已忽略知识库”。',
       ...sources,
       imageContext ? imageContext.content : '',
     ].filter(Boolean).join('\n'),
@@ -547,7 +565,7 @@ function buildStaticSystemPrompt(): string {
   ]
   if (kbEnabled) {
     lines.push(
-      '- 涉及项目内部信息或个人知识库事实时，优先基于 kb.search 或系统自动补充的 RAG 候选证据回答，绝不凭记忆编造；回答中尽量标明来源文档/章节。若检索证据低置信或为空，要如实说明知识库未覆盖。若知识库命中图片且系统随后补充了图片上下文，你可以直接看图回答，不要再要求用户手动上传同一张图。',
+      '- 涉及项目内部信息或个人知识库事实时，优先基于 kb.search 或系统自动补充的 RAG 候选证据回答，绝不凭记忆编造；回答中尽量标明来源文档/章节。若用户明确要求查知识库但检索证据低置信或为空，要如实说明知识库未覆盖；若只是系统自动补充的候选与问题无关，请静默忽略，不要在最终回答里特意说明“知识库内容无关/已忽略”。若知识库命中图片且系统随后补充了图片上下文，你可以直接看图回答，不要再要求用户手动上传同一张图。',
     )
   }
   lines.push(
@@ -572,7 +590,7 @@ function buildStaticSystemPrompt(): string {
     lines.push(
       '',
       '# 知识库调用时机',
-      '判断原则：当问题的答案更可能存在于用户自己的资料、团队内部文档、历史记录、文件内容或知识库图片中，而不是通用世界知识或其它实时工具时，优先查知识库或使用系统自动补充的 RAG 候选证据。若候选证据与问题相关，就基于证据回答并标明来源；若不相关或置信不足，就忽略它，不要强行引用。',
+      '判断原则：当问题的答案更可能存在于用户自己的资料、团队内部文档、历史记录、文件内容或知识库图片中，而不是通用世界知识或其它实时工具时，优先查知识库或使用系统自动补充的 RAG 候选证据。若候选证据与问题相关，就基于证据回答并标明来源；若不相关或置信不足，就静默忽略它，不要强行引用，也不要把“知识库无关/已忽略”写进最终回答。只有用户明确要求查知识库或问知识库覆盖情况时，才说明未覆盖或低置信。',
       '组合场景：Bug/任务定位、发布部署、环境配置、文件内容解释、个人笔记事实等问题，经常需要把禅道/Git/图片理解与知识库证据合并判断。',
     )
   }
@@ -668,7 +686,12 @@ function buildApiMessages(history: ChatMessage[]): ChatMessage[] {
 function loadHistory(): ChatMessage[] {
   try {
     const raw = localStorage.getItem('hao123-chat-history')
-    return raw ? (JSON.parse(raw) as ChatMessage[]) : []
+    const history = raw ? (JSON.parse(raw) as ChatMessage[]) : []
+    return history.map((m) =>
+      m.role === 'assistant' && m.content
+        ? { ...m, content: stripIrrelevantKbMeta(m.content) }
+        : m,
+    )
   } catch {
     console.warn('[chat] 历史记录解析失败，已重置')
     return []
@@ -868,6 +891,7 @@ export const useChatStore = defineStore('chat', () => {
           onText: (delta) => {
             if (signal.aborted) return
             assistant.content += delta
+            assistant.content = stripIrrelevantKbMeta(assistant.content)
           },
         })
         if (signal.aborted) return
