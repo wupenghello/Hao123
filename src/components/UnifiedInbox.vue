@@ -1740,7 +1740,8 @@ onUnmounted(() => {
   grid-template-columns: 54px minmax(0, 1fr) minmax(112px, auto);
   align-items: stretch;
   gap: 13px;
-  min-height: 96px;
+  height: 96px;
+  max-height: 96px;
   margin-bottom: 10px;
   padding: 13px 14px 13px 16px;
   overflow: hidden;
@@ -1877,7 +1878,7 @@ onUnmounted(() => {
   display: grid;
   min-width: 0;
   align-content: center;
-  gap: 8px;
+  gap: 7px;
 }
 .zt-card-top,
 .zt-card-meta,
@@ -1890,6 +1891,9 @@ onUnmounted(() => {
 }
 .zt-card-title-row {
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .zt-card-source,
 .zt-card-pressure,
@@ -1937,7 +1941,16 @@ onUnmounted(() => {
 .zt-group-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 999px; background: var(--thread); box-shadow: 0 0 8px var(--thread); }
 .zt-group-label { overflow: hidden; color: rgba(255,255,255,0.82); font-size: 11.5px; font-weight: 830; text-overflow: ellipsis; white-space: nowrap; }
 .zt-group-count { flex-shrink: 0; padding: 0 7px; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.52); font-size: 11px; font-weight: 780; }
-.zt-thread-mark { width: 2px; align-self: stretch; flex-shrink: 0; margin: 3px 0; border-radius: 2px; background: var(--thread); opacity: 0.62; }
+.zt-thread-mark {
+  position: absolute;
+  inset: 14px auto 14px 16px;
+  z-index: 1;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--thread);
+  opacity: 0.62;
+  pointer-events: none;
+}
 .zt-kind,
 .zt-badge {
   flex-shrink: 0;
@@ -1994,9 +2007,23 @@ onUnmounted(() => {
 .zt-check:hover,
 .zt-check:focus-visible { color: #5eead4; border-color: rgba(45,212,191,0.28); background: rgba(45,212,191,0.12); outline: 0; }
 .zt-check:disabled { cursor: default; }
-.zt-title { line-height: 1.3; font-weight: 720; }
+.zt-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+  font-weight: 720;
+}
 .zt-title:hover { color: #fff; }
-.zt-note { margin-top: 3px; color: rgba(255,255,255,0.42); font-size: 11.5px; }
+.zt-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+  color: rgba(255,255,255,0.42);
+  font-size: 11.5px;
+}
 .zt-act {
   display: flex;
   width: 25px;

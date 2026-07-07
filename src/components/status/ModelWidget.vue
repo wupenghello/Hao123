@@ -19,7 +19,7 @@ import {
   setActiveModel,
 } from '@/features/model-config'
 import { useConnectivity } from '@/features/chat/connectivity'
-import ModelConfigModal from './ModelConfigModal.vue'
+import { openModelConfigModal } from '@/features/chat/model-modal-bridge'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconCheck from '~icons/mdi/check'
 import IconChevronDown from '~icons/mdi/chevron-down'
@@ -28,7 +28,6 @@ import IconAlert from '~icons/mdi/alert-circle-outline'
 
 const { status: connectivityStatus, message: connectivityMsg } = useConnectivity()
 
-const configOpen = ref(false)
 const switchedKey = ref('')
 const switchNotice = ref('')
 let switchTimer: number | null = null
@@ -96,7 +95,7 @@ function switchModel(entry: FlatModelEntry) {
 }
 
 function openConfig() {
-  configOpen.value = true
+  openModelConfigModal()
 }
 
 onUnmounted(() => {
@@ -188,7 +187,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <ModelConfigModal v-model:open="configOpen" />
   </div>
 </template>
 

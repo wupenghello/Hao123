@@ -259,6 +259,13 @@ const relTime = computed(() => {
 
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
       <div v-if="html" class="mb-body" v-html="html" />
+
+      <!-- LLM 未配置：引导去模型设置开启「今日简报」 -->
+      <div v-if="!chat.configured && !generating && !error && !briefing" class="mb-unconfigured">
+        <IconAlert class="w-4 h-4 shrink-0" />
+        <span class="flex-1 min-w-0 truncate">配置大模型后即可为你生成「今日简报」</span>
+        <button class="mb-config" title="打开模型设置" @click="chat.openModelConfig()">去配置 →</button>
+      </div>
     </section>
   </Transition>
 </template>
@@ -582,6 +589,32 @@ const relTime = computed(() => {
 .mb-error {
   color: rgba(252,165,165,0.85);
   font-size: 12.5px;
+}
+.mb-unconfigured {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  color: rgba(255,255,255,0.55);
+  font-size: 12.5px;
+}
+.mb-unconfigured svg { color: color-mix(in srgb, var(--mb-tone) 70%, white); }
+.mb-config {
+  height: 25px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--mb-tone) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mb-tone) 10%, rgba(255,255,255,0.04));
+  color: rgba(224,231,255,0.9);
+  font-size: 11.5px;
+  font-weight: 800;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mb-config:hover {
+  border-color: color-mix(in srgb, var(--mb-tone) 44%, transparent);
+  background: color-mix(in srgb, var(--mb-tone) 18%, rgba(255,255,255,0.06));
+  color: #fff;
 }
 .mb-error.is-connectivity { color: rgba(254,240,138,0.88); }
 .mb-error.is-connectivity svg { color: rgba(252,211,77,0.9); }

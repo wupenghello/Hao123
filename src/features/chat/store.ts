@@ -28,6 +28,7 @@ import { REACH_REPORT_GUIDE, reachEnabled } from '@/features/reach'
 import { ASSISTANT_NAME } from './config'
 import { getChatSettings } from './settings'
 import { llm } from './llm'
+import { openModelConfigModal } from './model-modal-bridge'
 import { callTool, toolLabel, toolDetail, openAiTools, kbEnabled } from './tools'
 import { classifyError, clearConnectivityIssue, markSuccess, markUnreachable, probe as probeConnectivity, onRecover, useConnectivity } from './connectivity'
 import {
@@ -754,6 +755,11 @@ export const useChatStore = defineStore('chat', () => {
     unread.value = false
   }
 
+  /** 唤起模型设置弹窗（供首页晨报卡「去配置」入口使用） */
+  function openModelConfig() {
+    openModelConfigModal()
+  }
+
   /** 关闭面板（Esc / 遮罩 / 关闭按钮）；不打断进行中的生成 */
   function close() {
     open.value = false
@@ -1322,6 +1328,7 @@ export const useChatStore = defineStore('chat', () => {
     toggle,
     show,
     close,
+    openModelConfig,
     clear,
     stop,
     send,

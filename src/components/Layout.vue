@@ -4,6 +4,7 @@ import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import ClaudeButton from '@/components/status/ClaudeButton.vue'
+import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
 import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
@@ -46,6 +47,8 @@ onUnmounted(() => stopStorageHealthMonitor())
 
     <!-- 全局命令面板（Spotlight 式，Teleport 到 body，Alt+K 召唤） -->
     <ChatCommandPalette />
+
+    <ModelConfigHost />
   </div>
 </template>
 
