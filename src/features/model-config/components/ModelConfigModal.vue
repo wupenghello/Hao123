@@ -10,10 +10,7 @@
  */
 import { toRef } from 'vue'
 import {
-  maskApiKey,
   providerHealthLabel,
-  formatLastTest,
-  formatLastModelSync,
   useModelConfigModal,
 } from '@/features/model-config'
 import IconAlert from '~icons/mdi/alert-circle-outline'
@@ -113,39 +110,60 @@ const {
             </header>
 
             <div class="mm-body">
+              <!-- ====== 左侧 rail：选商入口 + 已保存线路 ====== -->
               <aside class="mm-rail">
-                <div class="mm-rail-title">
-                  <span>已保存线路</span>
-                  <button type="button" class="mm-mini-btn" @click="createCustomProvider">
-                    <IconPlus class="w-3 h-3" />
-                    自定义
-                  </button>
-                </div>
-
-                <div v-if="providers.length" class="mm-provider-list">
-                  <div
-                    v-for="provider in providers"
-                    :key="provider.id"
-                    class="mm-provider-card"
-                    :class="{ 'is-active': provider.id === selectedProvider?.id }"
-                  >
-                    <button type="button" class="mm-provider-select" @click="selectProvider(provider.id)">
-                      <span class="mm-provider-led" :class="{ 'is-ok': provider.apiKey && provider.lastTestOk !== false, 'is-bad': provider.lastTestOk === false }" />
-                      <span class="min-w-0 flex-1 text-left">
-                        <span class="mm-provider-name">{{ provider.name }}</span>
-                        <span class="mm-provider-meta">{{ providerHealthLabel(provider) }} · {{ provider.models.filter((model) => model.available).length }}/{{ provider.models.length }} 可用</span>
-                      </span>
-                      <IconStar v-if="provider.id === activeProvider?.id" class="w-3 h-3 text-[var(--mm-tone)]" />
+                <div class="mm-rail-section">
+                  <div class="mm-rail-title">
+                    <span>Provider 预设</span>
+                    <button type="button" class="mm-mini-btn" @click="createCustomProvider">
+                      <IconPlus class="w-3 h-3" />
+                      自定义
                     </button>
-                    <button type="button" class="mm-provider-delete" title="删除线路" @click="deleteProvider(provider)">
-                      <IconDelete class="w-3.5 h-3.5" />
+                  </div>
+                  <!-- 选商第 1 步：8 个 Provider 紧凑横排，始终可见 -->
+                  <div class="mm-preset-strip">
+                    <button
+                      v-for="preset in sortedPresets"
+                      :key="preset.id"
+                      type="button"
+                      class="mm-preset-chip"
+                      :style="{ '--preset-tone': preset.accent }"
+                      @click="createFromPreset(preset)"
+                    >
+                      <span class="mm-preset-orb" aria-hidden="true" />
+                      <span class="mm-preset-name">{{ preset.name }}</span>
                     </button>
                   </div>
                 </div>
 
-                <div v-else class="mm-empty-route">
-                  <IconRobot class="w-7 h-7" />
-                  <span>还没有线路。先从右侧挑一个 Provider。</span>
+                <div class="mm-rail-section">
+                  <div class="mm-rail-title">
+                    <span>已保存线路</span>
+                  </div>
+                  <div v-if="providers.length" class="mm-provider-list">
+                    <div
+                      v-for="provider in providers"
+                      :key="provider.id"
+                      class="mm-provider-card"
+                      :class="{ 'is-active': provider.id === selectedProvider?.id }"
+                    >
+                      <button type="button" class="mm-provider-select" @click="selectProvider(provider.id)">
+                        <span class="mm-provider-led" :class="{ 'is-ok': provider.apiKey && provider.lastTestOk !== false, 'is-bad': provider.lastTestOk === false }" />
+                        <span class="min-w-0 flex-1 text-left">
+                          <span class="mm-provider-name">{{ provider.name }}</span>
+                          <span class="mm-provider-meta">{{ providerHealthLabel(provider) }} · {{ provider.models.filter((m) => m.available).length }}/{{ provider.models.length }} 可用</span>
+                        </span>
+                        <IconStar v-if="provider.id === activeProvider?.id" class="w-3 h-3 text-[var(--mm-tone)]" />
+                      </button>
+                      <button type="button" class="mm-provider-delete" title="删除线路" @click="deleteProvider(provider)">
+                        <IconDelete class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else class="mm-empty-route">
+                    <IconRobot class="w-7 h-7" />
+                    <span>还没有线路，先从上方选一个 Provider 开始。</span>
+                  </div>
                 </div>
 
                 <div class="mm-rail-tools">
@@ -173,170 +191,120 @@ const {
                 </div>
               </aside>
 
+              <!-- ====== 右侧 main：单页向导流 + 底部固定操作栏 ====== -->
               <main class="mm-main">
-                <section class="mm-health-panel" :class="`is-${readiness.level}`">
-                  <div class="mm-health-score">
-                    <strong>{{ readiness.score }}</strong>
-                    <span>ready</span>
-                  </div>
-                  <div class="mm-health-copy">
-                    <p class="mm-section-label">线路健康</p>
-                    <h3>{{ readiness.title }}</h3>
-                    <p>{{ readiness.detail }}</p>
-                  </div>
-                </section>
-
-                <section class="mm-preset-panel" aria-label="Provider 预设">
-                  <div class="mm-preset-intro">
-                    <span class="mm-preset-kicker">Provider presets</span>
-                    <strong>从常用线路开始</strong>
-                    <small>选择后会自动填入 Base URL 和推荐模型。</small>
-                  </div>
-                  <div class="mm-preset-strip">
-                    <button
-                      v-for="preset in sortedPresets"
-                      :key="preset.id"
-                      type="button"
-                      class="mm-preset-card"
-                      :style="{ '--preset-tone': preset.accent }"
-                      @click="createFromPreset(preset)"
-                    >
-                      <span class="mm-preset-orb" aria-hidden="true"></span>
-                      <span class="mm-preset-topline">
-                        <span class="mm-preset-name">{{ preset.name }}</span>
-                        <span class="mm-preset-action">启用</span>
-                      </span>
-                      <span class="mm-preset-summary">{{ preset.summary }}</span>
-                    </button>
-                  </div>
-                </section>
-
-                <section v-if="editableProvider" class="mm-panel mm-route-panel">
-                  <div class="mm-panel-head">
-                    <div>
-                      <p class="mm-section-label">{{ isCreating ? '未保存线路' : '当前线路' }}</p>
-                      <h3>{{ editableProvider.name }}</h3>
-                      <p class="mm-route-meta">
-                        {{ editableProvider.baseUrl || '等待填写 Base URL' }} ·
-                        {{ isCreating ? '尚未保存' : formatLastTest(editableProvider) }} ·
-                        {{ isCreating ? '模型未同步' : formatLastModelSync(editableProvider) }}
-                      </p>
+                <div class="mm-scroll">
+                  <section v-if="editableProvider" class="mm-panel">
+                    <div class="mm-form-grid">
+                      <label class="mm-field">
+                        <span>Provider 名称</span>
+                        <input v-model="draft.name" class="mm-input mm-name-input" type="text" @keydown.enter.prevent="saveDraft" />
+                      </label>
+                      <label class="mm-field">
+                        <span>Base URL</span>
+                        <input v-model="draft.baseUrl" class="mm-input" type="text" @keydown.enter.prevent="saveDraft" />
+                      </label>
+                      <label class="mm-field mm-field-wide">
+                        <span>API Key</span>
+                        <div class="mm-secret-input">
+                          <input v-model="draft.apiKey" :type="showKey ? 'text' : 'password'" class="mm-input mm-key-input" placeholder="sk-..." @keydown.enter.prevent="saveDraft" />
+                          <button type="button" :title="showKey ? '隐藏 Key' : '显示 Key'" @click="showKey = !showKey">
+                            <IconEyeOff v-if="showKey" class="w-4 h-4" />
+                            <IconEye v-else class="w-4 h-4" />
+                          </button>
+                        </div>
+                        <small>本地工作台会把 Key 存在 localStorage，并只经 dev 代理发送给模型服务。</small>
+                      </label>
                     </div>
-                    <div class="mm-head-actions">
-                      <button type="button" class="mm-primary small" :disabled="!canSaveDraft || (!isCreating && !draftDirty)" @click="saveDraft">
-                        <IconCheck class="w-3.5 h-3.5" />
-                        {{ isCreating ? '保存线路' : '保存修改' }}
-                      </button>
-                      <button type="button" class="mm-ghost-btn" :disabled="testing" @click="testSelectedProvider">
-                        <IconLoading v-if="testing" class="w-3.5 h-3.5 mm-spin" />
-                        <IconTestTube v-else class="w-3.5 h-3.5" />
-                        {{ testing ? '测试中' : '测试连接' }}
-                      </button>
-                      <button v-if="selectedProvider && !isCreating" type="button" class="mm-danger-btn" @click="deleteProvider(selectedProvider)">
-                        <IconDelete class="w-3.5 h-3.5" />
-                        删除
-                      </button>
-                    </div>
-                  </div>
 
-                  <div v-if="testResult" class="mm-test-result" :class="{ 'is-ok': testResult.ok }">
-                    <IconCheck v-if="testResult.ok" class="w-4 h-4" />
-                    <IconAlert v-else class="w-4 h-4" />
-                    <span>{{ testResult.message }}</span>
-                  </div>
-
-                  <div v-if="discoveryResult" class="mm-test-result" :class="{ 'is-ok': discoveryResult.ok }">
-                    <IconCheck v-if="discoveryResult.ok" class="w-4 h-4" />
-                    <IconAlert v-else class="w-4 h-4" />
-                    <span>{{ discoveryResult.message }}</span>
-                  </div>
-
-                  <div class="mm-form-grid">
-                    <label class="mm-field">
-                      <span>Provider 名称</span>
-                      <input v-model="draft.name" class="mm-input mm-name-input" type="text" @keydown.enter.prevent="saveDraft" />
-                    </label>
-                    <label class="mm-field">
-                      <span>Base URL</span>
-                      <input v-model="draft.baseUrl" class="mm-input" type="text" @keydown.enter.prevent="saveDraft" />
-                    </label>
-                    <label class="mm-field mm-field-wide">
-                      <span>API Key</span>
-                      <div class="mm-secret-input">
-                        <input v-model="draft.apiKey" :type="showKey ? 'text' : 'password'" class="mm-input mm-key-input" placeholder="sk-..." @keydown.enter.prevent="saveDraft" />
-                        <button type="button" :title="showKey ? '隐藏 Key' : '显示 Key'" @click="showKey = !showKey">
-                          <IconEyeOff v-if="showKey" class="w-4 h-4" />
-                          <IconEye v-else class="w-4 h-4" />
-                        </button>
-                      </div>
-                      <small>本地工作台会把 Key 存在 localStorage，并只经 dev 代理发送给模型服务。</small>
-                    </label>
-                  </div>
-
-                  <div class="mm-model-section">
-                    <div class="mm-model-head">
-                      <div>
-                        <p class="mm-section-label">模型编排</p>
-                        <p class="mm-muted">{{ modelSyncCopy }}</p>
-                      </div>
-                      <div class="mm-model-actions">
-                        <code>{{ maskApiKey(draft.apiKey) }}</code>
+                    <div class="mm-model-section">
+                      <div class="mm-model-head">
+                        <h4 class="mm-section-title">模型编排</h4>
                         <button type="button" class="mm-ghost-btn" :disabled="discovering" :title="discovering ? '' : modelSyncCopy" @click="discoverSelectedModels">
                           <IconLoading v-if="discovering" class="w-3.5 h-3.5 mm-spin" />
                           <IconRefresh v-else class="w-3.5 h-3.5" />
                           {{ discovering ? '获取中' : '获取可用模型' }}
                         </button>
                       </div>
-                    </div>
 
-                    <div v-if="editableProvider.models.length" class="mm-model-list">
-                      <div v-for="model in editableProvider.models" :key="model.id" class="mm-model-row" :class="{ 'is-active': model.id === editableProvider.activeModelId }">
-                        <button v-if="editingModelId !== model.id" type="button" class="mm-model-pick" @click="selectModel(model.id)">
-                          <span class="mm-model-radio">
-                            <span class="mm-model-dot" />
-                          </span>
-                          <span class="mm-model-text">
-                            <strong>{{ model.name }}</strong>
-                            <em v-if="model.role || model.description">{{ model.role || '模型' }} · {{ model.description || '手动添加的模型' }}</em>
-                          </span>
-                        </button>
-                        <input
-                          v-else
-                          v-model="editingModelName"
-                          class="mm-input mm-model-rename"
-                          @keydown.enter="confirmRenameModel"
-                          @keydown.escape="editingModelId = null"
-                          @blur="confirmRenameModel"
-                        />
-                        <div class="mm-model-row-actions">
-                          <span class="mm-model-state" :class="{ 'is-available': model.available }">
-                            {{ model.available ? '已确认' : '未验证' }}
-                          </span>
-                          <button v-if="editingModelId !== model.id" type="button" class="mm-row-link" @click="startRenameModel(model.id, model.name)">重命名</button>
-                          <button v-if="editableProvider.models.length > 1" type="button" class="mm-row-link danger" @click="removeModelFromSelected(model.id)">移除</button>
+                      <div v-if="editableProvider.models.length" class="mm-model-list">
+                        <div v-for="model in editableProvider.models" :key="model.id" class="mm-model-row" :class="{ 'is-active': model.id === editableProvider.activeModelId }">
+                          <button v-if="editingModelId !== model.id" type="button" class="mm-model-pick" @click="selectModel(model.id)">
+                            <span class="mm-model-radio">
+                              <span class="mm-model-dot" />
+                            </span>
+                            <span class="mm-model-text">
+                              <strong>{{ model.name }}</strong>
+                              <em v-if="model.role || model.description">{{ model.role || '模型' }} · {{ model.description || '手动添加的模型' }}</em>
+                            </span>
+                          </button>
+                          <input
+                            v-else
+                            v-model="editingModelName"
+                            class="mm-input mm-model-rename"
+                            @keydown.enter="confirmRenameModel"
+                            @keydown.escape="editingModelId = null"
+                            @blur="confirmRenameModel"
+                          />
+                          <div class="mm-model-row-actions">
+                            <span class="mm-model-state" :class="{ 'is-available': model.available }">
+                              {{ model.available ? '已确认' : '未验证' }}
+                            </span>
+                            <button v-if="editingModelId !== model.id" type="button" class="mm-row-link" @click="startRenameModel(model.id, model.name)">重命名</button>
+                            <button v-if="editableProvider.models.length > 1" type="button" class="mm-row-link danger" @click="removeModelFromSelected(model.id)">移除</button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div v-else class="mm-model-empty">
-                      <IconRefresh class="w-5 h-5" />
-                      <div>
-                        <strong>还没有可用模型</strong>
-                        <p>保存线路并填写 API Key 后，点击“获取可用模型”；也可以手动添加模型，手动项会一直保留直到你主动移除。</p>
+                      <div v-else class="mm-model-empty">
+                        <IconRefresh class="w-5 h-5" />
+                        <div>
+                          <strong>还没有可用模型</strong>
+                          <p>填写 API Key 后点击"获取可用模型"；也可以手动添加模型，手动项会一直保留直到你主动移除。</p>
+                        </div>
+                      </div>
+
+                      <div class="mm-add-model">
+                        <input v-model="newModelName" class="mm-input" placeholder="添加自定义模型名，例如 qwen-vl-max" @keydown.enter="addModelToSelected" />
+                        <button type="button" class="mm-primary small" @click="addModelToSelected">添加模型</button>
                       </div>
                     </div>
+                  </section>
 
-                    <div class="mm-add-model">
-                      <input v-model="newModelName" class="mm-input" placeholder="添加自定义模型名，例如 qwen-vl-max" @keydown.enter="addModelToSelected" />
-                      <button type="button" class="mm-primary small" @click="addModelToSelected">添加模型</button>
-                    </div>
+                  <section v-else class="mm-panel mm-start-panel">
+                    <IconRoute class="w-10 h-10" />
+                    <h3>先选择一条线路</h3>
+                    <p>从左侧选一个 Provider 预设开始，或在左侧新建一条自定义线路。</p>
+                  </section>
+                </div>
+
+                <!-- 底部固定操作栏：选完模型后，测试 / 保存就在手边，不再滚回头 -->
+                <div v-if="editableProvider" class="mm-actionbar">
+                  <span class="mm-actionbar-status" :class="`is-${readiness.level}`">
+                    <span class="mm-actionbar-led" />
+                    {{ readiness.title }}
+                  </span>
+                  <div class="mm-actionbar-btns">
+                    <span v-if="testResult" class="mm-actionbar-result" :class="{ 'is-ok': testResult.ok }">
+                      <IconCheck v-if="testResult.ok" class="w-3.5 h-3.5" />
+                      <IconAlert v-else class="w-3.5 h-3.5" />
+                      {{ testResult.message }}
+                    </span>
+                    <span v-if="discoveryResult" class="mm-actionbar-result" :class="{ 'is-ok': discoveryResult.ok }">
+                      <IconCheck v-if="discoveryResult.ok" class="w-3.5 h-3.5" />
+                      <IconAlert v-else class="w-3.5 h-3.5" />
+                      {{ discoveryResult.message }}
+                    </span>
+                    <button type="button" class="mm-ghost-btn" :disabled="testing" @click="testSelectedProvider">
+                      <IconLoading v-if="testing" class="w-3.5 h-3.5 mm-spin" />
+                      <IconTestTube v-else class="w-3.5 h-3.5" />
+                      {{ testing ? '测试中' : '测试连接' }}
+                    </button>
+                    <button type="button" class="mm-primary" :disabled="!canSaveDraft || (!isCreating && !draftDirty)" @click="saveDraft">
+                      <IconCheck class="w-3.5 h-3.5" />
+                      {{ isCreating ? '保存线路' : '保存修改' }}
+                    </button>
                   </div>
-                </section>
-
-                <section v-else class="mm-panel mm-start-panel">
-                  <IconRoute class="w-10 h-10" />
-                  <h3>先选择一条线路</h3>
-                  <p>从上方 Provider 预设开始，或在左侧新建一条自定义线路。</p>
-                </section>
+                </div>
               </main>
             </div>
           </section>
@@ -492,7 +460,7 @@ const {
 .mm-row-link,
 .mm-provider-select,
 .mm-provider-delete,
-.mm-preset-card,
+.mm-preset-chip,
 .mm-model-pick,
 .mm-secret-input button {
   appearance: none;
@@ -544,12 +512,20 @@ const {
 }
 .mm-main {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(2, 6, 23, 0.16);
+}
+.mm-scroll {
+  position: relative;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 18px;
-  background: rgba(2, 6, 23, 0.16);
 }
-.mm-main::before {
+.mm-scroll::before {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -559,10 +535,97 @@ const {
   content: '';
   box-shadow: 0 0 26px 18px rgba(2, 6, 23, 0.5);
 }
+/* 底部固定操作栏：测试 / 保存始终在手边 */
+.mm-actionbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  background:
+    radial-gradient(circle at 0% 0, color-mix(in srgb, var(--mm-tone, #38bdf8) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, rgba(8, 17, 36, 0.7), rgba(2, 6, 23, 0.82));
+  backdrop-filter: blur(6px);
+}
+.mm-actionbar::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--mm-tone) 45%, transparent), transparent);
+  opacity: 0.6;
+}
+.mm-actionbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(226, 232, 240, 0.66);
+  font-size: 12px;
+  font-weight: 700;
+}
+.mm-actionbar-led {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #fbbf24;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+}
+.mm-actionbar-status.is-ready .mm-actionbar-led { background: #34d399; box-shadow: 0 0 12px rgba(52, 211, 153, 0.5); }
+.mm-actionbar-status.is-failed .mm-actionbar-led { background: #fb7185; box-shadow: 0 0 12px rgba(251, 113, 133, 0.5); }
+.mm-actionbar-status.is-needs-key .mm-actionbar-led,
+.mm-actionbar-status.is-needs-test .mm-actionbar-led { background: #fbbf24; box-shadow: 0 0 12px rgba(251, 191, 36, 0.5); }
+.mm-actionbar-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  justify-content: flex-end;
+}
+.mm-actionbar-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  min-height: 29px;
+  max-width: 100%;
+  border: 1px solid rgba(244, 63, 94, 0.22);
+  border-radius: 9px;
+  background: rgba(244, 63, 94, 0.1);
+  color: #fda4af;
+  font-size: 11px;
+  font-weight: 700;
+}
+.mm-actionbar-result span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-actionbar-result.is-ok {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+}
+.mm-rail-section {
+  position: relative;
+  display: grid;
+  gap: 10px;
+}
+.mm-rail-section + .mm-rail-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
 .mm-rail-title,
 .mm-model-head,
-.mm-panel-head,
-.mm-head-actions,
 .mm-rail-tools,
 .mm-add-model {
   display: flex;
@@ -570,11 +633,10 @@ const {
   gap: 10px;
 }
 .mm-rail-title,
-.mm-panel-head,
 .mm-model-head { justify-content: space-between; }
 .mm-rail-title {
   position: relative;
-  margin-bottom: 12px;
+  margin-bottom: 2px;
   color: rgba(226, 232, 240, 0.78);
   font-size: 12px;
   font-weight: 800;
@@ -725,6 +787,58 @@ const {
   font-size: 12px;
 }
 .mm-empty-route svg { color: var(--mm-tone); opacity: 0.72; }
+.mm-preset-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.mm-preset-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 5px 7px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--preset-tone) 22%, rgba(148, 163, 184, 0.16));
+  border-radius: 9px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--preset-tone) 8%, rgba(15, 23, 42, 0.5)), rgba(2, 6, 23, 0.34));
+  color: rgba(248, 250, 252, 0.86);
+  font-size: 12px;
+  font-weight: 750;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.mm-preset-chip::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: '';
+  background: linear-gradient(180deg, transparent, var(--preset-tone), transparent);
+  opacity: 0.7;
+}
+.mm-preset-chip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--preset-tone) 46%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--preset-tone) 12%, rgba(15, 23, 42, 0.6)), rgba(2, 6, 23, 0.42));
+}
+.mm-preset-chip:focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--preset-tone) 62%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--preset-tone) 2%, transparent);
+}
+.mm-preset-orb {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--preset-tone) 42%, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--preset-tone) 72%, white 8%), color-mix(in srgb, var(--preset-tone) 18%, rgba(2, 6, 23, 0.72)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--preset-tone) 22%, transparent);
+}
+.mm-preset-name {
+  white-space: nowrap;
+  line-height: 1.2;
+}
 .mm-rail-tools {
   position: relative;
   margin-top: 14px;
@@ -740,73 +854,10 @@ const {
   border-radius: 11px;
   background: rgba(2, 6, 23, 0.28);
 }
-.mm-health-panel {
-  position: relative;
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  margin-bottom: 12px;
-  padding: 14px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--mm-tone) 22%, rgba(148, 163, 184, 0.14));
-  border-radius: 11px;
-  background:
-    radial-gradient(circle at 18% 0, color-mix(in srgb, var(--mm-tone) 13%, transparent), transparent 44%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(2, 6, 23, 0.34));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.mm-health-panel::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  content: '';
-  background: linear-gradient(180deg, transparent, var(--mm-tone), transparent);
-  opacity: 0.72;
-}
-.mm-health-panel.is-ready { border-color: rgba(52, 211, 153, 0.28); }
-.mm-health-panel.is-failed { border-color: rgba(251, 113, 133, 0.34); }
-.mm-health-score {
-  position: relative;
-  display: grid;
-  place-items: center;
-  height: 74px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--mm-tone) 28%, transparent);
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--mm-tone) 20%, transparent), transparent 52%),
-    rgba(2, 6, 23, 0.44);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-}
-.mm-health-score strong {
-  color: color-mix(in srgb, var(--mm-tone) 82%, white);
-  font: 850 25px/1 var(--hud-font-data, ui-monospace, monospace);
-  text-shadow: 0 0 18px color-mix(in srgb, var(--mm-tone) 28%, transparent);
-}
-.mm-health-score span {
-  color: rgba(226, 232, 240, 0.46);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.mm-health-copy h3 {
-  margin: 4px 0 4px;
-  color: rgba(248, 250, 252, 0.94);
-  font-size: 16px;
-  letter-spacing: -0.01em;
-}
-.mm-health-copy p:last-child {
-  margin: 0;
-  color: rgba(226, 232, 240, 0.55);
-  font-size: 12px;
-  line-height: 1.55;
-}
-.mm-preset-panel,
 .mm-panel {
   position: relative;
   overflow: hidden;
+  padding: 18px;
   border: 1px solid color-mix(in srgb, var(--mm-tone) 14%, rgba(148, 163, 184, 0.16));
   border-radius: 12px;
   background:
@@ -814,9 +865,6 @@ const {
     rgba(2, 6, 23, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
-.mm-preset-panel { margin-bottom: 12px; padding: 13px; }
-.mm-panel { padding: 18px; }
-.mm-preset-panel::before,
 .mm-panel::before {
   position: absolute;
   inset: 0;
@@ -828,182 +876,20 @@ const {
   background-size: 28px 28px;
   mask-image: linear-gradient(110deg, rgba(0,0,0,0.48), transparent 62%);
 }
-.mm-panel > *,
-.mm-preset-panel > * { position: relative; }
-.mm-preset-intro {
-  display: grid;
-  gap: 3px;
-  margin-bottom: 12px;
-}
-.mm-preset-kicker,
-.mm-section-label {
+.mm-panel > * { position: relative; }
+.mm-section-title {
   margin: 0;
-  color: color-mix(in srgb, var(--mm-tone) 78%, white 5%);
-  font: 850 10px/1 var(--hud-font-data, ui-monospace, monospace);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.mm-preset-intro strong {
-  color: rgba(248, 250, 252, 0.9);
-  font-size: 14px;
-  line-height: 1.25;
-}
-.mm-preset-intro small {
-  color: rgba(226, 232, 240, 0.43);
-  font-size: 11px;
-  line-height: 1.45;
-}
-.mm-preset-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 9px;
-}
-.mm-preset-card {
-  position: relative;
-  display: grid;
-  min-height: 108px;
-  align-content: start;
-  gap: 8px;
-  padding: 13px 13px 12px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--preset-tone) 20%, rgba(148, 163, 184, 0.16));
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 18px 16px, color-mix(in srgb, var(--preset-tone) 20%, transparent), transparent 38px),
-    linear-gradient(180deg, color-mix(in srgb, var(--preset-tone) 7%, rgba(15, 23, 42, 0.58)), rgba(2, 6, 23, 0.34));
-  color: inherit;
-  text-align: left;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
-}
-.mm-preset-card::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  content: '';
-  background: linear-gradient(180deg, transparent, var(--preset-tone), transparent);
-  opacity: 0.72;
-}
-.mm-preset-card::after {
-  position: absolute;
-  right: -24px;
-  bottom: -36px;
-  width: 94px;
-  height: 94px;
-  border-radius: 999px;
-  content: '';
-  background: color-mix(in srgb, var(--preset-tone) 13%, transparent);
-  filter: blur(2px);
-  opacity: 0.56;
-}
-.mm-preset-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--preset-tone) 48%, transparent);
-  background:
-    radial-gradient(circle at 18px 16px, color-mix(in srgb, var(--preset-tone) 26%, transparent), transparent 42px),
-    linear-gradient(180deg, color-mix(in srgb, var(--preset-tone) 11%, rgba(15, 23, 42, 0.62)), rgba(2, 6, 23, 0.4));
-  box-shadow:
-    0 14px 34px color-mix(in srgb, var(--preset-tone) 13%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.08);
-}
-.mm-preset-card:focus-visible {
-  outline: 0;
-  border-color: color-mix(in srgb, var(--preset-tone) 62%, transparent);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--preset-tone) 18%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.08);
-}
-.mm-preset-orb {
-  position: relative;
-  z-index: 1;
-  width: 24px;
-  height: 24px;
-  border: 1px solid color-mix(in srgb, var(--preset-tone) 45%, rgba(255,255,255,0.1));
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--preset-tone) 78%, white 8%), color-mix(in srgb, var(--preset-tone) 18%, rgba(2, 6, 23, 0.72))),
-    rgba(255,255,255,0.05);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--preset-tone) 25%, transparent);
-}
-.mm-preset-topline {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.mm-preset-name {
-  min-width: 0;
-  overflow: hidden;
-  color: rgba(248,250,252,0.92);
-  font-size: 13px;
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 15px;
   font-weight: 800;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: -0.01em;
 }
-.mm-preset-action {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--preset-tone) 26%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--preset-tone) 8%, rgba(255,255,255,0.04));
-  color: color-mix(in srgb, var(--preset-tone) 72%, white);
-  font: 800 10px/1.35 ui-monospace, monospace;
-  opacity: 0;
-  transform: translateX(4px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.mm-preset-card:hover .mm-preset-action,
-.mm-preset-card:focus-visible .mm-preset-action {
-  opacity: 1;
-  transform: translateX(0);
-}
-.mm-preset-summary {
-  position: relative;
-  z-index: 1;
-  display: -webkit-box;
-  overflow: hidden;
-  color: rgba(226,232,240,0.54);
-  font-size: 11px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.mm-panel-head h3,
 .mm-start-panel h3 {
   margin: 2px 0 0;
   color: rgba(248,250,252,0.94);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.01em;
-}
-.mm-route-meta {
-  max-width: 460px;
-  margin: 5px 0 0;
-  overflow: hidden;
-  color: rgba(226,232,240,0.4);
-  font: 11px/1.4 var(--hud-font-data, ui-monospace, monospace);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mm-test-result {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 14px 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(244, 63, 94, 0.22);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(244, 63, 94, 0.12), rgba(244, 63, 94, 0.06));
-  color: #fda4af;
-  font-size: 12px;
-}
-.mm-test-result.is-ok {
-  border-color: rgba(34,197,94,0.24);
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.06));
-  color: #86efac;
 }
 .mm-form-grid {
   display: grid;
@@ -1070,20 +956,6 @@ const {
   margin-top: 18px;
   padding-top: 18px;
   border-top: 1px solid rgba(148,163,184,0.14);
-}
-.mm-muted {
-  margin: 4px 0 0;
-  color: rgba(226,232,240,0.44);
-  font-size: 12px;
-}
-.mm-model-head code {
-  color: rgba(226,232,240,0.42);
-  font-size: 11px;
-}
-.mm-model-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
 }
 .mm-model-list {
   display: grid;
@@ -1312,11 +1184,10 @@ const {
 @media (max-width: 920px) {
   .mm-body { grid-template-columns: 1fr; }
   .mm-rail {
-    max-height: 270px;
+    max-height: 320px;
     border-right: 0;
     border-bottom: 1px solid var(--mm-border);
   }
-  .mm-preset-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .mm-shell { padding: 10px; }
@@ -1330,15 +1201,13 @@ const {
     flex-wrap: wrap;
   }
   .mm-active-pill { order: 3; }
-  .mm-form-grid,
-  .mm-health-panel,
-  .mm-preset-strip { grid-template-columns: 1fr; }
-  .mm-head-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+  .mm-form-grid { grid-template-columns: 1fr; }
+  .mm-actionbar {
+    align-items: stretch;
+    flex-direction: column;
   }
-  .mm-model-head,
-  .mm-model-actions {
+  .mm-actionbar-btns { justify-content: flex-end; }
+  .mm-model-head {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1355,10 +1224,10 @@ const {
 }
 @media (prefers-reduced-motion: reduce) {
   .mm-spin { animation: none; }
-  .mm-preset-card,
+  .mm-preset-chip,
   .mm-provider-card,
   .mm-model-row { transition: none; }
-  .mm-preset-card:hover,
+  .mm-preset-chip:hover,
   .mm-provider-card:hover,
   .mm-model-row:hover { transform: none; }
   .mm-fade-enter-active,

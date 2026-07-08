@@ -1252,6 +1252,7 @@ onUnmounted(() => {
   gap: 8px;
 }
 .zt-head-main {
+  align-items: baseline;
   gap: 10px;
 }
 .zt-title-core {
@@ -1260,6 +1261,7 @@ onUnmounted(() => {
   width: 34px;
   height: 34px;
   flex-shrink: 0;
+  align-self: center;
   place-items: center;
   border: 1px solid rgba(148,163,184,0.14);
   border-radius: 12px;
