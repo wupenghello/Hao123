@@ -36,6 +36,18 @@ function buildRequestBody(
   return { ...fields, ...(cfg._clientAuth ?? {}) }
 }
 
+function isGlmModel(model: string): boolean {
+  return /^glm[-_.]/i.test(model.trim())
+}
+
+function nonThinkingFields(cfg: OpenAiCompatConfig): Record<string, unknown> {
+  if (!isGlmModel(cfg.model)) return {}
+  return {
+    thinking: { type: 'disabled' },
+    reasoning_effort: 'none',
+  }
+}
+
 /** 把发给模型的消息裁成 API 接受的字段（剔除 UI-only 的 activities/ts） */
 function toApiMessage(m: ChatMessage) {
   const base: Record<string, unknown> = { role: m.role }
@@ -231,17 +243,21 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
     },
 
     async complete({ messages, signal, temperature, maxTokens, topP, responseFormat }: LlmCompleteArgs) {
+      const requestBody = {
+        model: cfg.model,
+        messages: messages.map(toApiMessage),
+        ...nonThinkingFields(cfg),
+        ...(temperature != null ? { temperature } : {}),
+        ...(maxTokens != null ? { max_tokens: maxTokens } : {}),
+        ...(topP != null ? { top_p: topP } : {}),
+        ...(responseFormat != null ? { response_format: responseFormat } : {}),
+      }
       const res = await fetchWithRetry(
         cfg.provider,
         cfg.endpoint,
         buildRequestBody(cfg, {
-          model: cfg.model,
-          messages: messages.map(toApiMessage),
+          ...requestBody,
           stream: false,
-          ...(temperature != null ? { temperature } : {}),
-          ...(maxTokens != null ? { max_tokens: maxTokens } : {}),
-          ...(topP != null ? { top_p: topP } : {}),
-          ...(responseFormat != null ? { response_format: responseFormat } : {}),
         }),
         headers,
         signal,
@@ -249,11 +265,41 @@ export function createOpenAiProvider(cfg: OpenAiCompatConfig): LlmProvider {
 
       const json: any = await res.json()
       const content = json.choices?.[0]?.message?.content
+      if (typeof content === 'string' && content.trim()) return content
+
+      // Some OpenAI-compatible gateways return an empty non-streaming
+      // message.content while the streaming endpoint for the same model works.
+      // Reuse the proven SSE path before surfacing "empty response" to callers.
+      const streamRes = await fetchWithRetry(
+        cfg.provider,
+        cfg.endpoint,
+        buildRequestBody(cfg, {
+          ...requestBody,
+          stream: true,
+        }),
+        headers,
+        signal,
+      )
+      const reader = streamRes.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const state = { content: '', toolMap: new Map<number, ToolCall>() }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const raw of lines) applyDelta(raw.trim(), state)
+      }
+      if (buffer.trim()) applyDelta(buffer.trim(), state)
+      if (state.content.trim()) return state.content
+
       if (content == null) {
         const reason = json.choices?.[0]?.finish_reason || 'empty response'
         throw new Error(`${cfg.provider} 返回异常：${reason}`)
       }
-      return content
+      throw new Error(`${cfg.provider} 返回空内容`)
     },
   }
 }

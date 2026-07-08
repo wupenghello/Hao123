@@ -12,10 +12,9 @@
  * -----------------------------------------------------------------------
  * 当前账户（专用 Host m55b66xmda.re.qweatherapi.com，2026-06-25 实测）可用性：
  *   ✅ 可用：weather/now、weather/{3,7,10,15}d、weather/{24,72,168}h、
- *            minutely/5m、indices/1d
+ *            minutely/5m、indices/1d、geo/v2/city/lookup
  *   ❌ 403 无权限：air/now、warning/now、warning/list（套餐不含，升级后生效）
- *   ❌ 404 未开通：astronomy/*、tropical/*、ocean/*、grid/*、
- *                  v2/city/*(GeoAPI)、historic/*、climate/*
+ *   ❌ 404 未开通：astronomy/*、tropical/*、ocean/*、grid/*、historic/*、climate/*
  *
  * 客户端按「✅ 可用 / ❌ 不可用」分区组织；不可用接口同样封装，升级或开通后即用。
  * -----------------------------------------------------------------------
@@ -239,13 +238,12 @@ export const weatherApi = {
   },
 
   /**
-   * 按坐标反查城市名 /v2/city/lookup（GeoAPI，返回最近城市名）
-   * ⚠️ 当前套餐 GeoAPI 未开通（404）。开通后用于 GPS 定位反查城市名。
+   * 按坐标反查城市名 /geo/v2/city/lookup（GeoAPI，返回最近城市名）
    */
   async lookupByCoord(lng: string, lat: string, opts?: RequestOptions): Promise<string | null> {
     const r = await request<GeoLookupResponse>(
       GEO_BASE,
-      'v2/city/lookup',
+      'geo/v2/city/lookup',
       `${lng},${lat}`,
       { number: '1' },
       opts,

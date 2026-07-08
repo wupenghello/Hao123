@@ -26,7 +26,7 @@ async function readBody(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Promi
 }
 
 const FORWARD_HEADERS = new Set([
-  'content-type', 'accept', 'accept-encoding', 'accept-language', 'user-agent',
+  'content-type', 'accept', 'accept-language', 'user-agent',
 ])
 
 function filterHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
@@ -36,6 +36,10 @@ function filterHeaders(headers: Record<string, string | string[] | undefined>): 
     out[k] = Array.isArray(v) ? v.join(', ') : String(v ?? '')
   }
   if (!out['content-type']) out['content-type'] = 'application/json'
+  // Node fetch may transparently decompress upstream responses. If we ask the
+  // provider for gzip/br and then pipe the already-decoded body while preserving
+  // content-encoding, browser fetch fails with "Failed to fetch".
+  out['accept-encoding'] = 'identity'
   return out
 }
 
@@ -264,7 +268,13 @@ export function deepseekFallbackPlugin(): Plugin {
           res.statusCode = upstreamRes.status
           upstreamRes.headers.forEach((value, name) => {
             const lower = name.toLowerCase()
-            if (['transfer-encoding', 'connection', 'keep-alive'].includes(lower)) return
+            if ([
+              'transfer-encoding',
+              'connection',
+              'keep-alive',
+              'content-encoding',
+              'content-length',
+            ].includes(lower)) return
             res.setHeader(name, value)
           })
 

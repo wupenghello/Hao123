@@ -76,7 +76,10 @@ export default defineConfig(({ mode }) => {
         '/qgeo': {
           target: qweatherTarget,
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/qgeo/, ''),
+          rewrite: (path) => {
+            const stripped = path.replace(/^\/qgeo/, '')
+            return stripped.startsWith('/v2/') ? `/geo${stripped}` : stripped
+          },
         },
         // 禅道（ZenTao）：鉴权 + 我的任务/Bug 等接口
         '/zentao': {

@@ -64,15 +64,67 @@ function currentDataSignature(): string {
   const taskStore = useTaskStore()
   const bugStore = useBugStore()
   const localStore = useLocalTaskStore()
-  const t = taskStore.assigned.map((t) => `${t.id}:${t.status}`).sort().join(',')
-  const b = bugStore.assigned.map((b) => `${b.id}:${b.status}`).sort().join(',')
-  const l = localStore.open.map((t) => `${t.id}:${t.done ? 'done' : 'open'}`).sort().join(',')
-  return `${t}|${b}|${l}`
+  const weather = useWeatherStore()
+  return JSON.stringify({
+    weather: {
+      city: weather.cityName,
+      coord: weather.cityCoord,
+      mode: weather.locateMode,
+      now: weather.now ? {
+        text: weather.now.text,
+        temp: weather.now.temp,
+        feelsLike: weather.now.feelsLike,
+        windDir: weather.now.windDir,
+        windScale: weather.now.windScale,
+      } : null,
+      today: weather.daily[0] ? {
+        textDay: weather.daily[0].textDay,
+        textNight: weather.daily[0].textNight,
+        tempMin: weather.daily[0].tempMin,
+        tempMax: weather.daily[0].tempMax,
+      } : null,
+    },
+    tasks: taskStore.assigned
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        pri: t.pri,
+        deadline: t.deadline,
+        projectName: t.projectName,
+        storyTitle: t.storyTitle,
+      }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    bugs: bugStore.assigned
+      .map((b) => ({
+        id: b.id,
+        title: b.title,
+        status: b.status,
+        pri: b.pri,
+        severity: b.severity,
+        deadline: b.deadline,
+        projectName: b.projectName,
+        storyTitle: b.storyTitle,
+      }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    local: localStore.tasks
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        note: t.note,
+        done: t.done,
+        pri: t.pri,
+        deadline: t.deadline,
+        attachments: (t.attachments ?? []).length,
+      }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+  })
 }
 
 /** 缓存的简报是否已过期（没有 / 不是今天生成的 / 位置变了 / 工作项数据变了） */
 const stale = computed(() => {
   if (!briefing.value) return true
+  if (!briefing.value.content?.trim()) return true
   if (briefing.value.date !== todayStr()) return true
   if (!briefing.value.locationSignature || !briefing.value.dataSignature) return true
   if (briefing.value.locationSignature !== currentLocationSignature()) return true
@@ -129,7 +181,7 @@ async function generate(force = false): Promise<void> {
         { role: 'user', content: context || '（暂无工作项与天气信息，给一句轻松的今日问候即可。）' },
       ],
       temperature: 0.6,
-      maxTokens: 600,
+      maxTokens: 1200,
     })
     const content = raw.trim()
     if (!content) throw new Error('简报内容为空')

@@ -170,11 +170,13 @@ const relTime = computed(() => {
 
 <template>
   <Transition name="mb-fade">
-    <section v-if="briefing || generating || error" class="mb-card">
+    <section v-if="briefing || generating || error" class="mb-card" :class="{ 'is-refreshing': generating && briefing }">
       <header class="mb-head">
         <span class="mb-icon"><IconSpark class="w-3.5 h-3.5" /></span>
         <span class="mb-title">今日简报</span>
-        <span v-if="briefing && !generating" class="mb-time">{{ relTime }}</span>
+        <span v-if="briefing" class="mb-time" :class="{ 'is-live': generating }">
+          {{ generating ? '正在更新' : relTime }}
+        </span>
         <button
           class="mb-refresh"
           :class="{ 'is-spinning': generating }"
@@ -185,6 +187,11 @@ const relTime = computed(() => {
           <IconRefresh class="w-3.5 h-3.5" />
         </button>
       </header>
+
+      <div v-if="generating && briefing" class="mb-refreshing">
+        <span class="mb-refreshing-pulse" />
+        <span>正在重新整理简报，旧内容先留着给你看</span>
+      </div>
 
       <!-- 首次生成中（无缓存） -->
       <div v-if="generating && !briefing" class="mb-loading">
@@ -202,7 +209,7 @@ const relTime = computed(() => {
       </div>
 
       <!-- 可操作结论区：先给今天怎么动，再读自然语言简报 -->
-      <div v-if="html" class="mb-action">
+      <div v-if="html" class="mb-action" :class="{ 'is-muted': generating }">
         <section class="mb-first">
           <p class="mb-action-kicker">今天先抓什么</p>
           <template v-if="firstAction">
@@ -258,7 +265,7 @@ const relTime = computed(() => {
       </div>
 
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
-      <div v-if="html" class="mb-body" v-html="html" />
+      <div v-if="html" class="mb-body" :class="{ 'is-muted': generating }" v-html="html" />
 
       <!-- LLM 未配置：引导去模型设置开启「今日简报」 -->
       <div v-if="!chat.configured && !generating && !error && !briefing" class="mb-unconfigured">
@@ -310,6 +317,13 @@ const relTime = computed(() => {
   position: relative;
   z-index: 1;
 }
+.mb-card.is-refreshing {
+  border-color: color-mix(in srgb, var(--mb-tone) 34%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.075),
+    0 18px 54px rgba(0,0,0,0.2),
+    0 0 0 1px color-mix(in srgb, var(--mb-tone) 12%, transparent);
+}
 .mb-head {
   display: flex;
   align-items: center;
@@ -339,6 +353,16 @@ const relTime = computed(() => {
 .mb-time {
   color: rgba(226,232,240,0.42);
   font-size: 11px;
+}
+.mb-time.is-live {
+  color: color-mix(in srgb, var(--mb-tone-2) 72%, white);
+  font-weight: 750;
+}
+.mb-time.is-live::after {
+  display: inline-block;
+  width: 12px;
+  content: '...';
+  animation: mb-ellipsis 1.1s steps(3, end) infinite;
 }
 .mb-refresh,
 .mb-retry,
@@ -370,12 +394,58 @@ const relTime = computed(() => {
 .mb-refresh:disabled { cursor: default; opacity: 0.7; }
 .mb-refresh.is-spinning svg { animation: mb-spin 0.9s linear infinite; }
 @keyframes mb-spin { to { transform: rotate(360deg); } }
+@keyframes mb-ellipsis { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0 0 0); } }
+.mb-refreshing {
+  display: flex;
+  position: relative;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  overflow: hidden;
+  border-bottom: 1px solid color-mix(in srgb, var(--mb-tone-2) 16%, transparent);
+  background: color-mix(in srgb, var(--mb-tone-2) 7%, rgba(2,6,23,0.18));
+  color: rgba(224,242,254,0.76);
+  font-size: 12px;
+  font-weight: 700;
+}
+.mb-refreshing::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, var(--mb-tone-2), transparent);
+  animation: mb-scan 1.2s ease-in-out infinite;
+}
+.mb-refreshing-pulse {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mb-tone-2) 78%, white);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--mb-tone-2) 45%, transparent);
+  animation: mb-pulse 1.1s ease-in-out infinite;
+}
+@keyframes mb-scan {
+  0% { transform: translateX(-100%); opacity: 0.25; }
+  45% { opacity: 0.9; }
+  100% { transform: translateX(100%); opacity: 0.25; }
+}
+@keyframes mb-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 .mb-action {
   padding: 12px 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 13%, transparent);
   background:
     linear-gradient(120deg, color-mix(in srgb, var(--mb-tone) 8%, transparent), color-mix(in srgb, var(--mb-tone-2) 4%, transparent)),
     rgba(2, 6, 23, 0.16);
+}
+.mb-action.is-muted,
+.mb-body.is-muted {
+  opacity: 0.72;
+  filter: saturate(0.86);
+  transition: opacity 0.18s, filter 0.18s;
 }
 .mb-first,
 .mb-action-block {
@@ -641,7 +711,10 @@ const relTime = computed(() => {
 .mb-fade-leave-to { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .mb-refresh.is-spinning svg,
-  .mb-dot { animation: none; }
+  .mb-dot,
+  .mb-time.is-live::after,
+  .mb-refreshing::after,
+  .mb-refreshing-pulse { animation: none; }
   .mb-plan,
   .mb-fade-enter-active,
   .mb-fade-leave-active { transition: none; }
