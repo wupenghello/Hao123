@@ -945,11 +945,14 @@ onUnmounted(() => {
             'is-clickable': it.kind !== 'local',
             'in-thread': g.isCluster,
             'is-completing': it.kind === 'local' && hasCompleting((it.ref as LocalTask).id),
+            [`is-status-${it.kind === 'task' ? (it.ref as ZentaoTask).status : it.kind === 'bug' ? (it.ref as ZentaoBug).status : 'local'}`]: true,
           }"
           @click="onRowClick(it)"
         >
           <span v-if="g.isCluster" class="zt-thread-mark" :style="{ '--thread': threadColor(g.label) }" />
-          <div class="zt-card-node">
+
+          <!-- 头部：图标 + 序号（固定宽度，不收缩） -->
+          <div class="zt-lead">
             <button
               v-if="it.kind === 'local'"
               class="zt-check"
@@ -960,100 +963,90 @@ onUnmounted(() => {
               <IconCircle class="w-[18px] h-[18px]" />
             </button>
             <template v-else-if="it.kind === 'task'">
-              <IconCheckboxOutline class="w-5 h-5" />
+              <IconCheckboxOutline class="zt-icn" />
             </template>
             <template v-else>
-              <IconBug class="w-5 h-5" />
+              <IconBug class="zt-icn" />
             </template>
-            <span class="zt-card-index">{{ String(idx + 1).padStart(2, '0') }}</span>
+            <span class="zt-idx">{{ String(idx + 1).padStart(2, '0') }}</span>
           </div>
 
-          <div class="zt-card-main">
-            <div class="zt-card-top">
+          <!-- 主体：单行占满剩余宽度，标题撑开把右侧元素顶到最右 -->
+          <div class="zt-main">
+            <span
+              class="zt-kind"
+              :class="{
+                'is-task': it.kind === 'task',
+                'is-bug': it.kind === 'bug',
+                'is-local': it.kind === 'local',
+              }"
+            >{{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}</span>
+            <span class="zt-src">#{{ (it.ref as { id: string | number }).id }}</span>
+            <span v-if="isUrgent(it)" class="zt-pressure">HIGH PRESSURE</span>
+            <button
+              v-if="it.kind === 'local'"
+              type="button"
+              class="zt-title"
+              :title="(it.ref as LocalTask).title"
+              @click.stop="openEdit(it.ref as LocalTask)"
+            >{{ (it.ref as LocalTask).title }}</button>
+            <span v-else-if="it.kind === 'task'" class="zt-title" :title="(it.ref as ZentaoTask).name">
+              {{ (it.ref as ZentaoTask).name }}
+            </span>
+            <span v-else class="zt-title" :title="(it.ref as ZentaoBug).title">
+              {{ (it.ref as ZentaoBug).title }}
+            </span>
+            <span v-if="it.kind === 'local' && (it.ref as LocalTask).note" class="zt-note">
+              {{ (it.ref as LocalTask).note }}</span>
+            <template v-if="it.kind === 'task'">
               <span
-                class="zt-kind"
-                :class="{
-                  'is-task': it.kind === 'task',
-                  'is-bug': it.kind === 'bug',
-                  'is-local': it.kind === 'local',
-                }"
-              >{{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}</span>
-              <span class="zt-card-source">
-                #{{ (it.ref as { id: string | number }).id }}
+                v-if="ztPri((it.ref as ZentaoTask).pri)"
+                class="zt-badge ring-1 ring-inset"
+                :class="ztPri((it.ref as ZentaoTask).pri)!.class"
+              >{{ ztPri((it.ref as ZentaoTask).pri)!.label }}</span>
+              <span class="zt-badge ring-1 ring-inset" :class="taskStatusBadge((it.ref as ZentaoTask).status).class">
+                {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
               </span>
-              <span v-if="isUrgent(it)" class="zt-card-pressure">HIGH PRESSURE</span>
-            </div>
+              <span
+                v-if="ztHasDeadline((it.ref as ZentaoTask).deadline)"
+                class="zt-dl"
+                :class="{ 'is-overdue': ztIsOverdue((it.ref as ZentaoTask).deadline) }"
+              >{{ (it.ref as ZentaoTask).deadline }}</span>
+            </template>
 
-            <div class="zt-card-title-row">
-              <button
-                v-if="it.kind === 'local'"
-                type="button"
-                class="zt-title"
-                :title="(it.ref as LocalTask).title"
-                @click.stop="openEdit(it.ref as LocalTask)"
-              >{{ (it.ref as LocalTask).title }}</button>
-              <span v-else-if="it.kind === 'task'" class="zt-title" :title="(it.ref as ZentaoTask).name">
-                {{ (it.ref as ZentaoTask).name }}
+            <template v-else-if="it.kind === 'bug'">
+              <span
+                v-if="severityBadge((it.ref as ZentaoBug).severity)"
+                class="zt-badge ring-1 ring-inset"
+                :class="severityBadge((it.ref as ZentaoBug).severity)!.class"
+              >{{ severityBadge((it.ref as ZentaoBug).severity)!.label }}</span>
+              <span class="zt-badge ring-1 ring-inset" :class="bugStatusBadge((it.ref as ZentaoBug).status).class">
+                {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
               </span>
-              <span v-else class="zt-title" :title="(it.ref as ZentaoBug).title">
-                {{ (it.ref as ZentaoBug).title }}
+            </template>
+
+            <template v-else>
+              <span
+                v-if="deadlineLabel((it.ref as LocalTask).deadline)"
+                class="zt-dl"
+                :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
+              >{{ deadlineLabel((it.ref as LocalTask).deadline) }}</span>
+              <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
+                {{ priBadge((it.ref as LocalTask).pri).label }}
               </span>
-            </div>
-
-            <p v-if="it.kind === 'local' && (it.ref as LocalTask).note" class="zt-note truncate">
-              {{ (it.ref as LocalTask).note }}
-            </p>
-
-            <div class="zt-card-meta">
-              <template v-if="it.kind === 'task'">
-                <span
-                  v-if="ztPri((it.ref as ZentaoTask).pri)"
-                  class="zt-badge ring-1 ring-inset"
-                  :class="ztPri((it.ref as ZentaoTask).pri)!.class"
-                >{{ ztPri((it.ref as ZentaoTask).pri)!.label }}</span>
-                <span class="zt-badge ring-1 ring-inset" :class="taskStatusBadge((it.ref as ZentaoTask).status).class">
-                  {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
-                </span>
-                <span
-                  v-if="ztHasDeadline((it.ref as ZentaoTask).deadline)"
-                  class="zt-dl"
-                  :class="{ 'is-overdue': ztIsOverdue((it.ref as ZentaoTask).deadline) }"
-                >{{ (it.ref as ZentaoTask).deadline }}</span>
-              </template>
-
-              <template v-else-if="it.kind === 'bug'">
-                <span
-                  v-if="severityBadge((it.ref as ZentaoBug).severity)"
-                  class="zt-badge ring-1 ring-inset"
-                  :class="severityBadge((it.ref as ZentaoBug).severity)!.class"
-                >{{ severityBadge((it.ref as ZentaoBug).severity)!.label }}</span>
-                <span class="zt-badge ring-1 ring-inset" :class="bugStatusBadge((it.ref as ZentaoBug).status).class">
-                  {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
-                </span>
-              </template>
-
-              <template v-else>
-                <span
-                  v-if="deadlineLabel((it.ref as LocalTask).deadline)"
-                  class="zt-dl"
-                  :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
-                >{{ deadlineLabel((it.ref as LocalTask).deadline) }}</span>
-                <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
-                  {{ priBadge((it.ref as LocalTask).pri).label }}
-                </span>
-                <span
-                  v-if="(it.ref as LocalTask).attachments?.length"
-                  class="zt-att flex items-center gap-0.5 text-white/35"
-                  :title="`${(it.ref as LocalTask).attachments!.length} 个附件`"
-                >
-                  <IconClip class="w-3.5 h-3.5" />
-                  <span class="text-[11px] tabular-nums">{{ (it.ref as LocalTask).attachments!.length }}</span>
-                </span>
-              </template>
-            </div>
+              <span
+                v-if="(it.ref as LocalTask).attachments?.length"
+                class="zt-att flex items-center gap-0.5 text-white/35"
+                :title="`${(it.ref as LocalTask).attachments!.length} 个附件`"
+              >
+                <IconClip class="w-3.5 h-3.5" />
+                <span class="text-[11px] tabular-nums">{{ (it.ref as LocalTask).attachments!.length }}</span>
+              </span>
+            </template>
           </div>
 
-          <div class="zt-card-command">
+          <!-- 尾部：风险徽标 + 操作按钮（固定宽度，贴右） -->
+          <div class="zt-trail">
             <button
               v-if="it.risk"
               type="button"
@@ -1067,9 +1060,9 @@ onUnmounted(() => {
               <IconPause v-else class="w-3 h-3" />
               {{ it.risk.label }}
             </button>
-            <span v-else class="zt-card-calm">STABLE</span>
+            <span v-else class="zt-calm">STABLE</span>
 
-            <div v-if="it.kind === 'local'" class="zt-card-actions">
+            <div v-if="it.kind === 'local'" class="zt-actions">
               <button
                 class="zt-act"
                 :class="{ 'is-confirm': pendingDelete === (it.ref as LocalTask).id }"
@@ -1103,7 +1096,7 @@ onUnmounted(() => {
             <button class="zt-check" title="取消完成" @click.stop="localStore.toggle(t.id)">
               <IconCheck class="w-[18px] h-[18px] text-teal-300" />
             </button>
-            <div class="zt-card-main">
+            <div class="zt-main">
               <span class="zt-title line-through" :title="t.title">{{ t.title }}</span>
             </div>
             <button
@@ -1738,14 +1731,13 @@ onUnmounted(() => {
 .zt-mission-board::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.24); border-radius: 999px; }
 .zt-mission-card {
   position: relative;
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) minmax(112px, auto);
-  align-items: stretch;
-  gap: 13px;
-  height: 96px;
-  max-height: 96px;
-  margin-bottom: 10px;
-  padding: 13px 14px 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: auto;
+  min-height: 0;
+  margin-bottom: 6px;
+  padding: 8px 12px 8px 14px;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.115);
   border-radius: 16px;
@@ -1802,7 +1794,6 @@ onUnmounted(() => {
     linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
     rgba(244,63,94,0.04);
 }
-.zt-mission-card.is-urgent::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.72; }
 .zt-mission-card.is-done { opacity: 0.68; }
 .zt-mission-card.is-done:hover { opacity: 1; }
 .zt-mission-card.is-completing {
@@ -1827,97 +1818,92 @@ onUnmounted(() => {
   animation: zt-complete-strike 0.34s ease-out forwards;
 }
 .zt-mission-card.is-completing .zt-check { color: #99f6e4; background: rgba(45,212,191,0.18); box-shadow: 0 0 0 5px rgba(45,212,191,0.1); animation: zt-complete-check 0.42s ease-out; }
+/* ---- 行状态色：左侧描边 + 背景 tint + 边框，深色主题下足够醒目 ---- */
+.zt-mission-card.is-status-wait { --zt-status: #64748b; --zt-status-bg: rgba(100,116,139,0.1); } /* 未开始 — 冷灰 */
+.zt-mission-card.is-status-doing, .zt-mission-card.is-status-active { --zt-status: #38bdf8; --zt-status-bg: rgba(56,189,248,0.12); } /* 进行中 / Bug激活 — 天蓝 */
+.zt-mission-card.is-status-done, .zt-mission-card.is-status-resolved { --zt-status: #34d399; --zt-status-bg: rgba(52,211,153,0.1); } /* 已完成 / 已解决 — 翠绿 */
+.zt-mission-card.is-status-pause { --zt-status: #fbbf24; --zt-status-bg: rgba(251,191,36,0.12); } /* 已暂停 — 琥珀 */
+.zt-mission-card.is-status-cancel, .zt-mission-card.is-status-closed { --zt-status: #71717a; --zt-status-bg: rgba(113,113,122,0.1); } /* 已取消 / 已关闭 — 暗灰 */
+.zt-mission-card.is-status-local { --zt-status: #22d3ee; --zt-status-bg: rgba(34,211,238,0.12); } /* 本地 — 青 */
+/* 状态色覆盖：左侧描边加深、卡片背景染色、边框染色 */
+.zt-mission-card[class*='is-status-']::before { background: linear-gradient(180deg, transparent, var(--zt-status), transparent); opacity: 0.9; }
+.zt-mission-card[class*='is-status-']::after { background: linear-gradient(90deg, color-mix(in srgb, var(--zt-status) 40%, transparent), transparent 60%); opacity: 0.6; }
+.zt-mission-card[class*='is-status-'] {
+  border-color: color-mix(in srgb, var(--zt-status) 22%, transparent);
+  background-color: var(--zt-status-bg);
+}
+/* 紧急项玫红警示必须压过状态色：特异性 (0,3,0) > 状态色 (0,2,0) */
+.zt-mission-card.is-urgent[class*='is-status-'] {
+  border-color: rgba(244,63,94,0.24);
+  background: radial-gradient(circle at 34px 32px, rgba(244,63,94,0.16), transparent 86px),
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    rgba(244,63,94,0.04);
+}
+.zt-mission-card.is-urgent[class*='is-status-']::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.9; }
+.zt-mission-card.is-urgent[class*='is-status-']::after { background: linear-gradient(90deg, color-mix(in srgb, var(--zt-danger) 40%, transparent), transparent 60%); opacity: 0.6; }
 @keyframes zt-complete-row { 0% { opacity: 1; transform: translateY(0) scale(1); } 42% { opacity: 1; transform: translateY(-1px) scale(1.006); } 100% { opacity: 0; transform: translateY(-8px) scale(0.985); } }
 @keyframes zt-complete-strike { to { transform: scaleX(1); } }
 @keyframes zt-complete-check { 0% { transform: scale(1); } 45% { transform: scale(1.18); } 100% { transform: scale(1); } }
-.zt-card-node {
+.zt-lead {
   position: relative;
-  display: grid;
-  min-width: 0;
-  grid-template-rows: 42px auto;
-  justify-items: center;
-  align-self: stretch;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
   color: color-mix(in srgb, var(--zt-tone) 70%, white 8%);
 }
-.zt-card-node::before {
-  position: absolute;
-  top: 48px;
-  bottom: 3px;
-  width: 1px;
-  content: '';
-  background: linear-gradient(180deg, color-mix(in srgb, var(--zt-tone) 34%, transparent), transparent);
-}
-.zt-card-node > svg,
-.zt-card-node .zt-check {
-  position: relative;
-  z-index: 1;
-}
-.zt-card-node > svg {
-  width: 42px;
-  height: 42px;
-  padding: 10px;
+.zt-icn {
+  width: 28px;
+  height: 28px;
+  padding: 6px;
   border: 1px solid color-mix(in srgb, var(--zt-tone) 28%, transparent);
-  border-radius: 14px;
+  border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015)),
     color-mix(in srgb, var(--zt-tone) 9%, rgba(2,6,23,0.28));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.06),
-    0 0 20px color-mix(in srgb, var(--zt-tone) 10%, transparent);
+    0 0 14px color-mix(in srgb, var(--zt-tone) 10%, transparent);
 }
-.zt-card-index {
-  position: relative;
-  z-index: 1;
-  padding: 2px 5px;
+.zt-idx {
+  padding: 1px 4px;
   border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(2,6,23,0.42);
   color: rgba(226,232,240,0.45);
-  font: 800 10px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 800 9px/1 var(--hud-font-data, ui-monospace, monospace);
 }
-.zt-card-main {
-  display: grid;
-  min-width: 0;
-  align-content: center;
-  gap: 7px;
-}
-.zt-card-top,
-.zt-card-meta,
-.zt-card-actions {
+.zt-main {
   display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
+  flex: 1;
   align-items: center;
-  gap: 6px;
-}
-.zt-card-title-row {
+  gap: 5px;
   min-width: 0;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
-.zt-card-source,
-.zt-card-pressure,
-.zt-card-calm {
+.zt-src,
+.zt-pressure,
+.zt-calm {
+  flex-shrink: 0;
   color: rgba(226,232,240,0.42);
   font: 800 10px/1 var(--hud-font-data, ui-monospace, monospace);
   letter-spacing: 0.08em;
 }
-.zt-card-pressure {
+.zt-pressure {
   color: rgba(254,205,211,0.72);
 }
-.zt-card-command {
-  display: grid;
-  min-width: 112px;
-  align-content: center;
-  justify-items: end;
-  gap: 8px;
+.zt-trail {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-left: auto;
 }
-.zt-card-calm {
-  padding: 6px 8px;
+.zt-calm {
+  padding: 4px 7px;
   border: 1px solid rgba(52,211,153,0.12);
-  border-radius: 8px;
+  border-radius: 7px;
   background: rgba(52,211,153,0.045);
   color: rgba(167,243,208,0.48);
 }
@@ -1945,11 +1931,10 @@ onUnmounted(() => {
 .zt-group-count { flex-shrink: 0; padding: 0 7px; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.52); font-size: 11px; font-weight: 780; }
 .zt-thread-mark {
   position: absolute;
-  inset: 14px auto 14px 16px;
+  inset: 8px auto 8px 12px;
   z-index: 1;
   width: 2px;
   border-radius: 2px;
-  background: var(--thread);
   opacity: 0.62;
   pointer-events: none;
 }
@@ -2010,21 +1995,29 @@ onUnmounted(() => {
 .zt-check:focus-visible { color: #5eead4; border-color: rgba(45,212,191,0.28); background: rgba(45,212,191,0.12); outline: 0; }
 .zt-check:disabled { cursor: default; }
 .zt-title {
-  display: block;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
   line-height: 1.35;
-  font-weight: 720;
+  font-weight: 600;
 }
 .zt-title:hover { color: #fff; }
 .zt-note {
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 3px;
-  color: rgba(255,255,255,0.42);
-  font-size: 11.5px;
+  max-width: 120px;
+  color: rgba(255,255,255,0.4);
+  font-size: 11px;
+}
+.zt-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 .zt-act {
   display: flex;
@@ -2108,22 +2101,24 @@ onUnmounted(() => {
   .zt-trust-grid { grid-template-columns: 1fr; }
   .zt-mission-board { padding: 8px; }
   .zt-mission-card {
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 9px;
-    min-height: 0;
-    padding: 11px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 9px 10px;
   }
-  .zt-card-node {
-    grid-template-rows: 38px auto;
+  .zt-lead {
+    width: 30px;
   }
-  .zt-card-node > svg {
-    width: 38px;
-    height: 38px;
+  .zt-icn {
+    width: 30px;
+    height: 30px;
   }
-  .zt-card-command {
-    grid-column: 2;
-    min-width: 0;
-    justify-items: start;
+  .zt-note {
+    display: none;
+  }
+  .zt-trail {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-end;
   }
   .zt-kind,
   .zt-badge,
