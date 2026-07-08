@@ -1,0 +1,22 @@
+{
+  "_说明": "这是「模型线路控制台」导出 JSON 的形状模板。真实使用时：在控制台点「导出」，把得到的 JSON 整体粘贴覆盖本文件，另存为 eval/llm-config.local.json（注意文件名带 .local，已被 gitignore，不会泄露 key）。本 .example 文件里的 key 是占位符，不会被读取。",
+  "providers": [
+    {
+      "id": "p_xxxxxxxx",
+      "name": "DeepSeek",
+      "apiKey": "sk-在此粘贴你的真实APIKey",
+      "baseUrl": "https://api.deepseek.com",
+      "models": [
+        {
+          "id": "m_xxxxxxxx",
+          "name": "deepseek-chat",
+          "available": true,
+          "source": "manual"
+        }
+      ],
+      "activeModelId": "m_xxxxxxxx",
+      "createdAt": 0
+    }
+  ],
+  "activeProviderId": "p_xxxxxxxx"
+}

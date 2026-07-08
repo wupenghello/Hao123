@@ -36,3 +36,8 @@ Thumbs.db
 
 # TypeScript cache
 *.tsbuildinfo
+
+# promptfoo 评测（eval/）——含明文 API Key 的配置与评测产物
+eval/llm-config.local.json
+promptfoo_results*
+.promptfoo/

@@ -1,0 +1,41 @@
+# eval/promptfooconfig.yaml
+#
+# 晨报（briefing）system prompt 评测。跑法：npm run eval:briefing
+# 详见 eval/README.md。
+description: "晨报 system prompt 评测：v1 现网基线 vs v2 微调变体（10 条样例）"
+
+# 两个 system prompt 版本：promptfoo 会各跑一遍 → 出 v1/v2 对比矩阵。
+# 这就是「改 prompt → 出对比数字」里那个对比。改完 v2 重跑即可看数字变化。
+prompts:
+  - file://prompts/briefing.system.v1.txt
+  - file://prompts/briefing.system.v2.txt
+
+# 自定义 provider：读 eval/llm-config.local.json，按与 src/features/chat/briefing.ts
+# 一致的方式调 OpenAI 兼容端点（system+user / temperature 0.6 / max_tokens 1200 / 非流式）。
+# 用对象形式 { id: file://... } 而非裸字符串，消掉 promptfoo 的 schema 校验告警。
+providers:
+  - id: file://provider.mjs
+
+# 10 条样例（vars.context = 合成工作台快照）
+tests: file://cases/briefing.cases.yaml
+
+# 每条 case 都会再跑一遍的通用断言：禁 AI 自述 / 禁「# 今日简报」标题 / 长度区间。
+# （prompt 理想区间是 150~220 字，这里放宽到 20~450，避免模型轻微超长就误报；要收紧改这里即可。）
+defaultTest:
+  assert:
+    - type: not-icontains
+      value: "作为AI"
+    - type: not-icontains
+      value: "人工智能"
+    - type: not-icontains
+      value: "大模型"
+    - type: not-icontains
+      value: "我是一个AI"
+    - type: not-icontains
+      value: "# 今日简报"
+    - type: not-icontains
+      value: "## 今日"
+    - type: javascript
+      value: output.length >= 20 && output.length <= 450
+
+# 结果走 promptfoo 默认缓存（.promptfoo/，已 gitignore）；npm run eval:view 打开 web 表看明细
