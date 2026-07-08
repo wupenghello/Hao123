@@ -14,6 +14,7 @@
  *   briefing.ts          每日晨报（LLM 综合工作台快照生成今日简报，持久化、今日一次）
  *   llm/                 LLM 接入层（provider 无关抽象 + OpenAI 兼容实现），导出激活实例 `llm`
  *   store.ts             Pinia 状态层（useChatStore，含 agent 循环）
+ *   preference-log.ts    偏好数据飞轮：👍/👎/重新生成 → (context,chosen,rejected) 偏好对，存 IndexedDB
  *   useChatHotkeys.ts    全局召唤快捷键（Alt+K / Cmd+K）
  *   components/          ChatCommandPalette（Spotlight 式中央命令面板）/ ChatLauncher（状态栏入口）/ MorningBriefing（首页晨报卡）
  */
@@ -29,6 +30,7 @@ export * from './settings'
 export * from './llm'
 export * from '@/features/model-config'
 export * from './store'
+export * from './preference-log'
 export * from './useChatHotkeys'
 export { renderMarkdown } from './markdown'
 export { default as ChatCommandPalette } from './components/ChatCommandPalette.vue'

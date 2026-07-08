@@ -10,6 +10,7 @@
 import { reactive, watch, computed, ref, onUnmounted } from 'vue'
 import { useChatSettings, CHAT_SETTINGS_DEFAULTS } from '../settings'
 import type { ChatSettings } from '../settings'
+import { useChatStore } from '../store'
 import IconCog from '~icons/mdi/cog-outline'
 import IconClose from '~icons/mdi/close'
 import IconUndo from '~icons/mdi/undo-variant'
@@ -22,11 +23,14 @@ import IconScaleBalance from '~icons/mdi/scale-balance'
 import IconChevronTripleUp from '~icons/mdi/chevron-triple-up'
 import IconRocket from '~icons/mdi/rocket-launch-outline'
 import IconAlert from '~icons/mdi/alert-circle-outline'
+import IconDownload from '~icons/mdi/download-outline'
+import IconTrash from '~icons/mdi/trash-can-outline'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const { settings, update } = useChatSettings()
+const chatStore = useChatStore()
 
 // ============ 草稿 — 使用 reactive 保证深层响应式 ============
 const draft = reactive<ChatSettings>({ ...settings.value })
@@ -39,6 +43,8 @@ watch(() => props.open, (now) => {
     Object.assign(draft, settings.value)
     // 打开弹窗时锁定 body 滚动（对齐 DetailModal / ModelConfigModal 行为）
     document.body.style.overflow = 'hidden'
+    // 刷新偏好数据条数（飞轮展示用）
+    void chatStore.refreshPreferenceCount()
   } else {
     document.body.style.overflow = ''
   }
@@ -61,6 +67,27 @@ function apply() {
 
 function handleReset() {
   Object.assign(draft, CHAT_SETTINGS_DEFAULTS)
+}
+
+// ============ 偏好数据飞轮（导出 / 清空） ============
+async function exportPreferences() {
+  const json = await chatStore.exportPreferencesData()
+  // 触发浏览器下载（纯本地，不上传）
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `chat-preferences-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function clearPreferences() {
+  if (!chatStore.preferenceCount) return
+  if (!window.confirm(`确定清空全部 ${chatStore.preferenceCount} 条偏好数据？此操作不可撤销。`)) return
+  await chatStore.clearPreferencesData()
 }
 
 // ============ 预设 ============
@@ -382,6 +409,36 @@ const hasChanges = computed(() =>
                   </div>
                 </div>
               </div>
+
+              <!-- 偏好数据飞轮 -->
+              <section class="cs-pref">
+                <div class="cs-pref-head">
+                  <div class="cs-pref-icon"><IconDatabaseOutline class="w-4 h-4" /></div>
+                  <div class="cs-pref-title">
+                    <span>偏好数据飞轮</span>
+                    <span class="cs-pref-count">{{ chatStore.preferenceCount }} 条</span>
+                  </div>
+                </div>
+                <p class="cs-pref-desc">👍 / 👎 / 重新生成 自动记录偏好对 (context, chosen, rejected)，存本地 IndexedDB、不上传；用作 few-shot 召回与微调养料。</p>
+                <div class="cs-pref-actions">
+                  <button
+                    type="button"
+                    class="cs-pref-btn"
+                    :disabled="!chatStore.preferenceCount"
+                    @click="exportPreferences"
+                  >
+                    <IconDownload class="w-3.5 h-3.5" /> 导出 JSON
+                  </button>
+                  <button
+                    type="button"
+                    class="cs-pref-btn cs-pref-danger"
+                    :disabled="!chatStore.preferenceCount"
+                    @click="clearPreferences"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" /> 清空
+                  </button>
+                </div>
+              </section>
 
               <!-- 操作栏 -->
               <div class="cs-actions">
@@ -923,6 +980,88 @@ const hasChanges = computed(() =>
     inset 0 1px 0 rgba(255,255,255,0.12),
     0 0 22px color-mix(in srgb, var(--cs-tone) 18%, transparent);
   outline: 0;
+}
+
+/* ================================================
+   Preference data flywheel
+   ================================================ */
+.cs-pref {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255,255,255,0.065);
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+}
+.cs-pref-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cs-pref-icon {
+  display: grid;
+  width: 34px; height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cs-tone) 14%, rgba(255,255,255,0.05));
+  color: color-mix(in srgb, var(--cs-tone) 82%, white);
+}
+.cs-pref-title {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(226, 232, 240, 0.78);
+}
+.cs-pref-count {
+  font: 850 14px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: color-mix(in srgb, var(--cs-tone) 88%, white);
+}
+.cs-pref-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.42);
+}
+.cs-pref-actions {
+  display: flex;
+  gap: 8px;
+}
+.cs-pref-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,0.085);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
+  color: rgba(226, 232, 240, 0.66);
+  font-size: 11px; font-weight: 800;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  user-select: none;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.cs-pref-btn:hover:not(:disabled),
+.cs-pref-btn:focus-visible:not(:disabled) {
+  color: white;
+  border-color: color-mix(in srgb, var(--cs-tone) 30%, transparent);
+  background: color-mix(in srgb, var(--cs-tone) 9%, rgba(255,255,255,0.07));
+  outline: 0;
+}
+.cs-pref-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.cs-pref-danger:hover:not(:disabled) {
+  border-color: rgba(244, 63, 94, 0.4);
+  background: rgba(244, 63, 94, 0.12);
+  color: #fecaca;
 }
 
 /* ================================================

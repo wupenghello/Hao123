@@ -45,6 +45,9 @@ import {
 } from './utils'
 import type { ChatMessage, ChatUiBlock, ToolActivity, ToolApproval } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
+import { getActiveConfig } from '@/features/model-config'
+import { logPreference, countPreferences, clearPreferences, exportPreferences } from './preference-log'
+import type { PreferenceContextMessage } from './preference-log'
 
 /**
  * activity.result 持久化时的截断长度。内存里 activity.result 持有完整 JSON（供活动卡
@@ -56,6 +59,31 @@ const RESULT_STORAGE_MAX = 800
 const KB_VISION_MAX_BYTES = 5 * 1024 * 1024
 /** KB 知识库视觉上下文图片上限——与用户粘贴图片的 maxImages 分离，避免一个设置控制两个不同成本模型 */
 const KB_VISION_MAX_IMAGES = 3
+
+/**
+ * 偏好数据飞轮的上下文裁剪上限（控制单条 IDB 记录体积）。
+ * 单条 content 超长截断尾部加省略号；整体超预算时从最老的开始丢，保留离被评回答最近的上下文。
+ */
+const PREF_CONTENT_MAX = 2000
+const PREF_CONTEXT_MAX_BYTES = 16 * 1024
+
+/** 把 messages[0..endIdx) 裁成 {role,content}[] 供偏好记录使用（只取角色+正文，与历史持久化同口径） */
+function buildPreferenceContext(msgs: ChatMessage[], endIdx: number): PreferenceContextMessage[] {
+  const slice = msgs.slice(0, Math.max(0, endIdx))
+  const out: PreferenceContextMessage[] = []
+  let bytes = 0
+  for (let i = slice.length - 1; i >= 0; i--) {
+    const m = slice[i]
+    let content = m.content || ''
+    if (content.length > PREF_CONTENT_MAX) content = content.slice(0, PREF_CONTENT_MAX) + '…'
+    // 中文宽字近似：按 3 字节估算，控制 IDB 行体积
+    const size = content.length * 3
+    if (bytes + size > PREF_CONTEXT_MAX_BYTES) break
+    bytes += size
+    out.unshift({ role: m.role, content })
+  }
+  return out
+}
 
 /** activity.result 的内存值：完整 JSON（不截断），供活动卡解析展示 */
 function stringifyToolResult(result: unknown): string {
@@ -733,6 +761,9 @@ export const useChatStore = defineStore('chat', () => {
   )
   feedbackStats.value = normalizeFeedbackStats(feedbackStats.value)
 
+  /** 偏好数据记录条数（飞轮 UI 展示用；手动 refresh） */
+  const preferenceCount = ref(0)
+
   const configured = computed(() => llm.configured)
   const hasMessages = computed(() =>
     messages.value.some((m) => m.role === 'user' || m.role === 'assistant' || !!m.ui?.length),
@@ -835,6 +866,17 @@ export const useChatStore = defineStore('chat', () => {
         feedbackStats.value.down++
         incCategory(feedbackStats.value, cat, 'down', 1)
       }
+      // 偏好数据飞轮：设为明确 up/down 时记一条（toggle 取消不记、不回撤，append-only）
+      const cfg = getActiveConfig()
+      void logPreference({
+        source: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
+        category: cat,
+        context: buildPreferenceContext(messages.value, messageIndex),
+        chosen: rating === 'up' ? msg.content : undefined,
+        rejected: rating === 'down' ? msg.content : undefined,
+        model: cfg.model,
+        provider: cfg.provider,
+      })
     }
   }
 
@@ -1108,10 +1150,29 @@ export const useChatStore = defineStore('chat', () => {
       .reverse()
       .find((m) => m.role === 'assistant' && m.content)
     const regenCategory = lastAssistant?.qualityCategory || 'general'
+    // 偏好数据飞轮：截断前快照老回答 + 上下文 + 当前模型（重新生成 = 老 rejected、新 chosen）
+    const oldContent = lastAssistant?.content || ''
+    const pairContext = buildPreferenceContext(messages.value, lastUser + 1)
+    const cfg = getActiveConfig()
     messages.value = messages.value.slice(0, lastUser + 1)
     feedbackStats.value.regenerations++
     incCategory(feedbackStats.value, regenCategory, 'regenerations', 1)
     await runAgentLoop()
+    // 飞轮：配对写入（新/老任一为空则跳过——如生成失败/未配置模型）
+    if (oldContent) {
+      const newAssistant = [...messages.value].reverse().find((m) => m.role === 'assistant' && m.content)
+      if (newAssistant?.content) {
+        void logPreference({
+          source: 'regenerate',
+          category: regenCategory,
+          context: pairContext,
+          chosen: newAssistant.content,
+          rejected: oldContent,
+          model: cfg.model,
+          provider: cfg.provider,
+        })
+      }
+    }
   }
 
   /**
@@ -1338,6 +1399,21 @@ export const useChatStore = defineStore('chat', () => {
     if (tail?.role === 'user') await runAgentLoop()
   }
 
+  /** 刷新偏好数据条数（UI 挂载时调用） */
+  async function refreshPreferenceCount() {
+    preferenceCount.value = await countPreferences()
+  }
+  /** 导出全部偏好数据为 JSON 串（供下载 / 分享 / 离线清洗） */
+  async function exportPreferencesData() {
+    void refreshPreferenceCount()
+    return exportPreferences()
+  }
+  /** 清空全部偏好数据 */
+  async function clearPreferencesData() {
+    await clearPreferences()
+    preferenceCount.value = 0
+  }
+
   return {
     open,
     messages,
@@ -1363,5 +1439,9 @@ export const useChatStore = defineStore('chat', () => {
     rejectTool,
     toggleActivityExpand,
     retryConnection,
+    preferenceCount,
+    refreshPreferenceCount,
+    exportPreferencesData,
+    clearPreferencesData,
   }
 })
