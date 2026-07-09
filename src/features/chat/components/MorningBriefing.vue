@@ -434,11 +434,7 @@ const relTime = computed(() => {
   50% { opacity: 1; transform: scale(1.15); }
 }
 .mb-action {
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 13%, transparent);
-  background:
-    linear-gradient(120deg, color-mix(in srgb, var(--mb-tone) 8%, transparent), color-mix(in srgb, var(--mb-tone-2) 4%, transparent)),
-    rgba(2, 6, 23, 0.16);
+  padding: 14px 14px 4px;
 }
 .mb-action.is-muted,
 .mb-body.is-muted {
@@ -446,23 +442,12 @@ const relTime = computed(() => {
   filter: saturate(0.86);
   transition: opacity 0.18s, filter 0.18s;
 }
+/* 「今天先抓」去盒化：不再套嵌套卡，让行动区轻量、与正文视觉权重平衡 */
 .mb-first {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--mb-tone) 15%, rgba(148,163,184,0.12));
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--mb-tone) 10%, transparent), transparent 46px),
-    rgba(2, 6, 23, 0.25);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-  padding: 10px;
+  padding: 0;
 }
 .mb-first::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  content: '';
-  background: linear-gradient(180deg, transparent, var(--mb-tone), transparent);
+  display: none;
   opacity: 0.62;
 }
 /* 底栏：两个计数标签在左，排期按钮在右（同一行） */
@@ -570,10 +555,11 @@ const relTime = computed(() => {
   outline: 0;
 }
 .mb-body {
-  padding: 12px 14px 14px;
-  color: rgba(255,255,255,0.82);
-  font-size: 13.5px;
-  line-height: 1.75;
+  padding: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--mb-tone) 12%, transparent);
+  color: rgba(255,255,255,0.84);
+  font-size: 14px;
+  line-height: 1.8;
 }
 .mb-body :deep(p) { margin: 0 0 7px; }
 .mb-body :deep(p:last-child) { margin-bottom: 0; }
