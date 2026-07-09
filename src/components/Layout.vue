@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
+import NavRail from '@/components/status/NavRail.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
@@ -38,9 +39,12 @@ onUnmounted(() => stopStorageHealthMonitor())
     </StatusBar>
 
     <!-- 主内容区：工作台首页（收件箱为主角，AI 退成左下角召唤层）。min-h-0 让其能在固定高度内滚动 -->
-    <main class="flex-1 min-h-0">
+    <main class="layout-main flex-1 min-h-0">
       <WelcomePage />
     </main>
+
+    <!-- 悬浮侧边导航（宽屏主力；窄屏自动隐藏回退顶栏） -->
+    <NavRail />
 
     <!-- 助手入口：固定左下角小药丸（position:fixed，视口定位） -->
     <ChatLauncher />
@@ -86,5 +90,11 @@ onUnmounted(() => stopStorageHealthMonitor())
   border-radius: 999px;
   background: var(--hud-teal);
   box-shadow: 0 0 12px rgba(94, 234, 212, 0.82);
+}
+/* 宽屏：悬浮 NavRail（收起 50px + 左 14px + 间距）占住左侧，主内容右移避免被遮 */
+@media (min-width: 1080px) {
+  .layout-main {
+    padding-left: 78px;
+  }
 }
 </style>

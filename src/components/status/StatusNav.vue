@@ -1,73 +1,25 @@
 <script setup lang="ts">
+/**
+ * 顶部状态栏导航（窄屏回退 + widget 容器）
+ *
+ * 宽屏（≥1080px）导航由悬浮 NavRail 承担，此处导航列表隐藏；窄屏回退到本横向列表。
+ * Modao / Git / Model 三个状态 widget 始终在顶栏渲染（与导航正交，不随 rail 走）。
+ *
+ * 导航数据 / 纯函数抽到 nav-items.ts 与 NavRail 共享，避免两处维护漂移。
+ */
 import { useWbscfServices, wbscfServices } from '@/features/wbscf'
+import {
+  navItems,
+  moreNavItems,
+  envGroupsOf,
+  envEntries,
+} from './nav-items'
 import GitWidget from './GitWidget.vue'
 import ModelWidget from './ModelWidget.vue'
 import ModaoWidget from './ModaoWidget.vue'
 import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
-
-type EnvKey = 'dev' | 'test' | 'pre'
-type EnvLinks = Partial<Record<EnvKey, string>>
-
-interface EnvGroup {
-  label?: string
-  envs: EnvLinks
-}
-
-interface NavItem {
-  label: string
-  url?: string
-  envs?: EnvLinks
-  envGroups?: EnvGroup[]
-  local?: string
-}
-
-const envMeta: { key: EnvKey }[] = [
-  { key: 'dev' },
-  { key: 'test' },
-  { key: 'pre' },
-]
-
-interface EnvEntry {
-  key: EnvKey
-  url: string
-}
-
-const navItems: NavItem[] = [
-  { label: '账号中心', local: 'account', envs: {
-      dev: 'http://i-dev.wbscf.tech/account/#/auth/login',
-      test: 'http://i-test.wbscf.tech/account/#/auth/login',
-      pre: 'http://i-pre.wbscf.tech/account/#/auth/login' } },
-  { label: '买家中心', local: 'buyer', envs: {
-      dev: 'http://i-dev.wbscf.tech/buyer/#/auth/login',
-      test: 'http://i-test.wbscf.tech/buyer/#/auth/login',
-      pre: 'http://i-pre.wbscf.tech/buyer/#/auth/login' } },
-  { label: '卖家中心', local: 'seller', envs: {
-      dev: 'http://i-dev.wbscf.tech/seller/#/auth/login',
-      test: 'http://i-test.wbscf.tech/seller/#/auth/login',
-      pre: 'http://i-pre.wbscf.tech/seller/#/auth/login' } },
-  { label: '运营管理', local: 'ops', envs: {
-      dev: 'http://ops-dev.wbscf.tech/#/dashboard',
-      test: 'http://ops-test.wbscf.tech/#/dashboard',
-      pre: 'http://ops-pre.wbscf.tech/#/dashboard' } },
-  { label: 'ERP', local: 'erp',
-    envGroups: [
-      { label: '新ERP', envs: {
-          dev: 'https://erp-dev.wbscf.tech/console/#/auth/login',
-          test: 'https://erp-test.wbscf.tech/console/#/auth/login',
-          pre: 'https://erp-pre.wbscf.tech/console/#/auth/login' } },
-      { label: '老ERP', envs: {
-          dev: 'http://erp-dev.wbscf.com',
-          test: 'http://erp-test.wbscf.com' } },
-    ] },
-  { label: '水星', url: 'http://admin-dev.wbscf.tech/login' },
-  { label: 'GitLab Tags', url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags' },
-  { label: '发布平台', url: 'http://cd.esteel.tech/#/page/history' },
-  { label: '我的地盘-禅道', url: 'http://pm.esteel.tech/zentao/my/' },
-  { label: 'apifox', url: 'https://app.apifox.com/project/7718065' },
-]
-const moreNavItems = navItems.slice(7)
 
 const { startOrOpen, statusOf } = useWbscfServices()
 
@@ -92,20 +44,12 @@ function localTitle(app?: string): string {
 function onLocalClick(app?: string): void {
   if (app) startOrOpen(app)
 }
-function envGroupsOf(item: NavItem): EnvGroup[] {
-  if (item.envGroups?.length) return item.envGroups
-  return item.envs ? [{ envs: item.envs }] : []
-}
-function envEntries(envs: EnvLinks): EnvEntry[] {
-  return envMeta
-    .map(({ key }) => ({ key, url: envs[key] }))
-    .filter((env): env is EnvEntry => !!env.url)
-}
 </script>
 
 <template>
   <nav class="status-nav" aria-label="工作台导航">
-    <ul class="status-nav-list">
+    <!-- 导航列表：宽屏隐藏（交给 NavRail），窄屏回退 -->
+    <ul class="status-nav-list status-nav-links">
       <li
         v-for="(item, index) in navItems"
         :key="item.label"
@@ -182,18 +126,13 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
           </div>
         </div>
       </li>
-
-      <li class="status-nav-divider" aria-hidden="true" />
-      <li class="status-nav-item status-nav-modao-item">
-        <ModaoWidget />
-      </li>
-      <li class="status-nav-item status-nav-git-item">
-        <GitWidget />
-      </li>
-      <li class="status-nav-item status-nav-model-item">
-        <ModelWidget />
-      </li>
     </ul>
+
+    <!-- widget 区：始终在顶栏（与导航正交） -->
+    <span class="status-nav-divider" aria-hidden="true" />
+    <GitWidget />
+    <ModelWidget />
+    <ModaoWidget />
   </nav>
 </template>
 
@@ -203,6 +142,7 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   align-items: stretch;
   align-self: stretch;
   min-width: 0;
+  gap: 2px;
 }
 
 .status-nav-list {
@@ -227,7 +167,7 @@ function envEntries(envs: EnvLinks): EnvEntry[] {
   align-items: center;
   gap: 5px;
   padding: 4px 7px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -299,7 +239,7 @@ button.status-nav-label {
   flex-direction: column;
   min-width: 160px;
   padding: 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: rgba(2, 6, 23, 0.86);
   border: 1px solid rgba(125, 211, 252, 0.14);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
@@ -312,7 +252,7 @@ button.status-nav-label {
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   font-size: 12px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.68);
@@ -383,6 +323,16 @@ button.status-nav-label {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* 宽屏：导航列表交给 NavRail，顶栏只留 widget；窄屏回退完整横向列表 */
+@media (min-width: 1080px) {
+  .status-nav-links {
+    display: none;
+  }
+  /* 宽屏无导航列表时，分隔线贴着 widget 区起始，收紧左边距 */
+  .status-nav-divider {
+    margin-left: 0;
+  }
+}
 @media (max-width: 1380px) {
   .status-nav-tail-item {
     display: none;
@@ -397,8 +347,7 @@ button.status-nav-label {
   }
 }
 @media (max-width: 900px) {
-  .status-nav-item:nth-child(n + 5):not(.status-nav-more-item):not(.status-nav-modao-item):not(.status-nav-git-item):not(.status-nav-model-item),
-  .status-nav-model-item {
+  .status-nav-item:nth-child(n + 5):not(.status-nav-more-item) {
     display: none;
   }
   .status-nav-more-item {
