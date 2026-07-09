@@ -212,20 +212,31 @@ const relTime = computed(() => {
 
       <!-- 可操作结论区：先给今天怎么动，再读自然语言简报 -->
       <div v-if="html" class="mb-action" :class="{ 'is-muted': generating }">
-        <section class="mb-first">
+        <div class="mb-action-top">
           <p class="mb-action-kicker">今天先抓什么</p>
+          <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
+            <IconSpark class="w-3 h-3" />
+            <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
+          </button>
+        </div>
+
+        <section class="mb-first">
           <template v-if="firstAction">
-            <h3 :title="firstAction.title">{{ firstAction.title }}</h3>
-            <div class="mb-action-meta">
-              <span>{{ firstAction.source }}</span>
-              <span>{{ firstAction.priorityLabel }}</span>
-              <span>{{ firstAction.status }}</span>
-              <span v-if="firstAction.deadline">截止 {{ firstAction.deadline }}</span>
+            <div class="mb-first-line">
+              <span class="mb-first-title" :title="firstAction.title">{{ firstAction.title }}</span>
+              <span class="mb-action-meta">
+                <span>{{ firstAction.source }}</span>
+                <span>{{ firstAction.priorityLabel }}</span>
+                <span>{{ firstAction.status }}</span>
+                <span v-if="firstAction.deadline">截止 {{ firstAction.deadline }}</span>
+              </span>
             </div>
             <p v-if="firstAction.riskWhy" class="mb-action-why">{{ firstAction.riskWhy }}</p>
           </template>
           <template v-else>
-            <h3>没有明显优先项</h3>
+            <div class="mb-first-line">
+              <span class="mb-first-title">没有明显优先项</span>
+            </div>
             <p class="mb-action-why">当前清单比较平稳，可以按自己的节奏推进。</p>
           </template>
         </section>
@@ -238,11 +249,6 @@ const relTime = computed(() => {
             <b>{{ deferrableItems.length }}</b> 可推迟
           </span>
         </div>
-
-        <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
-          <IconSpark class="w-3 h-3" />
-          <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
-        </button>
       </div>
 
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
@@ -459,38 +465,46 @@ const relTime = computed(() => {
   background: linear-gradient(180deg, transparent, var(--mb-tone), transparent);
   opacity: 0.62;
 }
+/* 顶栏：kicker 在左，排期按钮在右（不再独占一行） */
+.mb-action-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .mb-action-kicker {
-  margin: 0 0 5px;
+  margin: 0;
   color: color-mix(in srgb, var(--mb-tone) 76%, white 6%);
   font: 850 9px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.mb-first h3 {
-  margin: 0;
-  overflow: hidden;
+/* 标题 + 元信息同一行流式排布（超长自动换行），不再标题一块、元信息一块 */
+.mb-first-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 7px;
+}
+.mb-first-title {
   color: rgba(255,255,255,0.94);
   font-size: 13.5px;
   font-weight: 800;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .mb-action-meta {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-  margin-top: 7px;
+  gap: 4px;
+  align-items: baseline;
+  margin: 0;
 }
-.mb-action-meta span,
-.mb-mini-tag {
+.mb-action-meta span {
   padding: 1px 6px;
   border-radius: 999px;
   font-size: 10.5px;
   font-weight: 750;
-}
-.mb-action-meta span {
   color: rgba(226,232,240,0.66);
   background: rgba(255,255,255,0.055);
 }
@@ -535,15 +549,16 @@ const relTime = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
-  margin-top: 10px;
-  padding: 0 11px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--mb-tone) 28%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--mb-tone) 12%, rgba(255,255,255,0.04));
   color: rgba(224,231,255,0.94);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 800;
+  flex-shrink: 0;
   transition: transform 0.15s, background 0.15s, border-color 0.15s;
 }
 .mb-plan:hover,
