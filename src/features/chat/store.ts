@@ -48,6 +48,7 @@ import type { FeedbackCategory, FeedbackStats } from './types'
 import { getActiveConfig } from '@/features/model-config'
 import { logPreference, countPreferences, clearPreferences, exportPreferences } from './preference-log'
 import type { PreferenceContextMessage } from './preference-log'
+import { getFewShotSystemMessage } from './few-shot'
 
 /**
  * activity.result 持久化时的截断长度。内存里 activity.result 持有完整 JSON（供活动卡
@@ -687,8 +688,8 @@ function dynamicContextMessage(): ChatMessage {
   }
 }
 
-/** 构造发给模型的消息序列：静态 system + 动态 system + 截断后的历史 */
-function buildApiMessages(history: ChatMessage[]): ChatMessage[] {
+/** 构造发给模型的消息序列：静态 system + 动态 system + 截断后的历史（+ 可选 few-shot 范例） */
+function buildApiMessages(history: ChatMessage[], fewShot?: ChatMessage | null): ChatMessage[] {
   const truncated = truncateHistory(history, getChatSettings().maxHistoryTokens)
 
   // 如果历史被截断了，插入一条提醒（让模型知道早期对话已丢失）
@@ -702,10 +703,13 @@ function buildApiMessages(history: ChatMessage[]): ChatMessage[] {
       ]
     : []
 
+  // few-shot 范例作独立 system 消息插在 contextNote 之后、历史之前；
+  // 绝不折进 STATIC_SYSTEM_PROMPT（它在下面 655 行冻结，折进去会破坏 DeepSeek prompt cache 前缀）
   return [
     { role: 'system', content: STATIC_SYSTEM_PROMPT },
     dynamicContextMessage(),
     ...contextNote,
+    ...(fewShot ? [fewShot] : []),
     ...truncated,
   ]
 }
@@ -910,6 +914,13 @@ export const useChatStore = defineStore('chat', () => {
     const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
     if (ambientKbContext) hiddenContexts.push(ambientKbContext)
 
+    // few-shot 范例：从偏好飞轮捞词法相似的好答案当范例注入（飞轮空/无匹配返回 null，零回归）。
+    // 每 agent 循环只检索一次（buildApiMessages 每 round 都跑，但 fewShotSystem 在此算好后闭包传入）。
+    const assistantTexts = messages.value
+      .filter((m) => m.role === 'assistant')
+      .map((m) => m.content || '')
+    const fewShotSystem = await getFewShotSystemMessage(latestUser?.content || '', assistantTexts)
+
     try {
       const chatSettings = getChatSettings()
       // 防御：maxRounds 至少为 1（用户在弹窗中直接键入 0 或 localStorage 残缺时兜底），
@@ -923,7 +934,7 @@ export const useChatStore = defineStore('chat', () => {
         assistant._loopFinal = false
 
         const { toolCalls } = await llm.chatStream({
-          messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts]),
+          messages: buildApiMessages([...messages.value.slice(0, -1), ...hiddenContexts], fewShotSystem),
           signal,
           tools: toolsForThisTurn,
           // temperature: 0.3 兼顾工具调用准确性与回答自然度
