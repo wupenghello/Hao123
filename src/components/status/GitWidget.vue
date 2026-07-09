@@ -86,6 +86,7 @@ onUnmounted(() => dash.stopWidgetPolling())
     <template v-else>
       <span class="git-icon-wrap" aria-hidden="true">
         <IconBranch class="git-icon" />
+        <span class="git-led" :class="`is-${syncCue.tone}`" :title="syncCue.detail" />
       </span>
       <span class="git-branch" :title="dash.branch.value || '—'">
         <span v-if="branchParts.scope" class="git-branch-scope">{{ branchParts.scope }}</span>
@@ -132,8 +133,11 @@ onUnmounted(() => dash.stopWidgetPolling())
   overflow: hidden;
 }
 .git-widget:hover {
-  background: rgba(125, 211, 252, 0.09);
+  background: rgba(125, 211, 252, 0.1);
   color: #fff;
+  box-shadow:
+    0 0 0 1px rgba(125, 211, 252, 0.22),
+    0 6px 18px rgba(56, 189, 248, 0.14);
 }
 .git-widget:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.55);
@@ -150,6 +154,23 @@ onUnmounted(() => dash.stopWidgetPolling())
   align-items: center;
   color: rgba(125, 211, 252, 0.9);
   flex: 0 0 auto;
+}
+/* 同步状态指示灯：synced=青绿 / ahead=琥珀 / behind=天蓝 / danger=玫红 / muted=灰 */
+.git-led {
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.git-led.is-synced { background: #34d399; box-shadow: 0 0 7px rgba(52, 211, 153, 0.7); }
+.git-led.is-ahead { background: #fbbf24; box-shadow: 0 0 7px rgba(251, 191, 36, 0.7); }
+.git-led.is-behind { background: #7dd3fc; box-shadow: 0 0 7px rgba(125, 211, 252, 0.7); }
+.git-led.is-danger { background: #fb7185; box-shadow: 0 0 7px rgba(251, 113, 133, 0.75); animation: git-led-pulse 1.2s ease-in-out infinite; }
+.git-led.is-muted { background: rgba(255, 255, 255, 0.3); }
+@keyframes git-led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 .git-icon {
   width: 14px;
@@ -216,5 +237,8 @@ onUnmounted(() => dash.stopWidgetPolling())
   .git-meta {
     display: none;
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .git-led.is-danger { animation: none; }
 }
 </style>

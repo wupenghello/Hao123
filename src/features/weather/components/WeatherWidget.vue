@@ -47,6 +47,7 @@ onUnmounted(() => {
     @click="onClick"
   >
     <template v-if="store.now">
+      <span class="weather-led is-ok" aria-hidden="true" />
       <span class="weather-icon-core">
         <component v-if="currentIcon" :is="currentIcon" class="weather-icon" />
       </span>
@@ -55,6 +56,7 @@ onUnmounted(() => {
     </template>
     <!-- 首次加载中：显示已持久化的城市名 + 旋转图标，避免状态栏空白 -->
     <template v-else-if="store.loading">
+      <span class="weather-led is-loading" aria-hidden="true" />
       <span class="weather-icon-core">
         <IconLoading class="weather-icon weather-spin" />
       </span>
@@ -62,6 +64,7 @@ onUnmounted(() => {
     </template>
     <!-- 加载失败且无数据：轻量错误提示，点击仍可打开弹窗查看详情/重试 -->
     <template v-else-if="store.error">
+      <span class="weather-led is-error" aria-hidden="true" />
       <span class="weather-icon-core is-warn">
         <IconAlertCircleOutline class="weather-icon" />
       </span>
@@ -103,8 +106,35 @@ onUnmounted(() => {
   transition: background-color 0.15s, color 0.15s;
 }
 .weather-widget:hover {
-  background: rgba(94, 234, 212, 0.08);
+  background: rgba(94, 234, 212, 0.1);
   color: #fff;
+  box-shadow:
+    0 0 0 1px rgba(94, 234, 212, 0.22),
+    0 6px 18px rgba(94, 234, 212, 0.14);
+}
+/* 状态指示灯 */
+.weather-led {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+.weather-led.is-ok {
+  background: #5eead4;
+  box-shadow: 0 0 7px rgba(94, 234, 212, 0.75);
+}
+.weather-led.is-loading {
+  background: #fbbf24;
+  box-shadow: 0 0 7px rgba(251, 191, 36, 0.7);
+  animation: weather-pulse 1.2s ease-in-out infinite;
+}
+.weather-led.is-error {
+  background: #fb7185;
+  box-shadow: 0 0 7px rgba(251, 113, 133, 0.7);
+}
+@keyframes weather-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 .weather-icon-core {
   display: inline-flex;
@@ -147,7 +177,8 @@ onUnmounted(() => {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .weather-spin {
+  .weather-spin,
+  .weather-led.is-loading {
     animation: none;
   }
 }

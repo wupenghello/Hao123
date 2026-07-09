@@ -4,6 +4,7 @@ import { useWeatherStore } from '../store'
 import { getWeatherIcon } from '../icons'
 import { aqiTone } from '../ui'
 import type { WeatherHourly } from '../types'
+import { Sparkline } from '@/components/viz'
 import IconWaterPercent from '~icons/mdi/water-percent'
 import IconWeatherWindy from '~icons/mdi/weather-windy'
 import IconWeatherSunsetUp from '~icons/mdi/weather-sunset-up'
@@ -22,6 +23,11 @@ const aqi = computed(() => aqiTone(store.air))
 /** 逐小时预报，每 2 小时取一个（首项即"现在"），最多 8 项 */
 const hourlyEvery2h = computed(() =>
   (store.hourly ?? []).filter((_, i) => i % 2 === 0).slice(0, 8),
+)
+
+/** 逐小时温度序列（喂给 Sparkline 画趋势线，与上方逐小时条目对齐） */
+const hourlyTemps = computed(() =>
+  hourlyEvery2h.value.map((h) => Number(h.temp)).filter((n) => Number.isFinite(n)),
 )
 
 /** 和风时间为 ISO8601（如 2021-11-15T18:30+08:00），取 T 后的 HH:MM */
@@ -69,6 +75,18 @@ onMounted(() => {
       <span class="flex items-center gap-1 truncate">
         <IconWeatherWindy class="w-3.5 h-3.5 flex-shrink-0" />{{ store.now.windDir }}{{ store.now.windScale }}级
       </span>
+    </div>
+
+    <!-- 逐小时温度趋势线（与下方逐小时条目对齐） -->
+    <div v-if="hourlyTemps.length >= 2" class="px-1 mb-1">
+      <Sparkline
+        :data="hourlyTemps"
+        :width="236"
+        :height="30"
+        tone="rgba(94, 234, 212, 0.9)"
+        :fill="true"
+        :dots="false"
+      />
     </div>
 
     <!-- 逐小时预报（每 2 小时一项，横向可滚动） -->
