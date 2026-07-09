@@ -188,6 +188,8 @@ const relTime = computed(() => {
         </button>
       </header>
 
+      <!-- 内容滚动区：header 钉住，正文超长时内部滚动，不被裁、不挤走其它 bento 单元 -->
+      <div class="mb-scroll">
       <div v-if="generating && briefing" class="mb-refreshing">
         <span class="mb-refreshing-pulse" />
         <span>正在重新整理简报，旧内容先留着给你看</span>
@@ -273,6 +275,7 @@ const relTime = computed(() => {
         <span class="flex-1 min-w-0 truncate">配置大模型后即可为你生成「今日简报」</span>
         <button class="mb-config" title="打开模型设置" @click="chat.openModelConfig()">去配置 →</button>
       </div>
+      </div>
     </section>
   </Transition>
 </template>
@@ -283,6 +286,8 @@ const relTime = computed(() => {
   --mb-tone-2: #22d3ee;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--mb-tone) 18%, rgba(148, 163, 184, 0.16));
   border-radius: 12px;
   background:
@@ -329,9 +334,18 @@ const relTime = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
+  flex-shrink: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 15%, transparent);
   background: linear-gradient(90deg, color-mix(in srgb, var(--mb-tone) 8%, transparent), transparent);
 }
+/* 内容滚动区：撑满卡片剩余高度，内部滚动，滚动条隐藏（项目偏好） */
+.mb-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.mb-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .mb-icon {
   display: grid;
   width: 24px;
