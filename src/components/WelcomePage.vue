@@ -141,99 +141,99 @@ function finishOnboarding() {
 </script>
 
 <template>
-  <!-- 外层固定高度容器（body 永久 overflow:hidden，内部列各自滚动，避免内容被视口裁掉） -->
+  <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
   <div class="welcome-shell">
-    <div class="welcome-grid">
-      <aside class="welcome-left" aria-label="今日状态与简报">
-        <!-- bento 单元 A：问候 hero —— 今日信号总览 -->
-        <header class="bento-cell bento-hero">
-          <p class="bento-kicker">today signal</p>
-          <h1 class="bento-title">{{ greeting }} · {{ dateStr }}</h1>
-          <Transition name="guide-fade">
-            <p v-if="dailySummary" class="bento-summary">
-              {{ dailySummary }}
-              <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
-            </p>
-          </Transition>
-        </header>
+    <!-- 平铺 bento：顶部一行小卡（hero/信号/风险/温度），底部一行两张高卡（晨报/收件箱）。
+         收件箱不再是唯一主角，降级成一张普通 bento 卡。 -->
+    <div class="welcome-bento">
+      <!-- bento 单元 A：问候 hero —— 今日信号总览 -->
+      <header class="bento-cell bento-hero">
+        <p class="bento-kicker">today signal</p>
+        <h1 class="bento-title">{{ greeting }} · {{ dateStr }}</h1>
+        <Transition name="guide-fade">
+          <p v-if="dailySummary" class="bento-summary">
+            {{ dailySummary }}
+            <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
+          </p>
+        </Transition>
+      </header>
 
-        <!-- bento 单元 B：今日信号迷你瓦片行（任务 / Bug / 本地，纯计数） -->
-        <div class="bento-cell bento-signals" aria-label="工作项计数">
-          <button
-            v-for="s in signals"
-            :key="s.key"
-            type="button"
-            class="signal-tile"
-            :data-tone="s.tone"
-            tabindex="-1"
-            aria-hidden="true"
-          >
-            <span class="signal-value">{{ s.value }}</span>
-            <span class="signal-label">{{ s.label }}</span>
-          </button>
+      <!-- bento 单元 B：今日信号迷你瓦片（任务 / Bug / 本地，纯计数） -->
+      <div class="bento-cell bento-signals" aria-label="工作项计数">
+        <button
+          v-for="s in signals"
+          :key="s.key"
+          type="button"
+          class="signal-tile"
+          :data-tone="s.tone"
+          tabindex="-1"
+          aria-hidden="true"
+        >
+          <span class="signal-value">{{ s.value }}</span>
+          <span class="signal-label">{{ s.label }}</span>
+        </button>
+      </div>
+
+      <!-- bento 单元 C：风险雷达（分段环，insights summary，始终可用） -->
+      <div class="bento-cell bento-radar" aria-label="风险雷达">
+        <div class="bento-section-label">
+          <span class="bento-kicker">risk radar</span>
         </div>
-
-        <!-- bento 单元 C：风险雷达（分段环，insights summary，始终可用） -->
-        <div class="bento-cell bento-radar" aria-label="风险雷达">
-          <div class="bento-section-label">
-            <span class="bento-kicker">risk radar</span>
-          </div>
-          <div class="radar-body">
-            <div class="radar-ring">
-              <ProgressRing
-                v-if="riskHasData"
-                :segments="riskSegments"
-                :size="92"
-                :thickness="9"
-                label="今日工作项风险分布"
-              />
-              <ProgressRing
-                v-else
-                :value="1"
-                :max="1"
-                tone="rgba(148, 163, 184, 0.42)"
-                :size="92"
-                :thickness="9"
-                label="暂无风险项"
-              />
-              <div class="radar-center">
-                <span class="radar-center-value">{{ riskTotal }}</span>
-                <span class="radar-center-label">待关注</span>
-              </div>
+        <div class="radar-body">
+          <div class="radar-ring">
+            <ProgressRing
+              v-if="riskHasData"
+              :segments="riskSegments"
+              :size="84"
+              :thickness="9"
+              label="今日工作项风险分布"
+            />
+            <ProgressRing
+              v-else
+              :value="1"
+              :max="1"
+              tone="rgba(148, 163, 184, 0.42)"
+              :size="84"
+              :thickness="9"
+              label="暂无风险项"
+            />
+            <div class="radar-center">
+              <span class="radar-center-value">{{ riskTotal }}</span>
+              <span class="radar-center-label">待关注</span>
             </div>
-            <ul class="radar-legend">
-              <li v-for="s in riskSegments" :key="s.label" class="radar-legend-item">
-                <span class="radar-dot" :style="{ background: s.tone }" />
-                <span class="radar-legend-label">{{ s.label }}</span>
-                <span class="radar-legend-value">{{ s.value }}</span>
-              </li>
-              <li v-if="!riskHasData" class="radar-legend-empty">一切正常，无风险项</li>
-            </ul>
           </div>
+          <ul class="radar-legend">
+            <li v-for="s in riskSegments" :key="s.label" class="radar-legend-item">
+              <span class="radar-dot" :style="{ background: s.tone }" />
+              <span class="radar-legend-label">{{ s.label }}</span>
+              <span class="radar-legend-value">{{ s.value }}</span>
+            </li>
+            <li v-if="!riskHasData" class="radar-legend-empty">一切正常，无风险项</li>
+          </ul>
         </div>
+      </div>
 
-        <!-- bento 单元 D：未来 7 天温度趋势（sparkline，weather.daily） -->
-        <div v-if="tempHasData" class="bento-cell bento-temp" aria-label="未来 7 天温度趋势">
-          <div class="bento-section-label">
-            <span class="bento-kicker">7-day temp</span>
-            <span class="bento-temp-range">{{ tempRange }}</span>
-          </div>
-          <Sparkline
-            :data="tempHigh"
-            :data2="tempLow"
-            :width="260"
-            :height="42"
-            tone="var(--home-tone)"
-            tone2="rgba(125, 211, 252, 0.4)"
-          />
+      <!-- bento 单元 D：未来 7 天温度趋势（sparkline，weather.daily） -->
+      <div v-if="tempHasData" class="bento-cell bento-temp" aria-label="未来 7 天温度趋势">
+        <div class="bento-section-label">
+          <span class="bento-kicker">7-day temp</span>
+          <span class="bento-temp-range">{{ tempRange }}</span>
         </div>
+        <Sparkline
+          :data="tempHigh"
+          :data2="tempLow"
+          :width="260"
+          :height="42"
+          tone="var(--home-tone)"
+          tone2="rgba(0, 217, 255, 0.4)"
+        />
+      </div>
 
-        <!-- bento 单元 E：每日晨报 —— 进入清单前的「今天先抓什么」 -->
-        <MorningBriefing class="bento-briefing" />
-      </aside>
+      <!-- bento 单元 E：每日晨报（高卡，左侧） -->
+      <MorningBriefing class="bento-cell bento-briefing" />
 
-      <!-- 统一收件箱 = 主角（右侧占据剩余空间，内部自行切换清单 / 星图形态） -->
-      <section class="welcome-right" aria-label="统一收件箱">
+      <!-- bento 单元 F：统一收件箱（高卡，右侧，不再是唯一主角） -->
+      <section class="bento-cell bento-inbox" aria-label="统一收件箱">
         <UnifiedInbox />
       </section>
     </div>
@@ -295,40 +295,42 @@ function finishOnboarding() {
   mask-image: linear-gradient(135deg, rgba(0,0,0,0.5), transparent 62%);
   opacity: 0.9;
 }
-.welcome-grid {
+/* ===== 平铺 bento（spec 模块1：瀑布流式 bento，收件箱降级为普通卡）=====
+ * 12 列；顶部 auto 行放小卡（hero/信号/风险/温度），底部 1fr 行放两张高卡（晨报/收件箱），
+ * 高卡各自内部滚动，整块严丝合缝填满视口（body 永久 overflow:hidden）。 */
+.welcome-bento {
   position: relative;
   z-index: 1;
   display: grid;
   width: 100%;
   height: 100%;
-  grid-template-columns: minmax(304px, 24vw) minmax(0, 1fr);
-  gap: 16px;
-}
-.welcome-left,
-.welcome-right {
-  min-height: 0;
-}
-.welcome-left {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-3);
-  overflow-y: auto;
-  padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+  grid-auto-flow: dense;
 }
-.welcome-left::-webkit-scrollbar { width: 6px; }
-.welcome-left::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.24);
-  border-radius: 999px;
-}
-.welcome-right {
-  display: flex;
+.bento-hero { grid-column: span 4; grid-row: 1; }
+.bento-signals { grid-column: span 4; grid-row: 1; }
+.bento-radar { grid-column: span 4; grid-row: 1; }
+.bento-temp { display: none; } /* 默认隐藏；宽屏 ≥1280 独占一格 */
+.bento-briefing { grid-column: span 5; grid-row: 2; min-height: 0; }
+.bento-inbox { grid-column: span 7; grid-row: 2; min-height: 0; display: flex; }
+.bento-inbox > :deep(*) {
+  flex: 1 1 auto;
   min-width: 0;
-}
-.welcome-right :deep(> *) {
   min-height: 0;
-  flex: 1;
+}
+/* 宽屏：顶部四张小卡并排（各 span 3），温度独占一格 */
+@media (min-width: 1280px) {
+  .bento-hero,
+  .bento-signals,
+  .bento-radar { grid-column: span 3; }
+  .bento-temp {
+    grid-column: span 3;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+  }
 }
 /* ===== bento 单元基座：统一毛玻璃 + 信号轨 + 网格纹理（对齐 HUD skill 约定）===== */
 .bento-cell {
@@ -454,7 +456,7 @@ function finishOnboarding() {
 }
 
 .bento-briefing {
-  flex: 1 1 auto;
+  /* 高卡 bento 单元（grid item）：填满网格格，内部 .mb-card → .mb-scroll 滚动 */
   min-height: 0;
 }
 
@@ -615,26 +617,35 @@ function finishOnboarding() {
 .bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
 .bento-temp { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
 .bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both; }
+.bento-inbox { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both; }
 @keyframes bento-rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* 窄屏：bento 退回单列堆叠，整页可滚 */
 @media (max-width: 980px) {
   .welcome-shell {
     overflow-y: auto;
     padding: 16px;
   }
   .welcome-shell::after { inset: 16px; }
-  .welcome-grid {
+  .welcome-bento {
     height: auto;
     min-height: 100%;
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
   }
-  .welcome-left {
-    overflow: visible;
-    padding-right: 0;
+  .bento-hero,
+  .bento-signals,
+  .bento-radar,
+  .bento-temp,
+  .bento-briefing,
+  .bento-inbox {
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
-  .welcome-right { min-height: 640px; }
+  .bento-temp { display: flex; flex-direction: column; }
+  .bento-inbox { min-height: 560px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .welcome-urgent-dot { animation: none; }
@@ -642,7 +653,8 @@ function finishOnboarding() {
   .bento-signals,
   .bento-radar,
   .bento-temp,
-  .bento-briefing { animation: none; }
+  .bento-briefing,
+  .bento-inbox { animation: none; }
   .signal-tile { transition: none; }
   .signal-tile:hover { transform: none; box-shadow: none; }
   .welcome-onboard-btn,
