@@ -17,7 +17,6 @@ import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/fe
 import {
   priorityBadge as ztPri,
   hasDeadline as ztHasDeadline,
-  isOverdue as ztIsOverdue,
   isUrgentTask,
   isUrgentBug,
   taskStatusBadge,
@@ -295,6 +294,60 @@ function isUrgent(it: InboxItem): boolean {
     : it.kind === 'bug'
       ? isUrgentBug(it.ref as ZentaoBug)
       : isUrgentLocalTask(it.ref as LocalTask)
+}
+
+// ============ 模块 2：优先级色条 / 状态呼吸灯 / 截止倒计时 ============
+/**
+ * 优先级档位 1~4（数字越小越高）→ 驱动卡片左轨颜色。
+ * 任务/本地取 pri，Bug 取 severity（更能反映紧迫度）回退 pri；空/非法归 4（最低）。
+ */
+function priTier(it: InboxItem): 1 | 2 | 3 | 4 {
+  const raw =
+    it.kind === 'bug'
+      ? (it.ref as ZentaoBug).severity ?? (it.ref as ZentaoBug).pri
+      : (it.ref as { pri?: string | number }).pri
+  const n = Number(raw)
+  if (!n || Number.isNaN(n)) return 4
+  return (Math.min(4, Math.max(1, n)) as 1 | 2 | 3 | 4)
+}
+
+/** 状态码 → 呼吸灯只在「活跃」态（进行中 / Bug 激活）脉动，其余静止 */
+function isLiveStatus(it: InboxItem): boolean {
+  if (it.kind === 'task') return (it.ref as ZentaoTask).status === 'doing'
+  if (it.kind === 'bug') return (it.ref as ZentaoBug).status === 'active'
+  return false
+}
+
+interface Countdown {
+  label: string
+  /** overdue 逾期 / today 今天 / soon 明后天 / later 更远 */
+  tone: 'overdue' | 'today' | 'soon' | 'later'
+}
+/**
+ * 截止倒计时：原始 yyyy-MM-dd → 「逾期 N 天 / 今天到期 / 明天到期 / N 天后」。
+ * 按本地零点比较（与 zentao/shared/ui 的 isOverdue 同口径，规避 UTC 误判）。无有效截止返回 null。
+ */
+function countdown(deadline?: string): Countdown | null {
+  if (!deadline || /^0000/.test(deadline)) return null
+  const day = String(deadline).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+  const dl = new Date(`${day}T00:00:00`)
+  if (Number.isNaN(dl.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((dl.getTime() - today.getTime()) / 86_400_000)
+  if (days < 0) return { label: `逾期 ${-days} 天`, tone: 'overdue' }
+  if (days === 0) return { label: '今天到期', tone: 'today' }
+  if (days === 1) return { label: '明天到期', tone: 'soon' }
+  if (days <= 2) return { label: `${days} 天后`, tone: 'soon' }
+  return { label: `${days} 天后`, tone: 'later' }
+}
+
+/** 状态灯 tooltip 文案：复用各来源的状态 badge 标签，本地按完成态 */
+function statusText(it: InboxItem): string {
+  if (it.kind === 'task') return taskStatusBadge((it.ref as ZentaoTask).status).label
+  if (it.kind === 'bug') return bugStatusBadge((it.ref as ZentaoBug).status).label
+  return (it.ref as LocalTask).done ? '已完成' : '未完成'
 }
 
 // ============ 小吴：AI 主动入口 → 行动流接手（带结构化上下文）============
@@ -946,6 +999,7 @@ onUnmounted(() => {
             'in-thread': g.isCluster,
             'is-completing': it.kind === 'local' && hasCompleting((it.ref as LocalTask).id),
             [`is-status-${it.kind === 'task' ? (it.ref as ZentaoTask).status : it.kind === 'bug' ? (it.ref as ZentaoBug).status : 'local'}`]: true,
+            [`is-pri-${priTier(it)}`]: true,
           }"
           @click="onRowClick(it)"
         >
@@ -969,6 +1023,12 @@ onUnmounted(() => {
               <IconBug class="zt-icn" />
             </template>
             <span class="zt-idx">{{ String(idx + 1).padStart(2, '0') }}</span>
+            <span
+              class="zt-status-led"
+              :class="{ 'is-live': isLiveStatus(it) }"
+              :title="`状态：${statusText(it)}`"
+              aria-hidden="true"
+            />
           </div>
 
           <!-- 主体：单行占满剩余宽度，标题撑开把右侧元素顶到最右 -->
@@ -1008,10 +1068,11 @@ onUnmounted(() => {
                 {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
               </span>
               <span
-                v-if="ztHasDeadline((it.ref as ZentaoTask).deadline)"
-                class="zt-dl"
-                :class="{ 'is-overdue': ztIsOverdue((it.ref as ZentaoTask).deadline) }"
-              >{{ (it.ref as ZentaoTask).deadline }}</span>
+                v-if="countdown((it.ref as ZentaoTask).deadline)"
+                class="zt-countdown"
+                :class="`is-${countdown((it.ref as ZentaoTask).deadline)!.tone}`"
+                :title="`截止 ${(it.ref as ZentaoTask).deadline}`"
+              >{{ countdown((it.ref as ZentaoTask).deadline)!.label }}</span>
             </template>
 
             <template v-else-if="it.kind === 'bug'">
@@ -1023,14 +1084,21 @@ onUnmounted(() => {
               <span class="zt-badge ring-1 ring-inset" :class="bugStatusBadge((it.ref as ZentaoBug).status).class">
                 {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
               </span>
+              <span
+                v-if="countdown((it.ref as ZentaoBug).deadline)"
+                class="zt-countdown"
+                :class="`is-${countdown((it.ref as ZentaoBug).deadline)!.tone}`"
+                :title="`截止 ${(it.ref as ZentaoBug).deadline}`"
+              >{{ countdown((it.ref as ZentaoBug).deadline)!.label }}</span>
             </template>
 
             <template v-else>
               <span
-                v-if="deadlineLabel((it.ref as LocalTask).deadline)"
-                class="zt-dl"
-                :class="{ 'is-overdue': ztIsOverdue((it.ref as LocalTask).deadline) }"
-              >{{ deadlineLabel((it.ref as LocalTask).deadline) }}</span>
+                v-if="countdown((it.ref as LocalTask).deadline)"
+                class="zt-countdown"
+                :class="`is-${countdown((it.ref as LocalTask).deadline)!.tone}`"
+                :title="`截止 ${cleanDeadline((it.ref as LocalTask).deadline)}`"
+              >{{ countdown((it.ref as LocalTask).deadline)!.label }}</span>
               <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
                 {{ priBadge((it.ref as LocalTask).pri).label }}
               </span>
@@ -1850,6 +1918,52 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, var(--zt-status) 22%, transparent);
   background-color: var(--zt-status-bg);
 }
+/* ===== 模块 2：优先级色条（左轨改由优先级驱动，与徽标同色系）=====
+   同特异性 (0,2,1) 但排在状态 ::before 之后 → 覆盖状态轨；urgent 在其后 → 紧急仍压过。 */
+.zt-mission-card.is-pri-1 { --zt-pri: #fb7185; }  /* P1 — 玫红 */
+.zt-mission-card.is-pri-2 { --zt-pri: #fbbf24; }  /* P2 — 琥珀 */
+.zt-mission-card.is-pri-3 { --zt-pri: #38bdf8; }  /* P3 — 天蓝 */
+.zt-mission-card.is-pri-4 { --zt-pri: #64748b; }  /* P4 — 冷灰 */
+.zt-mission-card[class*='is-pri-']::before {
+  background: linear-gradient(180deg, transparent, var(--zt-pri), transparent);
+  opacity: 0.92;
+}
+/* 高优（P1/P2）左轨加辉光，让优先级一眼可辨 */
+.zt-mission-card.is-pri-1::before,
+.zt-mission-card.is-pri-2::before {
+  width: 3px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--zt-pri) 60%, transparent);
+}
+/* ===== 模块 2：状态呼吸灯（lead 区）===== */
+.zt-status-led {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--zt-status, #64748b);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--zt-status, #64748b) 70%, transparent);
+}
+.zt-status-led.is-live {
+  animation: zt-led-breathe 1.8s ease-in-out infinite;
+}
+@keyframes zt-led-breathe {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 4px color-mix(in srgb, var(--zt-status, #38bdf8) 50%, transparent); }
+  50% { opacity: 1; box-shadow: 0 0 10px color-mix(in srgb, var(--zt-status, #38bdf8) 90%, transparent); }
+}
+/* ===== 模块 2：截止倒计时 chip 配色 ===== */
+.zt-countdown {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255,255,255,0.045);
+  color: rgba(255,255,255,0.52);
+}
+.zt-countdown.is-overdue { background: rgba(251,113,133,0.14); color: #fda4af; }
+.zt-countdown.is-today { background: rgba(251,191,36,0.14); color: #fcd34d; }
+.zt-countdown.is-soon { background: rgba(56,189,248,0.12); color: #7dd3fc; }
 /* 紧急项玫红警示必须压过状态色：特异性 (0,3,0) > 状态色 (0,2,0) */
 .zt-mission-card.is-urgent[class*='is-status-'] {
   border-color: rgba(244,63,94,0.24);
@@ -2149,6 +2263,7 @@ onUnmounted(() => {
   .zt-risk.is-overdue.is-ask,
   .zt-ic-refresh.is-spinning svg,
   .zt-ic-dot,
+  .zt-status-led.is-live,
   .zt-mission-card,
   .zt-mission-card.is-completing,
   .zt-mission-card.is-completing .zt-check,
