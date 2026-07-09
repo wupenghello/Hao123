@@ -212,13 +212,7 @@ const relTime = computed(() => {
 
       <!-- 可操作结论区：先给今天怎么动，再读自然语言简报 -->
       <div v-if="html" class="mb-action" :class="{ 'is-muted': generating }">
-        <div class="mb-action-top">
-          <p class="mb-action-kicker">今天先抓什么</p>
-          <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
-            <IconSpark class="w-3 h-3" />
-            <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
-          </button>
-        </div>
+        <p class="mb-action-kicker">今天先抓什么</p>
 
         <section class="mb-first">
           <template v-if="firstAction">
@@ -241,13 +235,19 @@ const relTime = computed(() => {
           </template>
         </section>
 
-        <div class="mb-action-summary">
-          <span class="mb-stat is-risk" :class="{ 'is-zero': !summary.total }" :title="summary.total ? `${summary.total} 项逾期/临期/停滞` : '没有逾期、临期或停滞项'">
-            <b>{{ summary.total }}</b> 风险项
-          </span>
-          <span class="mb-stat" :class="{ 'is-zero': !deferrableItems.length }" :title="deferrableItems.length ? '低优且不紧迫，可往后排' : '没有明显可推迟项'">
-            <b>{{ deferrableItems.length }}</b> 可推迟
-          </span>
+        <div class="mb-action-foot">
+          <div class="mb-action-summary">
+            <span class="mb-stat is-risk" :class="{ 'is-zero': !summary.total }" :title="summary.total ? `${summary.total} 项逾期/临期/停滞` : '没有逾期、临期或停滞项'">
+              <b>{{ summary.total }}</b> 风险项
+            </span>
+            <span class="mb-stat" :class="{ 'is-zero': !deferrableItems.length }" :title="deferrableItems.length ? '低优且不紧迫，可往后排' : '没有明显可推迟项'">
+              <b>{{ deferrableItems.length }}</b> 可推迟
+            </span>
+          </div>
+          <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
+            <IconSpark class="w-3 h-3" />
+            <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
+          </button>
         </div>
       </div>
 
@@ -465,16 +465,16 @@ const relTime = computed(() => {
   background: linear-gradient(180deg, transparent, var(--mb-tone), transparent);
   opacity: 0.62;
 }
-/* 顶栏：kicker 在左，排期按钮在右（不再独占一行） */
-.mb-action-top {
+/* 底栏：两个计数标签在左，排期按钮在右（同一行） */
+.mb-action-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-top: 9px;
 }
 .mb-action-kicker {
-  margin: 0;
+  margin: 0 0 8px;
   color: color-mix(in srgb, var(--mb-tone) 82%, white 6%);
   font: 850 12px/1.2 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
   letter-spacing: 0.08em;
@@ -519,7 +519,7 @@ const relTime = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 9px;
+  margin: 0;
 }
 .mb-stat {
   display: inline-flex;
