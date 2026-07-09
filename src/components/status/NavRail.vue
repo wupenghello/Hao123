@@ -227,19 +227,11 @@ const moreItems = computed(() => moreNavItems)
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: 0;
   margin: 0;
   padding: 0 6px;
   list-style: none;
-  overflow-y: auto;
-  overflow-x: visible;
-  /* 不显示滚动条：内容仍可滚动，但不露出滚动条（项目偏好：工作台不出现滚动条） */
-  scrollbar-width: none;
-}
-.nav-rail-list::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  /* 不设 overflow：一旦某一轴非 visible，另一轴的 visible 会被规范当成 auto，
+     从而裁掉向右飞出的二级菜单。桌面宽屏 11 项放得下，无需滚动。 */
 }
 
 .nav-rail-item {
