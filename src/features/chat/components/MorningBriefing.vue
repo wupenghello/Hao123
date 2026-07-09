@@ -230,34 +230,13 @@ const relTime = computed(() => {
           </template>
         </section>
 
-        <div class="mb-action-cols">
-          <section class="mb-action-block">
-            <div class="mb-action-block-head">
-              <span>风险项</span>
-              <b>{{ summary.total }}</b>
-            </div>
-            <ul v-if="riskItems.length" class="mb-mini-list">
-              <li v-for="it in riskItems" :key="it.key">
-                <span class="mb-mini-title" :title="it.title">{{ it.title }}</span>
-                <span class="mb-mini-tag">{{ it.riskLabel || '紧急' }}</span>
-              </li>
-            </ul>
-            <p v-else class="mb-empty-line">暂无逾期、临期或停滞项。</p>
-          </section>
-
-          <section class="mb-action-block">
-            <div class="mb-action-block-head">
-              <span>可推迟项</span>
-              <b>{{ deferrableItems.length }}</b>
-            </div>
-            <ul v-if="deferrableItems.length" class="mb-mini-list">
-              <li v-for="it in deferrableItems" :key="it.key">
-                <span class="mb-mini-title" :title="it.title">{{ it.title }}</span>
-                <span class="mb-mini-tag is-soft">{{ it.priorityLabel }}</span>
-              </li>
-            </ul>
-            <p v-else class="mb-empty-line">暂时没有明显可推迟项。</p>
-          </section>
+        <div class="mb-action-summary">
+          <span class="mb-stat is-risk" :class="{ 'is-zero': !summary.total }" :title="summary.total ? `${summary.total} 项逾期/临期/停滞` : '没有逾期、临期或停滞项'">
+            <b>{{ summary.total }}</b> 风险项
+          </span>
+          <span class="mb-stat" :class="{ 'is-zero': !deferrableItems.length }" :title="deferrableItems.length ? '低优且不紧迫，可往后排' : '没有明显可推迟项'">
+            <b>{{ deferrableItems.length }}</b> 可推迟
+          </span>
         </div>
 
         <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
@@ -461,8 +440,7 @@ const relTime = computed(() => {
   filter: saturate(0.86);
   transition: opacity 0.18s, filter 0.18s;
 }
-.mb-first,
-.mb-action-block {
+.mb-first {
   position: relative;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--mb-tone) 15%, rgba(148,163,184,0.12));
@@ -471,10 +449,9 @@ const relTime = computed(() => {
     radial-gradient(circle at 12px 10px, color-mix(in srgb, var(--mb-tone) 10%, transparent), transparent 46px),
     rgba(2, 6, 23, 0.25);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  padding: 10px;
 }
-.mb-first { padding: 10px; }
-.mb-first::before,
-.mb-action-block::before {
+.mb-first::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: 2px;
@@ -523,61 +500,36 @@ const relTime = computed(() => {
   font-size: 12px;
   line-height: 1.55;
 }
-.mb-action-cols {
-  display: grid;
-  grid-template-columns: 1fr;
+/* 行动区计数摘要：取代原先两列标题列表（与 LLM 正文 / 风险雷达去重），只留计数 */
+.mb-action-summary {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 9px;
 }
-.mb-action-block { padding: 9px; }
-.mb-action-block-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
-  color: rgba(255,255,255,0.78);
+.mb-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mb-tone) 22%, transparent);
+  background: color-mix(in srgb, var(--mb-tone) 8%, rgba(255,255,255,0.03));
+  color: rgba(230,238,255,0.78);
   font-size: 11.5px;
-  font-weight: 800;
 }
-.mb-action-block-head b {
-  color: color-mix(in srgb, var(--mb-tone) 82%, white);
-  font: 850 11px/1 var(--hud-font-data, ui-monospace, monospace);
+.mb-stat b {
+  font: 800 13px/1 var(--font-mono);
+  color: color-mix(in srgb, var(--mb-tone) 88%, white);
+  font-variant-numeric: tabular-nums;
 }
-.mb-mini-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.mb-stat.is-risk {
+  border-color: color-mix(in srgb, var(--mb-danger, #fb7185) 28%, transparent);
+  background: color-mix(in srgb, var(--mb-danger, #fb7185) 9%, rgba(255,255,255,0.03));
 }
-.mb-mini-list li {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-.mb-mini-list li + li { margin-top: 6px; }
-.mb-mini-title {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: rgba(255,255,255,0.66);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mb-mini-tag {
-  flex-shrink: 0;
-  background: rgba(244,63,94,0.12);
-  color: #fda4af;
-}
-.mb-mini-tag.is-soft {
-  background: color-mix(in srgb, var(--mb-tone-2) 10%, transparent);
-  color: rgba(191,219,254,0.78);
-}
-.mb-empty-line {
-  margin: 0;
-  color: rgba(255,255,255,0.42);
-  font-size: 12px;
+.mb-stat.is-risk b { color: #fda4af; }
+.mb-stat.is-zero {
+  opacity: 0.5;
 }
 .mb-plan {
   display: inline-flex;
