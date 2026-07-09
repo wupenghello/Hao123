@@ -40,4 +40,6 @@ Thumbs.db
 # promptfoo 评测（eval/）——含明文 API Key 的配置与评测产物
 eval/llm-config.local.json
 promptfoo_results*
+# OPRO 自动优化产物（每次跑 eval:optimize 结果不同，可随时再生）
+eval/prompts/briefing.system.opro.txt
 .promptfoo/

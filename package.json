@@ -12,7 +12,8 @@
     "eval:config": "node eval/check-config.mjs",
     "eval:sync": "node eval/sync-prompt.mjs",
     "eval:briefing": "promptfoo eval -c eval/promptfooconfig.yaml",
-    "eval:view": "promptfoo view"
+    "eval:view": "promptfoo view",
+    "eval:optimize": "node eval/optimize.mjs"
   },
   "dependencies": {
     "markdown-it": "^14.2.0",
@@ -29,6 +30,7 @@
     "@types/three": "^0.185.0",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/tsconfig": "^0.9.1",
+    "js-yaml": "^5.2.1",
     "promptfoo": "^0.120.19",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.2",
