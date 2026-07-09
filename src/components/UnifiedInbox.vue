@@ -1724,11 +1724,10 @@ onUnmounted(() => {
     linear-gradient(90deg, rgba(255,255,255,0.024), transparent 7%, transparent 93%, rgba(255,255,255,0.018)),
     linear-gradient(180deg, rgba(255,255,255,0.02), transparent 92%),
     repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.014) 47px 48px);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+  /* 不显示滚动条（项目偏好：工作台不出现滚动条） */
+  scrollbar-width: none;
 }
-.zt-mission-board::-webkit-scrollbar { width: 6px; }
-.zt-mission-board::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.24); border-radius: 999px; }
+.zt-mission-board::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .zt-mission-card {
   position: relative;
   display: flex;
@@ -1770,6 +1769,25 @@ onUnmounted(() => {
   opacity: 0.38;
 }
 .zt-mission-card:last-child { margin-bottom: 0; }
+/* 进场：错峰淡入上浮。用 backwards fill（仅延迟期应用 from，结束自动回退到 base），
+   不与 hover 的 transform 冲突——hover 仍可正常 translateY。按 article 顺序错峰，
+   忽略穿插的分组头按钮（nth-of-type 只数 article）。 */
+.zt-mission-card {
+  animation: zt-card-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.zt-mission-board article:nth-of-type(1) { animation-delay: 0ms; }
+.zt-mission-board article:nth-of-type(2) { animation-delay: 35ms; }
+.zt-mission-board article:nth-of-type(3) { animation-delay: 70ms; }
+.zt-mission-board article:nth-of-type(4) { animation-delay: 105ms; }
+.zt-mission-board article:nth-of-type(5) { animation-delay: 140ms; }
+.zt-mission-board article:nth-of-type(6) { animation-delay: 175ms; }
+.zt-mission-board article:nth-of-type(7) { animation-delay: 210ms; }
+.zt-mission-board article:nth-of-type(8) { animation-delay: 245ms; }
+.zt-mission-board article:nth-of-type(n+9) { animation-delay: 280ms; }
+@keyframes zt-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .zt-mission-card.is-clickable { cursor: pointer; }
 .zt-mission-card:hover {
   transform: translateY(-2px);
@@ -2131,6 +2149,7 @@ onUnmounted(() => {
   .zt-risk.is-overdue.is-ask,
   .zt-ic-refresh.is-spinning svg,
   .zt-ic-dot,
+  .zt-mission-card,
   .zt-mission-card.is-completing,
   .zt-mission-card.is-completing .zt-check,
   .zt-mission-card.is-completing .zt-title::after { animation: none; }
