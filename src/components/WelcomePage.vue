@@ -18,14 +18,18 @@ import { useWeatherStore } from '@/features/weather'
 import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
+import { useInboxInsights } from '@/features/insights'
 import { setLocalStorageItem } from '@/features/storage-health'
 import UnifiedInbox from '@/components/UnifiedInbox.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
+import { ProgressRing, Sparkline } from '@/components/viz'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
+/** 风险预测汇总（纯启发式，始终可用）——驱动「风险雷达」环 */
+const { summary } = useInboxInsights()
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -80,6 +84,37 @@ const signals = computed(() => [
   { key: 'bug', label: '待修 Bug', value: bugStore.assignedCount, tone: 'rose' },
   { key: 'local', label: '本地待办', value: localStore.openCount, tone: 'teal' },
 ])
+
+// ============ 风险雷达（分段环：逾期 / 临期 / 停滞 / 正常）============
+// 数据来自 insights summary（纯启发式、始终可用），用 ProgressRing 分段呈现。
+const riskSegments = computed(() => {
+  const s = summary.value
+  const ok = Math.max(0, s.total - s.overdue - s.dueSoon - s.stalled)
+  return [
+    { value: s.overdue, tone: 'var(--home-danger)', label: '逾期' },
+    { value: s.dueSoon, tone: 'var(--home-warning)', label: '临期' },
+    { value: s.stalled, tone: 'var(--home-tone-2)', label: '停滞' },
+    { value: ok, tone: 'rgba(148, 163, 184, 0.42)', label: '正常' },
+  ].filter((x) => x.value > 0)
+})
+const riskTotal = computed(() => summary.value.total)
+const riskHasData = computed(() => riskTotal.value > 0)
+
+// ============ 未来 7 天温度趋势（sparkline，双线 max/min）============
+// weather.daily 由状态栏 WeatherWidget 拉起加载，首页直接读取已加载结果。
+const tempHigh = computed(() =>
+  weather.daily.map((d) => Number(d.tempMax)).filter((n) => Number.isFinite(n)),
+)
+const tempLow = computed(() =>
+  weather.daily.map((d) => Number(d.tempMin)).filter((n) => Number.isFinite(n)),
+)
+const tempHasData = computed(() => tempHigh.value.length >= 2)
+const tempRange = computed(() => {
+  if (!tempHigh.value.length) return ''
+  const hi = Math.max(...tempHigh.value)
+  const lo = Math.min(...tempLow.value.length ? tempLow.value : tempHigh.value)
+  return `${lo}° ~ ${hi}°`
+})
 
 // ============ 紧急项检测（禅道口径集中在 zentao/shared/ui，本地待办口径在 local-tasks/ui）============
 const hasUrgentItems = computed(() =>
@@ -138,7 +173,62 @@ function finishOnboarding() {
           </button>
         </div>
 
-        <!-- bento 单元 C：每日晨报 —— 进入清单前的「今天先抓什么」 -->
+        <!-- bento 单元 C：风险雷达（分段环，insights summary，始终可用） -->
+        <div class="bento-cell bento-radar" aria-label="风险雷达">
+          <div class="bento-section-label">
+            <span class="bento-kicker">risk radar</span>
+          </div>
+          <div class="radar-body">
+            <div class="radar-ring">
+              <ProgressRing
+                v-if="riskHasData"
+                :segments="riskSegments"
+                :size="92"
+                :thickness="9"
+                label="今日工作项风险分布"
+              />
+              <ProgressRing
+                v-else
+                :value="1"
+                :max="1"
+                tone="rgba(148, 163, 184, 0.42)"
+                :size="92"
+                :thickness="9"
+                label="暂无风险项"
+              />
+              <div class="radar-center">
+                <span class="radar-center-value">{{ riskTotal }}</span>
+                <span class="radar-center-label">待关注</span>
+              </div>
+            </div>
+            <ul class="radar-legend">
+              <li v-for="s in riskSegments" :key="s.label" class="radar-legend-item">
+                <span class="radar-dot" :style="{ background: s.tone }" />
+                <span class="radar-legend-label">{{ s.label }}</span>
+                <span class="radar-legend-value">{{ s.value }}</span>
+              </li>
+              <li v-if="!riskHasData" class="radar-legend-empty">一切正常，无风险项</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- bento 单元 D：未来 7 天温度趋势（sparkline，weather.daily） -->
+        <div v-if="tempHasData" class="bento-cell bento-temp" aria-label="未来 7 天温度趋势">
+          <div class="bento-section-label">
+            <span class="bento-kicker">7-day temp</span>
+            <span class="bento-temp-range">{{ tempRange }}</span>
+          </div>
+          <Sparkline
+            :data="tempHigh"
+            :data2="tempLow"
+            :width="260"
+            :height="42"
+            tone="var(--home-tone)"
+            tone2="rgba(125, 211, 252, 0.4)"
+          />
+        </div>
+
+        <!-- bento 单元 E：每日晨报 —— 进入清单前的「今天先抓什么」 -->
         <MorningBriefing class="bento-briefing" />
       </aside>
 
@@ -367,6 +457,105 @@ function finishOnboarding() {
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* ===== bento 单元通用：内边距 + 分区标签 ===== */
+.bento-radar,
+.bento-temp {
+  padding: var(--space-3) var(--space-4);
+}
+.bento-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+/* ===== 风险雷达卡 ===== */
+.radar-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.radar-ring {
+  position: relative;
+  flex-shrink: 0;
+  width: 92px;
+  height: 92px;
+}
+.radar-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.radar-center-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(248, 250, 252, 0.96);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--home-tone) 24%, transparent);
+}
+.radar-center-label {
+  margin-top: 3px;
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.46);
+  letter-spacing: 0.02em;
+}
+.radar-legend {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.radar-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+.radar-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--home-tone) 20%, transparent);
+}
+.radar-legend-label {
+  color: rgba(226, 232, 240, 0.6);
+}
+.radar-legend-value {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+.radar-legend-empty {
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.44);
+  font-style: italic;
+}
+
+/* ===== 7 天温度卡 ===== */
+.bento-temp-range {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.bento-temp :deep(.sparkline) {
+  width: 100%;
+  height: 42px;
+}
 .welcome-urgent-dot {
   width: 6px;
   height: 6px;
@@ -423,7 +612,9 @@ function finishOnboarding() {
 /* ===== bento 进场：错峰淡入上浮，呼吸感 ===== */
 .bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
-.bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both; }
+.bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
+.bento-temp { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
+.bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both; }
 @keyframes bento-rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -449,6 +640,8 @@ function finishOnboarding() {
   .welcome-urgent-dot { animation: none; }
   .bento-hero,
   .bento-signals,
+  .bento-radar,
+  .bento-temp,
   .bento-briefing { animation: none; }
   .signal-tile { transition: none; }
   .signal-tile:hover { transform: none; box-shadow: none; }
