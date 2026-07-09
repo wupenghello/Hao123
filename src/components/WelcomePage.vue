@@ -73,6 +73,14 @@ const dailySummary = computed(() => {
   return prefix + parts.join(' · ')
 })
 
+// ============ 今日信号迷你瓦片（bento 单元，纯展示，复用 store 计数）============
+// 只读：给左侧 bento 提供一行紧凑信号块；可视化增强（sparkline/进度环）在模块 2
+const signals = computed(() => [
+  { key: 'task', label: '指派任务', value: taskStore.assignedCount, tone: 'cyan' },
+  { key: 'bug', label: '待修 Bug', value: bugStore.assignedCount, tone: 'rose' },
+  { key: 'local', label: '本地待办', value: localStore.openCount, tone: 'teal' },
+])
+
 // ============ 紧急项检测（禅道口径集中在 zentao/shared/ui，本地待办口径在 local-tasks/ui）============
 const hasUrgentItems = computed(() =>
   taskStore.assigned.some(t => isUrgentTask(t)) ||
@@ -102,22 +110,36 @@ function finishOnboarding() {
   <div class="welcome-shell">
     <div class="welcome-grid">
       <aside class="welcome-left" aria-label="今日状态与简报">
-        <!-- 顶部状态条：问候 + 日期 + 一句话概览，收进左侧仪表柱，右侧专注工作项 -->
-        <header class="welcome-status-card">
-          <div>
-            <p class="welcome-status-kicker">today signal</p>
-            <h1 class="welcome-status-title">{{ greeting }} · {{ dateStr }}</h1>
-          </div>
+        <!-- bento 单元 A：问候 hero —— 今日信号总览 -->
+        <header class="bento-cell bento-hero">
+          <p class="bento-kicker">today signal</p>
+          <h1 class="bento-title">{{ greeting }} · {{ dateStr }}</h1>
           <Transition name="guide-fade">
-            <p v-if="dailySummary" class="welcome-status-summary">
+            <p v-if="dailySummary" class="bento-summary">
               {{ dailySummary }}
               <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
             </p>
           </Transition>
         </header>
 
-        <!-- 每日晨报：左侧固定情报柱，作为进入清单前的「今天先抓什么」 -->
-        <MorningBriefing class="welcome-briefing" />
+        <!-- bento 单元 B：今日信号迷你瓦片行（任务 / Bug / 本地，纯计数） -->
+        <div class="bento-cell bento-signals" aria-label="工作项计数">
+          <button
+            v-for="s in signals"
+            :key="s.key"
+            type="button"
+            class="signal-tile"
+            :data-tone="s.tone"
+            tabindex="-1"
+            aria-hidden="true"
+          >
+            <span class="signal-value">{{ s.value }}</span>
+            <span class="signal-label">{{ s.label }}</span>
+          </button>
+        </div>
+
+        <!-- bento 单元 C：每日晨报 —— 进入清单前的「今天先抓什么」 -->
+        <MorningBriefing class="bento-briefing" />
       </aside>
 
       <!-- 统一收件箱 = 主角（右侧占据剩余空间，内部自行切换清单 / 星图形态） -->
@@ -199,7 +221,7 @@ function finishOnboarding() {
 .welcome-left {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
@@ -218,22 +240,40 @@ function finishOnboarding() {
   min-height: 0;
   flex: 1;
 }
-.welcome-status-card {
+/* ===== bento 单元基座：统一毛玻璃 + 信号轨 + 网格纹理（对齐 HUD skill 约定）===== */
+.bento-cell {
   position: relative;
   overflow: hidden;
-  padding: 17px;
-  border: 1px solid color-mix(in srgb, var(--home-tone) 18%, var(--home-border));
-  border-radius: 12px;
+  border: 1px solid var(--home-border);
+  border-radius: var(--radius-md);
+  background: rgba(2, 6, 23, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--elev-2);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+}
+/* bento 单元 B（信号瓦片）横向铺开，自身是瓦片容器而非卡片 */
+.bento-signals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+
+.bento-hero {
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-color: color-mix(in srgb, var(--home-tone) 18%, var(--home-border));
   background:
     radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--home-tone) 16%, transparent), transparent 64px),
     linear-gradient(135deg, color-mix(in srgb, var(--home-tone) 8%, transparent), transparent 40%),
     rgba(2, 6, 23, 0.34);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.055),
-    0 18px 54px rgba(0,0,0,0.22);
-  backdrop-filter: blur(18px) saturate(130%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 18px 54px rgba(0, 0, 0, 0.22);
 }
-.welcome-status-card::before {
+.bento-hero::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
@@ -241,50 +281,91 @@ function finishOnboarding() {
   background: linear-gradient(180deg, transparent, var(--home-tone), transparent);
   opacity: 0.76;
 }
-.welcome-status-card::after {
+.bento-hero::after {
   position: absolute;
   inset: 0;
   pointer-events: none;
   content: '';
   background:
-    linear-gradient(90deg, rgba(255,255,255,0.042) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255,255,255,0.032) 1px, transparent 1px);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.042) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
   background-size: 28px 28px;
-  mask-image: linear-gradient(120deg, rgba(0,0,0,0.46), transparent 64%);
+  mask-image: linear-gradient(120deg, rgba(0, 0, 0, 0.46), transparent 64%);
 }
-.welcome-status-card > * {
+.bento-hero > * {
   position: relative;
   z-index: 1;
 }
-.welcome-status-kicker {
+.bento-kicker {
   margin: 0 0 8px;
   color: color-mix(in srgb, var(--home-tone) 78%, white 5%);
-  font: 850 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font: 850 10px/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-.welcome-status-title {
+.bento-title {
   margin: 0;
   color: rgba(248, 250, 252, 0.96);
-  font-size: 21px;
+  font-size: var(--text-xl);
   font-weight: 850;
   line-height: 1.12;
   letter-spacing: -0.02em;
   text-shadow: 0 0 20px color-mix(in srgb, var(--home-tone) 18%, transparent);
 }
-.welcome-status-summary {
+.bento-summary {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 14px 0 0;
   color: rgba(226, 232, 240, 0.64);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.55;
 }
-.welcome-briefing {
-  flex-shrink: 0;
+
+/* ===== 信号迷你瓦片：每个计数一块，按来源上色 ===== */
+.signal-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--tile-tone, var(--home-tone)) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background:
+    radial-gradient(circle at 80% 0, color-mix(in srgb, var(--tile-tone, var(--home-tone)) 16%, transparent), transparent 70%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(2, 6, 23, 0.42));
+  text-align: left;
+  cursor: default;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.signal-tile[data-tone='cyan'] { --tile-tone: var(--home-tone); }
+.signal-tile[data-tone='rose'] { --tile-tone: var(--home-danger); }
+.signal-tile[data-tone='teal'] { --tile-tone: var(--home-success); }
+.signal-tile:hover {
+  border-color: color-mix(in srgb, var(--tile-tone, var(--home-tone)) 48%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--tile-tone, var(--home-tone)) 16%, transparent);
+}
+.signal-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(248, 250, 252, 0.96);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--tile-tone, var(--home-tone)) 30%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.signal-label {
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: rgba(226, 232, 240, 0.5);
+}
+
+.bento-briefing {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .welcome-urgent-dot {
   width: 6px;
@@ -338,6 +419,15 @@ function finishOnboarding() {
 .guide-fade-leave-active { transition: opacity 0.25s ease; }
 .guide-fade-enter-from { opacity: 0; transform: translateY(-6px); }
 .guide-fade-leave-to { opacity: 0; }
+
+/* ===== bento 进场：错峰淡入上浮，呼吸感 ===== */
+.bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
+.bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both; }
+@keyframes bento-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 @media (max-width: 980px) {
   .welcome-shell {
     overflow-y: auto;
@@ -357,6 +447,11 @@ function finishOnboarding() {
 }
 @media (prefers-reduced-motion: reduce) {
   .welcome-urgent-dot { animation: none; }
+  .bento-hero,
+  .bento-signals,
+  .bento-briefing { animation: none; }
+  .signal-tile { transition: none; }
+  .signal-tile:hover { transform: none; box-shadow: none; }
   .welcome-onboard-btn,
   .guide-fade-enter-active,
   .guide-fade-leave-active { transition: none; }
