@@ -20,7 +20,44 @@
   --hud-warn: #fde68a;
   --hud-danger: #fb7185;
   --hud-glow: 0 0 36px rgba(14, 165, 233, 0.2);
-  --hud-font-data: ui-monospace, "Cascadia Code", "JetBrains Mono", "SFMono-Regular", monospace;
+  --hud-font-data: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+
+  /* ====== 设计基座 token（模块 0 新增；不替换既有 --hud-* 令牌，保持向后兼容）======
+   * 字体：Inter 走拉丁正文 / JetBrains Mono 走数据；CJK 自动回退到系统字体。
+   * 圆角：刻意做阶梯而非统一一个值（brief 反对「圆角统一化」）——胶囊/卡片/容器各归一档。
+   * 间距：4px 基线，跨组件统一呼吸节奏。
+   * 海拔：从「贴地」到「悬浮」三档 + glow，统一毛玻璃层级感。
+   */
+  --font-sans: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--hud-font-data);
+
+  --radius-xs: 6px;   /* 徽标 / chip / 小标签 */
+  --radius-sm: 10px;  /* 按钮 / 输入框 / 小卡内元素 */
+  --radius-md: 14px;  /* 卡片（默认） */
+  --radius-lg: 20px;  /* 大容器 / 面板 / bento 区块 */
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.28);                       /* 贴地：行项 / chip */
+  --elev-2: 0 12px 40px rgba(0, 0, 0, 0.28);                     /* 卡片 */
+  --elev-3: 0 24px 72px rgba(0, 0, 0, 0.34);                     /* 悬浮面板 / 弹窗 */
+  --elev-glow: 0 0 36px rgba(56, 189, 248, 0.18);                /* 聚焦 glow */
+
+  /* 文本尺度阶梯（克制信息密度，但保留层次） */
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 14px;
+  --text-lg: 17px;
+  --text-xl: 21px;
+  --text-2xl: 28px;
 }
 
 html,
@@ -33,9 +70,8 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "ss01"; /* Inter 优化：紧凑数字 + 替代字形 */
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
   color: var(--color-text);
