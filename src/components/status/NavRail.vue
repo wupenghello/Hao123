@@ -208,7 +208,7 @@ const moreItems = computed(() => moreNavItems)
   max-height: calc(100vh - 132px);
   flex-direction: column;
   padding: 8px 0;
-  border: 1px solid rgba(125, 211, 252, 0.16);
+  border: 1px solid rgba(0, 217, 255, 0.16);
   border-radius: var(--radius-lg);
   background: rgba(2, 6, 23, 0.6);
   box-shadow:
@@ -220,7 +220,7 @@ const moreItems = computed(() => moreNavItems)
 }
 .nav-rail:hover {
   width: 190px;
-  border-color: rgba(125, 211, 252, 0.3);
+  border-color: rgba(0, 217, 255, 0.3);
 }
 
 .nav-rail-list {
@@ -259,11 +259,11 @@ const moreItems = computed(() => moreNavItems)
 }
 .nav-rail-trigger:hover,
 .nav-rail-item:focus-within > .nav-rail-trigger {
-  background: rgba(125, 211, 252, 0.1);
+  background: rgba(0, 217, 255, 0.1);
   color: #fff;
 }
 .nav-rail-trigger.is-running {
-  color: #34d399;
+  color: #00ff94;
 }
 
 .nav-rail-icon {
@@ -290,7 +290,7 @@ const moreItems = computed(() => moreNavItems)
   height: 14px;
   flex-shrink: 0;
   opacity: 0;
-  color: rgba(125, 211, 252, 0.6);
+  color: rgba(0, 217, 255, 0.6);
   transition: opacity 0.2s ease 0.04s;
 }
 .nav-rail:hover .nav-rail-chev {
@@ -304,8 +304,8 @@ const moreItems = computed(() => moreNavItems)
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #34d399;
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.85);
+  background: #00ff94;
+  box-shadow: 0 0 8px rgba(0, 255, 148, 0.85);
 }
 
 /* ===== 飞出菜单（向右）===== */
@@ -331,7 +331,7 @@ const moreItems = computed(() => moreNavItems)
   flex-direction: column;
   min-width: 168px;
   padding: 6px;
-  border: 1px solid rgba(125, 211, 252, 0.18);
+  border: 1px solid rgba(0, 217, 255, 0.18);
   border-radius: var(--radius-md);
   background: rgba(2, 6, 23, 0.9);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
@@ -388,8 +388,8 @@ const moreItems = computed(() => moreNavItems)
   white-space: nowrap;
 }
 .nav-rail-local.is-running {
-  background: rgba(52, 211, 153, 0.1);
-  color: #34d399;
+  background: rgba(0, 255, 148, 0.1);
+  color: #00ff94;
 }
 .nav-rail-local.is-booting {
   color: #fcd34d;
@@ -399,7 +399,7 @@ const moreItems = computed(() => moreNavItems)
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
-  color: rgba(125, 211, 252, 0.72);
+  color: rgba(0, 217, 255, 0.72);
   white-space: nowrap;
 }
 .nav-rail-sep {

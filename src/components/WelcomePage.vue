@@ -257,9 +257,9 @@ function finishOnboarding() {
 
 <style scoped>
 .welcome-shell {
-  --home-tone: #22d3ee;
-  --home-tone-2: #a78bfa;
-  --home-success: #34d399;
+  --home-tone: var(--accent);
+  --home-tone-2: #2dd4bf;
+  --home-success: var(--run);
   --home-warning: #fbbf24;
   --home-danger: #fb7185;
   --home-border: rgba(148, 163, 184, 0.16);
@@ -335,8 +335,8 @@ function finishOnboarding() {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--home-border);
-  border-radius: var(--radius-md);
-  background: rgba(2, 6, 23, 0.34);
+  border-radius: var(--radius-card);
+  background: rgba(10, 11, 14, 0.4);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     var(--elev-2);
@@ -358,7 +358,7 @@ function finishOnboarding() {
   background:
     radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--home-tone) 16%, transparent), transparent 64px),
     linear-gradient(135deg, color-mix(in srgb, var(--home-tone) 8%, transparent), transparent 40%),
-    rgba(2, 6, 23, 0.34);
+    rgba(10, 11, 14, 0.4);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055),
     0 18px 54px rgba(0, 0, 0, 0.22);

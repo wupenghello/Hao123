@@ -267,8 +267,8 @@ const relTime = computed(() => {
 
 <style scoped>
 .mb-card {
-  --mb-tone: #a78bfa;
-  --mb-tone-2: #22d3ee;
+  --mb-tone: var(--accent);
+  --mb-tone-2: #2dd4bf;
   position: relative;
   overflow: hidden;
   display: flex;
