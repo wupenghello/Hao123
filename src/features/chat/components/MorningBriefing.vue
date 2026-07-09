@@ -178,6 +178,15 @@ const relTime = computed(() => {
           {{ generating ? '正在更新' : relTime }}
         </span>
         <button
+          v-if="html"
+          class="mb-plan"
+          :title="`让${ASSISTANT_NAME}排出今天的处理顺序`"
+          @click="startActionFlow"
+        >
+          <IconSpark class="w-3 h-3" />
+          <span>排期</span>
+        </button>
+        <button
           class="mb-refresh"
           :class="{ 'is-spinning': generating }"
           :disabled="generating"
@@ -210,45 +219,20 @@ const relTime = computed(() => {
         <button class="mb-retry" @click="refresh">重试</button>
       </div>
 
-      <!-- 可操作结论区：先给今天怎么动，再读自然语言简报 -->
-      <div v-if="html" class="mb-action" :class="{ 'is-muted': generating }">
-        <p class="mb-action-kicker">今天先抓什么</p>
-
-        <section class="mb-first">
-          <template v-if="firstAction">
-            <div class="mb-first-line">
-              <span class="mb-first-title" :title="firstAction.title">{{ firstAction.title }}</span>
-              <span class="mb-action-meta">
-                <span>{{ firstAction.source }}</span>
-                <span>{{ firstAction.priorityLabel }}</span>
-                <span>{{ firstAction.status }}</span>
-                <span v-if="firstAction.deadline">截止 {{ firstAction.deadline }}</span>
-              </span>
-            </div>
-            <p v-if="firstAction.riskWhy" class="mb-action-why">{{ firstAction.riskWhy }}</p>
-          </template>
-          <template v-else>
-            <div class="mb-first-line">
-              <span class="mb-first-title">没有明显优先项</span>
-            </div>
-            <p class="mb-action-why">当前清单比较平稳，可以按自己的节奏推进。</p>
-          </template>
-        </section>
-
-        <div class="mb-action-foot">
-          <div class="mb-action-summary">
-            <span class="mb-stat is-risk" :class="{ 'is-zero': !summary.total }" :title="summary.total ? `${summary.total} 项逾期/临期/停滞` : '没有逾期、临期或停滞项'">
-              <b>{{ summary.total }}</b> 风险项
-            </span>
-            <span class="mb-stat" :class="{ 'is-zero': !deferrableItems.length }" :title="deferrableItems.length ? '低优且不紧迫，可往后排' : '没有明显可推迟项'">
-              <b>{{ deferrableItems.length }}</b> 可推迟
-            </span>
-          </div>
-          <button class="mb-plan" :title="`让${ASSISTANT_NAME}排出今天的处理顺序`" @click="startActionFlow">
-            <IconSpark class="w-3 h-3" />
-            <span>让 {{ ASSISTANT_NAME }} 排期 →</span>
-          </button>
-        </div>
+      <!-- 一行式摘要：今天先抓 + 计数（取代原多块行动区，让正文成为主体，避免头重脚轻） -->
+      <div v-if="html" class="mb-lead" :class="{ 'is-muted': generating }">
+        <span class="mb-lead-kicker">今天先抓</span>
+        <strong class="mb-lead-title" :title="firstAction ? firstAction.title : ''">
+          {{ firstAction ? firstAction.title : '没有明显优先项' }}
+        </strong>
+        <span class="mb-lead-tags">
+          <span class="mb-stat is-risk" :class="{ 'is-zero': !summary.total }" :title="summary.total ? `${summary.total} 项逾期/临期/停滞` : '没有逾期、临期或停滞项'">
+            <b>{{ summary.total }}</b> 风险
+          </span>
+          <span class="mb-stat" :class="{ 'is-zero': !deferrableItems.length }" :title="deferrableItems.length ? '低优且不紧迫，可往后排' : '没有明显可推迟项'">
+            <b>{{ deferrableItems.length }}</b> 可推迟
+          </span>
+        </span>
       </div>
 
       <!-- 简报正文（refresh 时保留旧内容，按钮转圈，生成完替换） -->
@@ -350,6 +334,7 @@ const relTime = computed(() => {
   letter-spacing: -0.01em;
 }
 .mb-time {
+  margin-left: auto;
   color: rgba(226,232,240,0.42);
   font-size: 11px;
 }
@@ -433,78 +418,43 @@ const relTime = computed(() => {
   0%, 100% { opacity: 0.45; transform: scale(0.9); }
   50% { opacity: 1; transform: scale(1.15); }
 }
-.mb-action {
-  padding: 14px 14px 4px;
+/* 一行式摘要：今天先抓 + 计数。取代原多块行动区，让正文成为卡片主体（修头重脚轻） */
+.mb-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 12%, transparent);
 }
-.mb-action.is-muted,
+.mb-lead.is-muted,
 .mb-body.is-muted {
   opacity: 0.72;
   filter: saturate(0.86);
   transition: opacity 0.18s, filter 0.18s;
 }
-/* 「今天先抓」去盒化：不再套嵌套卡，让行动区轻量、与正文视觉权重平衡 */
-.mb-first {
-  padding: 0;
-}
-.mb-first::before {
-  display: none;
-  opacity: 0.62;
-}
-/* 底栏：两个计数标签在左，排期按钮在右（同一行） */
-.mb-action-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 9px;
-}
-.mb-action-kicker {
-  margin: 0 0 8px;
+.mb-lead-kicker {
   color: color-mix(in srgb, var(--mb-tone) 82%, white 6%);
-  font: 850 12px/1.2 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font: 850 10.5px/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
-/* 标题 + 元信息同一行流式排布（超长自动换行），不再标题一块、元信息一块 */
-.mb-first-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 7px;
+.mb-lead-title {
+  min-width: 0;
+  color: rgba(255,255,255,0.95);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.mb-first-title {
-  color: rgba(255,255,255,0.94);
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-.mb-action-meta {
+.mb-lead-tags {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px;
-  align-items: baseline;
-  margin: 0;
-}
-.mb-action-meta span {
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 750;
-  color: rgba(226,232,240,0.66);
-  background: rgba(255,255,255,0.055);
-}
-.mb-action-why {
-  margin: 8px 0 0;
-  color: rgba(255,255,255,0.58);
-  font-size: 12px;
-  line-height: 1.55;
-}
-/* 行动区计数摘要：取代原先两列标题列表（与 LLM 正文 / 风险雷达去重），只留计数 */
-.mb-action-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
+  gap: 6px;
+  margin-left: auto;
 }
 .mb-stat {
   display: inline-flex;
