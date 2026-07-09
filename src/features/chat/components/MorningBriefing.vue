@@ -475,9 +475,9 @@ const relTime = computed(() => {
 }
 .mb-action-kicker {
   margin: 0;
-  color: color-mix(in srgb, var(--mb-tone) 76%, white 6%);
-  font: 850 9px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--mb-tone) 82%, white 6%);
+  font: 850 12px/1.2 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 /* 标题 + 元信息同一行流式排布（超长自动换行），不再标题一块、元信息一块 */
@@ -489,7 +489,7 @@ const relTime = computed(() => {
 }
 .mb-first-title {
   color: rgba(255,255,255,0.94);
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 800;
   line-height: 1.35;
 }
