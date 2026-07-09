@@ -233,13 +233,13 @@ const moreItems = computed(() => moreNavItems)
   list-style: none;
   overflow-y: auto;
   overflow-x: visible;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+  /* 不显示滚动条：内容仍可滚动，但不露出滚动条（项目偏好：工作台不出现滚动条） */
+  scrollbar-width: none;
 }
-.nav-rail-list::-webkit-scrollbar { width: 5px; }
-.nav-rail-list::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.24);
-  border-radius: 999px;
+.nav-rail-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .nav-rail-item {
