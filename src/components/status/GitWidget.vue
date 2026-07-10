@@ -133,14 +133,14 @@ onUnmounted(() => dash.stopWidgetPolling())
   overflow: hidden;
 }
 .git-widget:hover {
-  background: rgba(125, 211, 252, 0.1);
+  background: rgba(0, 217, 255, 0.1);
   color: #fff;
   box-shadow:
-    0 0 0 1px rgba(125, 211, 252, 0.22),
-    0 6px 18px rgba(56, 189, 248, 0.14);
+    0 0 0 1px rgba(0, 217, 255, 0.22),
+    0 6px 18px rgba(0, 217, 255, 0.16);
 }
 .git-widget:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline: 2px solid var(--accent, #00d9ff);
   outline-offset: 2px;
 }
 .git-widget.is-unavailable {
@@ -152,10 +152,10 @@ onUnmounted(() => dash.stopWidgetPolling())
 .git-icon-wrap {
   display: inline-flex;
   align-items: center;
-  color: rgba(125, 211, 252, 0.9);
+  color: var(--accent, #00d9ff);
   flex: 0 0 auto;
 }
-/* 同步状态指示灯：synced=青绿 / ahead=琥珀 / behind=天蓝 / danger=玫红 / muted=灰 */
+/* 同步状态指示灯：synced=青柠绿(运行) / ahead=琥珀 / behind=电光蓝 / danger=玫红 / muted=灰 */
 .git-led {
   width: 5px;
   height: 5px;
@@ -163,9 +163,9 @@ onUnmounted(() => dash.stopWidgetPolling())
   border-radius: 999px;
   flex: 0 0 auto;
 }
-.git-led.is-synced { background: #34d399; box-shadow: 0 0 7px rgba(52, 211, 153, 0.7); }
+.git-led.is-synced { background: var(--run, #00ff94); box-shadow: 0 0 7px rgba(0, 255, 148, 0.7); }
 .git-led.is-ahead { background: #fbbf24; box-shadow: 0 0 7px rgba(251, 191, 36, 0.7); }
-.git-led.is-behind { background: #7dd3fc; box-shadow: 0 0 7px rgba(125, 211, 252, 0.7); }
+.git-led.is-behind { background: var(--accent, #00d9ff); box-shadow: 0 0 7px rgba(0, 217, 255, 0.7); }
 .git-led.is-danger { background: #fb7185; box-shadow: 0 0 7px rgba(251, 113, 133, 0.75); animation: git-led-pulse 1.2s ease-in-out infinite; }
 .git-led.is-muted { background: rgba(255, 255, 255, 0.3); }
 @keyframes git-led-pulse {

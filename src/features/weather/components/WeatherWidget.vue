@@ -106,11 +106,11 @@ onUnmounted(() => {
   transition: background-color 0.15s, color 0.15s;
 }
 .weather-widget:hover {
-  background: rgba(94, 234, 212, 0.1);
+  background: rgba(0, 217, 255, 0.1);
   color: #fff;
   box-shadow:
-    0 0 0 1px rgba(94, 234, 212, 0.22),
-    0 6px 18px rgba(94, 234, 212, 0.14);
+    0 0 0 1px rgba(0, 217, 255, 0.22),
+    0 6px 18px rgba(0, 217, 255, 0.16);
 }
 /* 状态指示灯 */
 .weather-led {
@@ -120,8 +120,8 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 .weather-led.is-ok {
-  background: #5eead4;
-  box-shadow: 0 0 7px rgba(94, 234, 212, 0.75);
+  background: var(--run, #00ff94);
+  box-shadow: 0 0 7px rgba(0, 255, 148, 0.75);
 }
 .weather-led.is-loading {
   background: #fbbf24;
@@ -139,7 +139,7 @@ onUnmounted(() => {
 .weather-icon-core {
   display: inline-flex;
   align-items: center;
-  color: rgba(94, 234, 212, 0.94);
+  color: var(--accent, #00d9ff);
   flex: 0 0 auto;
 }
 .weather-icon-core.is-warn {
