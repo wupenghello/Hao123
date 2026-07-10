@@ -1978,7 +1978,7 @@ onUnmounted(() => {
     linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
     rgba(244,63,94,0.04);
 }
-.zt-mission-card.is-urgent[class*='is-status-']::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.9; }
+.zt-mission-card.is-urgent[class*='is-status-']::before { background: linear-gradient(180deg, transparent, var(--zt-danger), transparent); opacity: 0.9; box-shadow: 0 0 10px color-mix(in srgb, var(--zt-danger) 60%, transparent); }
 .zt-mission-card.is-urgent[class*='is-status-']::after { background: linear-gradient(90deg, color-mix(in srgb, var(--zt-danger) 40%, transparent), transparent 60%); opacity: 0.6; }
 @keyframes zt-complete-row { 0% { opacity: 1; transform: translateY(0) scale(1); } 42% { opacity: 1; transform: translateY(-1px) scale(1.006); } 100% { opacity: 0; transform: translateY(-8px) scale(0.985); } }
 @keyframes zt-complete-strike { to { transform: scaleX(1); } }
