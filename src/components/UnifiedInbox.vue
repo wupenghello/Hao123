@@ -30,7 +30,7 @@ import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormM
 import { defineAsyncComponent } from 'vue'
 // 星图走异步加载，避免 Three.js 进入首屏 bundle（用户切到「星图」时才下载）
 const InboxConstellation = defineAsyncComponent(() => import('@/components/inbox/InboxConstellation.vue'))
-import { useInboxInsights } from '@/features/insights'
+import { useInboxInsights, deadlineDays } from '@/features/insights'
 import type { Prediction } from '@/features/insights'
 import type { Insight } from '@/features/insights'
 import {
@@ -324,24 +324,31 @@ interface Countdown {
   tone: 'overdue' | 'today' | 'soon' | 'later'
 }
 /**
- * 截止倒计时：原始 yyyy-MM-dd → 「逾期 N 天 / 今天到期 / 明天到期 / N 天后」。
- * 按本地零点比较（与 zentao/shared/ui 的 isOverdue 同口径，规避 UTC 误判）。无有效截止返回 null。
+ * 截止倒计时：原始 yyyy-MM-dd -> 「逾期 N 天 / 今天到期 / 明天到期 / N 天后」。
+ * 日期差复用 insights 的 `deadlineDays`（本地零点比较，规避 UTC 误判）--与风险徽标同口径，
+ * 避免两套日期算法各自漂移导致倒计时 chip 与风险徽标对「逾期」判断不一致。无有效截止返回 null。
  */
 function countdown(deadline?: string): Countdown | null {
-  if (!deadline || /^0000/.test(deadline)) return null
-  const day = String(deadline).slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
-  const dl = new Date(`${day}T00:00:00`)
-  if (Number.isNaN(dl.getTime())) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const days = Math.round((dl.getTime() - today.getTime()) / 86_400_000)
+  const days = deadlineDays(deadline)
+  if (days === null) return null
   if (days < 0) return { label: `逾期 ${-days} 天`, tone: 'overdue' }
   if (days === 0) return { label: '今天到期', tone: 'today' }
   if (days === 1) return { label: '明天到期', tone: 'soon' }
   if (days <= 2) return { label: `${days} 天后`, tone: 'soon' }
   return { label: `${days} 天后`, tone: 'later' }
 }
+
+/**
+ * 预计算每条工作项的倒计时（按 key 查表）。模板里每行原先 3 次调用 countdown()
+ * （v-if / :class / 文本），这里聚合成一次计算 + 3 次廉价查表，省掉重复的日期解析。
+ */
+const countdowns = computed<Record<string, Countdown | null>>(() => {
+  const map: Record<string, Countdown | null> = {}
+  for (const it of items.value) {
+    map[it.key] = countdown((it.ref as { deadline?: string }).deadline)
+  }
+  return map
+})
 
 /** 状态灯 tooltip 文案：复用各来源的状态 badge 标签，本地按完成态 */
 function statusText(it: InboxItem): string {
@@ -1068,11 +1075,11 @@ onUnmounted(() => {
                 {{ taskStatusBadge((it.ref as ZentaoTask).status).label }}
               </span>
               <span
-                v-if="countdown((it.ref as ZentaoTask).deadline)"
+                v-if="countdowns[it.key]"
                 class="zt-countdown"
-                :class="`is-${countdown((it.ref as ZentaoTask).deadline)!.tone}`"
+                :class="`is-${countdowns[it.key]!.tone}`"
                 :title="`截止 ${(it.ref as ZentaoTask).deadline}`"
-              >{{ countdown((it.ref as ZentaoTask).deadline)!.label }}</span>
+              >{{ countdowns[it.key]!.label }}</span>
             </template>
 
             <template v-else-if="it.kind === 'bug'">
@@ -1085,20 +1092,20 @@ onUnmounted(() => {
                 {{ bugStatusBadge((it.ref as ZentaoBug).status).label }}
               </span>
               <span
-                v-if="countdown((it.ref as ZentaoBug).deadline)"
+                v-if="countdowns[it.key]"
                 class="zt-countdown"
-                :class="`is-${countdown((it.ref as ZentaoBug).deadline)!.tone}`"
+                :class="`is-${countdowns[it.key]!.tone}`"
                 :title="`截止 ${(it.ref as ZentaoBug).deadline}`"
-              >{{ countdown((it.ref as ZentaoBug).deadline)!.label }}</span>
+              >{{ countdowns[it.key]!.label }}</span>
             </template>
 
             <template v-else>
               <span
-                v-if="countdown((it.ref as LocalTask).deadline)"
+                v-if="countdowns[it.key]"
                 class="zt-countdown"
-                :class="`is-${countdown((it.ref as LocalTask).deadline)!.tone}`"
+                :class="`is-${countdowns[it.key]!.tone}`"
                 :title="`截止 ${cleanDeadline((it.ref as LocalTask).deadline)}`"
-              >{{ countdown((it.ref as LocalTask).deadline)!.label }}</span>
+              >{{ countdowns[it.key]!.label }}</span>
               <span class="zt-badge ring-1 ring-inset" :class="priBadge((it.ref as LocalTask).pri).class">
                 {{ priBadge((it.ref as LocalTask).pri).label }}
               </span>
