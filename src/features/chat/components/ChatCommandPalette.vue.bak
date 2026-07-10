@@ -350,15 +350,15 @@ function commitSend(text: string) {
 // ============ 拖拽缩放相关 ============
 /** 面板尺寸持久化存储 */
 const panelSize = useStorage<{ width: number; height: number }>('hao123-chat-panel-size', {
-  width: 820,
-  height: 0, // 0 表示用默认满高（视口 76%），由 initSize 折算为具体像素
+  width: 680,
+  height: 0, // 0 表示用默认满高（视口 70%），由 initSize 折算为具体像素
 })
 const isResizing = ref(false)
 const startPos = ref({ x: 0, y: 0 })
-const startSize = ref({ width: 820, height: 0 })
-const currentSize = ref({ width: 820, height: 0 })
+const startSize = ref({ width: 680, height: 0 })
+const currentSize = ref({ width: 680, height: 0 })
 
-const MIN_WIDTH = 620
+const MIN_WIDTH = 480
 const MIN_HEIGHT = 320
 // 最大宽度为视口宽度的 90%，最大高度为视口高度的 85%。
 // 必须是 ref：computed 读 window.innerWidth 不产生响应式依赖，永远不会重算，
@@ -384,12 +384,12 @@ const panelStyle = computed(() => {
   }
 })
 
-/** 默认面板高度：视口的 76%，限制在 [MIN_HEIGHT, maxHeight] 之间。
+/** 默认面板高度：视口的 70%，限制在 [MIN_HEIGHT, maxHeight] 之间。
  * 用固定高度而非 auto，是为了让输入框始终钉在面板底部（中间对话区/空态区 flex-1 撑开、
  * 各自滚动），不会内容少时浮到中间。 */
 function defaultPanelHeight() {
   const vh = typeof window !== 'undefined' ? window.innerHeight : 1000
-  return Math.min(Math.max(Math.round(vh * 0.76), MIN_HEIGHT), maxHeight.value)
+  return Math.min(Math.max(Math.round(vh * 0.7), MIN_HEIGHT), maxHeight.value)
 }
 
 /** 初始化尺寸 */
@@ -448,7 +448,7 @@ function onResizeEnd() {
 
 /** 双击重置尺寸 */
 function onResizeDoubleClick() {
-  currentSize.value = { width: 820, height: defaultPanelHeight() }
+  currentSize.value = { width: 680, height: defaultPanelHeight() }
   panelSize.value = { ...currentSize.value }
 }
 
@@ -1158,32 +1158,6 @@ onUnmounted(() => {
             </header>
 
             <div class="cmd-body-shell" :class="{ 'has-sidebar': isImmersive && immersiveSidebarOpen }">
-              <aside v-if="isImmersive" class="cmd-session-rail relative z-10" aria-label="会话导航">
-                <div class="cmd-session-head">
-                  <span>会话</span>
-                  <strong>{{ conversationStats.total }}</strong>
-                </div>
-                <button type="button" class="cmd-session-item is-active">
-                  <IconMessageText class="w-4 h-4" />
-                  <span>{{ conversationTitle }}</span>
-                </button>
-                <div class="cmd-session-meta">
-                  <span>{{ conversationStats.user }} 次提问</span>
-                  <span>{{ conversationStats.activities }} 次工具</span>
-                </div>
-                <div class="cmd-session-context">
-                  <span>快捷上下文</span>
-                  <button
-                    v-for="chip in contextChips.slice(0, 4)"
-                    :key="chip.key"
-                    type="button"
-                    :disabled="store.streaming"
-                    @click="askContext(chip.prompt)"
-                  >
-                    {{ chip.label }}
-                  </button>
-                </div>
-              </aside>
               <main class="cmd-main-stage">
                 <!-- 信息流 / 空态 -->
                 <Transition name="content-fade" mode="out-in">
@@ -1500,15 +1474,12 @@ onUnmounted(() => {
                     class="cmd-empty relative z-10 flex-1 min-h-0 flex flex-col justify-center overflow-y-auto px-3 pb-3 pt-3 cmd-scroll"
                   >
                     <div class="cmd-empty-inner">
-                      <div class="cmd-empty-layout">
-                        <div class="cmd-empty-hero">
-                          <div class="cmd-empty-avatar"><IconRobot class="w-8 h-8" /></div>
-                          <p class="cmd-empty-greeting">{{ pickGreeting() }}，我是 {{ ASSISTANT_NAME }}</p>
-                          <p class="cmd-empty-sub">天气 · 禅道 · 待办 · 知识库 · 调研，直接说就好</p>
-                        </div>
-                        <div class="cmd-empty-start">
-                          <span class="cmd-empty-start-label">从这里开始</span>
-                          <div class="cmd-empty-suggestions">
+                      <div class="cmd-empty-hero">
+                        <div class="cmd-empty-avatar"><IconRobot class="w-8 h-8" /></div>
+                        <p class="cmd-empty-greeting">{{ pickGreeting() }}，我是 {{ ASSISTANT_NAME }}</p>
+                        <p class="cmd-empty-sub">天气 · 禅道 · 待办 · 知识库 · 调研，直接说就好</p>
+                      </div>
+                      <div class="cmd-empty-suggestions">
                         <button
                           v-for="s in contextSuggestions"
                           :key="s.text"
@@ -1519,8 +1490,6 @@ onUnmounted(() => {
                           <span class="flex-1 text-left">{{ s.text }}</span>
                           <IconSend class="w-3.5 h-3.5 -rotate-90" />
                         </button>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -2788,336 +2757,4 @@ onUnmounted(() => {
   .cmd-suggestion:hover, .cmd-send:hover:not(:disabled), .cmd-followup-chip:hover,
   .cmd-jump-latest-btn:hover, .cmd-action-bar { transform: none; }
 }
-
-/* v3 layout: preserve the electric HUD language, rebuild modal and immersive composition. */
-.cmd-header {
-  min-height: 56px;
-  padding: 10px 16px;
-}
-.cmd-model-chip { max-width: min(320px, 42vw); }
-.cmd-card:not(.is-immersive) .cmd-stream,
-.cmd-card:not(.is-immersive) .cmd-empty { padding-inline: 24px; }
-.cmd-card:not(.is-immersive) .cmd-input-wrapper { padding-inline: 20px; }
-
-.cmd-session-rail { display: none; }
-.cmd-card.is-immersive .cmd-body-shell {
-  grid-template-columns: 232px minmax(0, 1fr);
-}
-.cmd-card.is-immersive .cmd-body-shell.has-sidebar {
-  grid-template-columns: 232px minmax(0, 1fr) minmax(280px, 316px);
-}
-.cmd-card.is-immersive .cmd-session-rail {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 10px;
-  padding: 20px 14px;
-  border-right: 1px solid rgba(0, 217, 255, .1);
-  background:
-    radial-gradient(circle at 20% 0%, rgba(0, 217, 255, .07), transparent 36%),
-    linear-gradient(180deg, rgba(8, 12, 19, .86), rgba(5, 8, 14, .92));
-}
-.cmd-session-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 6px 6px;
-  color: rgba(190, 230, 252, .44);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: .04em;
-}
-.cmd-session-head strong {
-  color: rgba(125, 211, 252, .72);
-  font: 800 10px/1 var(--font-mono);
-}
-.cmd-session-item {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  min-height: 46px;
-  padding: 8px 10px;
-  border: 1px solid rgba(0, 217, 255, .1);
-  border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, .025);
-  color: rgba(230, 246, 255, .72);
-  text-align: left;
-}
-.cmd-session-item.is-active {
-  border-color: rgba(0, 217, 255, .26);
-  background: rgba(0, 217, 255, .08);
-  box-shadow: inset 2px 0 0 var(--cmd-tone);
-}
-.cmd-session-item svg { color: rgba(0, 217, 255, .8); }
-.cmd-session-item span { overflow: hidden; font-size: 11.5px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }
-.cmd-session-meta { display: grid; gap: 5px; padding: 2px 11px 10px; color: rgba(190, 230, 252, .32); font-size: 10px; }
-.cmd-session-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-.cmd-session-context > span { grid-column: 1 / -1; margin-bottom: 2px; padding-inline: 4px; color: rgba(190, 230, 252, .38); font-size: 10px; font-weight: 760; }
-.cmd-session-context button {
-  min-height: 30px;
-  border: 1px solid rgba(0, 217, 255, .075);
-  border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, .018);
-  color: rgba(190, 230, 252, .5);
-  font-size: 10.5px;
-  font-weight: 760;
-  cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
-.cmd-session-context button:hover:not(:disabled),
-.cmd-session-context button:focus-visible {
-  border-color: rgba(0, 217, 255, .28);
-  background: rgba(0, 217, 255, .07);
-  color: #fff;
-}
-.cmd-session-context button:disabled { cursor: not-allowed; opacity: .42; }
-
-.cmd-empty-inner { max-width: 720px; }
-.cmd-empty-layout {
-  display: grid;
-  grid-template-columns: minmax(230px, .82fr) minmax(300px, 1.18fr);
-  align-items: center;
-  gap: 34px;
-}
-.cmd-empty-hero {
-  margin: 0;
-  padding-right: 30px;
-  border-right: 1px solid rgba(0, 217, 255, .1);
-  text-align: left;
-}
-.cmd-empty-avatar { margin: 0 0 18px; }
-.cmd-empty-greeting { font-size: 20px; line-height: 1.35; }
-.cmd-empty-sub { max-width: 25ch; line-height: 1.65; }
-.cmd-empty-start { min-width: 0; }
-.cmd-empty-start-label {
-  display: block;
-  margin-bottom: 9px;
-  color: rgba(190, 230, 252, .38);
-  font-size: 10.5px;
-  font-weight: 760;
-}
-.cmd-empty-suggestions { gap: 7px; }
-.cmd-suggestion { min-height: 44px; padding: 10px 12px; }
-
-.cmd-card.is-immersive .cmd-stream,
-.cmd-card.is-immersive .cmd-empty { padding-left: clamp(24px, 5vw, 70px); padding-right: clamp(24px, 5vw, 70px); }
-.cmd-card.is-immersive .cmd-input-wrapper { padding-left: clamp(24px, 5vw, 70px); padding-right: clamp(24px, 5vw, 70px); }
-
-@media (max-width: 1100px) {
-  .cmd-card.is-immersive .cmd-body-shell,
-  .cmd-card.is-immersive .cmd-body-shell.has-sidebar { grid-template-columns: minmax(0, 1fr) minmax(280px, 304px); }
-  .cmd-card.is-immersive .cmd-session-rail { display: none; }
-}
-@media (max-width: 760px) {
-  .cmd-card {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
-  }
-  .cmd-card.is-immersive .cmd-body-shell,
-  .cmd-card.is-immersive .cmd-body-shell.has-sidebar { grid-template-columns: minmax(0, 1fr); }
-  .cmd-session-rail, .cmd-workspace-side { display: none !important; }
-  .cmd-empty-layout { grid-template-columns: 1fr; gap: 20px; }
-  .cmd-empty-hero { padding: 0 0 20px; border-right: 0; border-bottom: 1px solid rgba(0, 217, 255, .1); }
-  .cmd-empty-avatar { width: 52px; height: 52px; }
-}
-
-
-/* v4 surface calibration: align with GitDashboard / ModelConfigModal. */
-.cmd-backdrop {
-  background: rgba(2, 6, 23, .58);
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
-}
-.cmd-card {
-  --cmd-tone: #2dd4bf;
-  --cmd-run: #34d399;
-  --cmd-border: rgba(255, 255, 255, .1);
-  --cmd-text: rgba(226, 232, 240, .78);
-  --cmd-muted: rgba(203, 213, 225, .46);
-  border-color: rgba(255, 255, 255, .12);
-  border-radius: 20px;
-  background:
-    linear-gradient(160deg, rgba(30, 58, 95, .92) 0%, rgba(15, 23, 42, .94) 55%, rgba(13, 64, 64, .92) 100%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,.018) 0 1px, transparent 1px 28px);
-  color: rgba(226, 232, 240, .78);
-  box-shadow:
-    0 24px 70px -12px rgba(0,0,0,.48),
-    0 0 0 1px rgba(45,212,191,.12),
-    0 0 28px -6px rgba(45,212,191,.16),
-    inset 0 1px 0 rgba(255,255,255,.07);
-  backdrop-filter: blur(20px) saturate(132%);
-  -webkit-backdrop-filter: blur(20px) saturate(132%);
-}
-.cmd-card.is-immersive {
-  border-radius: 0;
-  background:
-    linear-gradient(155deg, rgba(26, 50, 82, .97), rgba(15, 23, 42, .98) 54%, rgba(12, 57, 58, .96));
-}
-.cmd-accent { height: 3px; background: linear-gradient(90deg, transparent, rgba(45,212,191,.7), transparent); opacity: .62; }
-.cmd-accent.is-streaming { background: linear-gradient(90deg, #14b8a6, #2dd4bf, #5eead4, #2dd4bf, #14b8a6); box-shadow: 0 0 10px rgba(45,212,191,.36); }
-
-.cmd-header {
-  border-bottom-color: rgba(255,255,255,.09);
-  background:
-    radial-gradient(circle at 12% 0, rgba(45,212,191,.1), transparent 35%),
-    rgba(15,23,42,.38);
-}
-.cmd-card.is-immersive .cmd-header {
-  border-bottom-color: rgba(255,255,255,.08);
-  background: rgba(15,23,42,.44);
-}
-.cmd-brand-dot,
-.cmd-ai-rail,
-.cmd-empty-avatar {
-  border-color: rgba(45,212,191,.28);
-  background:
-    radial-gradient(circle at 30% 18%, rgba(45,212,191,.22), transparent 48%),
-    rgba(15,23,42,.42);
-  color: rgba(94,234,212,.82);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 0 20px rgba(45,212,191,.1);
-}
-.cmd-status-dot { border-color: rgba(15,23,42,.92); }
-.cmd-model-chip,
-.cmd-head-stats span,
-.cmd-iconbtn:hover,
-.cmd-iconbtn:focus-visible,
-.cmd-iconbtn.is-active {
-  border-color: rgba(255,255,255,.09);
-  background: rgba(255,255,255,.045);
-}
-.cmd-model-chip { color: rgba(226,232,240,.62); }
-.cmd-model-chip:hover, .cmd-model-chip:focus-visible { border-color: rgba(45,212,191,.24); background: rgba(45,212,191,.08); color: rgba(241,245,249,.82); }
-.cmd-model-provider { color: rgba(94,234,212,.7); }
-.cmd-model-provider::after, .cmd-head-stats { color: rgba(203,213,225,.36); }
-.cmd-iconbtn { color: rgba(226,232,240,.48); }
-.cmd-iconbtn:hover, .cmd-iconbtn:focus-visible, .cmd-iconbtn.is-active { color: rgba(241,245,249,.82); border-color: rgba(45,212,191,.2); background: rgba(45,212,191,.075); }
-
-.cmd-card.is-immersive .cmd-main-stage { border-right-color: rgba(255,255,255,.075); }
-.cmd-card.is-immersive .cmd-session-rail {
-  border-right-color: rgba(255,255,255,.08);
-  background:
-    radial-gradient(circle at 18% 0, rgba(45,212,191,.09), transparent 48%),
-    linear-gradient(180deg, rgba(15,23,42,.62), rgba(2,6,23,.3));
-}
-.cmd-session-head,
-.cmd-session-meta,
-.cmd-session-context > span { color: rgba(203,213,225,.42); }
-.cmd-session-head strong { color: rgba(94,234,212,.68); }
-.cmd-session-item { border-color: rgba(255,255,255,.07); background: rgba(255,255,255,.025); color: rgba(226,232,240,.6); }
-.cmd-session-item.is-active { border-color: rgba(45,212,191,.22); background: rgba(45,212,191,.07); box-shadow: inset 2px 0 0 rgba(45,212,191,.72); }
-.cmd-session-item svg { color: rgba(94,234,212,.72); }
-.cmd-session-context button { border-color: rgba(255,255,255,.065); background: rgba(255,255,255,.025); color: rgba(226,232,240,.48); }
-.cmd-session-context button:hover:not(:disabled), .cmd-session-context button:focus-visible { border-color: rgba(45,212,191,.2); background: rgba(45,212,191,.07); color: rgba(241,245,249,.8); }
-.cmd-workspace-side {
-  background:
-    linear-gradient(180deg, rgba(15,23,42,.54), rgba(2,6,23,.28)),
-    rgba(45,212,191,.018);
-}
-.cmd-side-section { border-bottom-color: rgba(255,255,255,.075); }
-.cmd-side-head { color: rgba(94,234,212,.62); }
-.cmd-side-title, .cmd-side-activity-title { color: rgba(226,232,240,.7); }
-.cmd-side-metrics { border-color: rgba(255,255,255,.075); }
-.cmd-side-metrics div { border-right-color: rgba(255,255,255,.075); }
-.cmd-side-metrics strong { color: rgba(241,245,249,.78); }
-.cmd-side-metrics span, .cmd-side-activity-sub, .cmd-side-empty { color: rgba(203,213,225,.38); }
-.cmd-side-chip { border-color: rgba(255,255,255,.065); color: rgba(226,232,240,.48); }
-.cmd-side-chip:hover:not(:disabled), .cmd-side-chip:focus-visible { border-color: rgba(45,212,191,.22); background: rgba(45,212,191,.07); color: rgba(241,245,249,.8); }
-
-.cmd-setup-title,
-.cmd-empty-greeting { color: rgba(241,245,249,.84); }
-.cmd-setup,
-.cmd-empty-sub { color: rgba(203,213,225,.48); }
-.cmd-empty-hero { border-right-color: rgba(255,255,255,.08); }
-.cmd-empty-start-label { color: rgba(203,213,225,.4); }
-.cmd-suggestion {
-  border-color: rgba(255,255,255,.075);
-  background: rgba(255,255,255,.028);
-  color: rgba(226,232,240,.66);
-}
-.cmd-suggestion:hover, .cmd-suggestion:focus-visible { border-color: rgba(45,212,191,.22); background: rgba(45,212,191,.07); color: rgba(241,245,249,.82); }
-.cmd-suggestion svg { color: rgba(94,234,212,.7); }
-
-.cmd-msg-body {
-  border: 1px solid rgba(125,211,252,.12);
-  background: rgba(30,58,95,.42);
-  color: rgba(226,232,240,.76);
-}
-.cmd-msg-time { color: rgba(203,213,225,.3); }
-.cmd-md { color: rgba(226,232,240,.72); }
-.cmd-md :deep(h1), .cmd-md :deep(h2), .cmd-md :deep(h3), .cmd-md :deep(h4), .cmd-md :deep(strong) { color: rgba(241,245,249,.86); }
-.cmd-md :deep(p), .cmd-md :deep(li), .cmd-md :deep(blockquote) { color: rgba(226,232,240,.7); }
-.cmd-md :deep(a), .cmd-md :deep(li::marker) { color: rgba(94,234,212,.78); }
-.cmd-md :deep(code) { background: rgba(2,6,23,.3); color: rgba(125,211,252,.76); }
-.cmd-md :deep(.code-block-header), .cmd-md :deep(pre) { border-color: rgba(255,255,255,.08); }
-.cmd-md :deep(.code-block-header) { background: rgba(15,23,42,.58); color: rgba(203,213,225,.48); }
-.cmd-md :deep(pre) { background: rgba(2,6,23,.4); }
-.cmd-md :deep(pre code) { color: rgba(226,232,240,.72); }
-.cmd-md :deep(th) { background: rgba(30,58,95,.52); color: rgba(241,245,249,.8); }
-.cmd-md :deep(th), .cmd-md :deep(td) { border-color: rgba(255,255,255,.08); }
-.cmd-md :deep(tr:nth-child(even)) { background: rgba(255,255,255,.025); }
-.cmd-md :deep(tr:hover) { background: rgba(45,212,191,.055); }
-
-.cmd-loop-intermediate,
-.cmd-activity,
-.cmd-activity.is-compact {
-  border-color: rgba(255,255,255,.075);
-  background: rgba(15,23,42,.3);
-}
-.cmd-loop-intermediate:hover,
-.cmd-loop-intermediate.is-expanded,
-.cmd-activity[role="button"]:hover,
-.cmd-activity[role="button"]:focus-visible,
-.cmd-activity.is-expanded { border-color: rgba(45,212,191,.18); background: rgba(45,212,191,.055); }
-.cmd-loop-step-num { border-color: rgba(45,212,191,.14); background: rgba(255,255,255,.035); color: rgba(203,213,225,.46); }
-.cmd-activity pre,
-.cmd-result-preview { border-color: rgba(255,255,255,.08); background: rgba(2,6,23,.36); color: rgba(226,232,240,.62); }
-.cmd-approval { background: rgba(15,23,42,.34); }
-.cmd-approval-head strong { color: rgba(241,245,249,.78); }
-.cmd-approval-desc { color: rgba(226,232,240,.58); }
-.cmd-action-bar { border-color: rgba(255,255,255,.075); background: rgba(15,23,42,.44); }
-.cmd-action { color: rgba(226,232,240,.42); }
-.cmd-action:hover, .cmd-action:focus-visible { background: rgba(255,255,255,.07); color: rgba(241,245,249,.78); }
-.cmd-quality-tag { color: rgba(110,231,183,.66); }
-.cmd-followup-chip,
-.cmd-jump-latest-btn { border-color: rgba(255,255,255,.08); background: rgba(15,23,42,.58); color: rgba(226,232,240,.58); }
-.cmd-followup-chip:hover, .cmd-jump-latest-btn:hover { border-color: rgba(45,212,191,.2); background: rgba(45,212,191,.07); color: rgba(241,245,249,.8); }
-
-.quote-preview,
-.cmd-pending-bar { background: rgba(15,23,42,.38); border-color: rgba(255,255,255,.08); }
-.cmd-input-wrapper { background: rgba(15,23,42,.28); }
-.cmd-card.is-immersive .cmd-input-wrapper { background: linear-gradient(180deg, rgba(15,23,42,0), rgba(15,23,42,.38) 28%, rgba(15,23,42,.68)); }
-.cmd-composer {
-  border-color: rgba(255,255,255,.1);
-  background: rgba(6,13,28,.62);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.045);
-}
-.cmd-input-wrapper:focus-within .cmd-composer { border-color: rgba(45,212,191,.34); background: rgba(8,17,36,.74); box-shadow: 0 0 0 3px rgba(45,212,191,.1), inset 0 1px 0 rgba(255,255,255,.055); }
-.cmd-input { color: rgba(241,245,249,.78) !important; }
-.cmd-input::placeholder { color: rgba(203,213,225,.34) !important; }
-.cmd-send { background: linear-gradient(180deg, #5eead4, #2dd4bf); color: rgba(4,20,22,.9); box-shadow: 0 7px 18px rgba(45,212,191,.18); }
-.cmd-footer { color: rgba(203,213,225,.3); }
-.cmd-footer-hint kbd { border-color: rgba(255,255,255,.08); background: rgba(255,255,255,.045); color: rgba(226,232,240,.48); }
-
-/* Lower the remaining utility-white text without muting semantic statuses. */
-.cmd-card .text-white\/25, .cmd-card .text-white\/30, .cmd-card .text-white\/35, .cmd-card .text-white\/40 { color: rgba(203,213,225,.36) !important; }
-.cmd-card .text-white\/45, .cmd-card .text-white\/50, .cmd-card .text-white\/55 { color: rgba(203,213,225,.48) !important; }
-.cmd-card .text-white\/70 { color: rgba(226,232,240,.64) !important; }
-
-/* Normalize secondary copy to the ModelConfig slate scale instead of cyan-white. */
-.cmd-setup-hint,
-.cmd-empty-sub,
-.cmd-loop-step-label,
-.cmd-executing-label,
-.cmd-side-activity-sub,
-.cmd-side-empty,
-.cmd-msg-time { color: rgba(226,232,240,.44) !important; }
-.cmd-setup-title,
-.cmd-empty-greeting { color: rgba(248,250,252,.84); }
-.quote-preview .text-white\/50,
-.quote-preview .text-white\/40 { color: rgba(226,232,240,.48) !important; }
-
 </style>
