@@ -1882,6 +1882,7 @@ function onBackdropClick() {
                       />
                     </div>
                     <GitDiffBox
+                      :title="'git show'"
                       v-if="diffTarget.startsWith('commit-')"
                       :content="diffContent"
                       :loading="diffLoading"
@@ -2021,6 +2022,7 @@ function onBackdropClick() {
                         />
                       </div>
                       <GitDiffBox
+                        :title="`git show ${c.hash}`"
                         v-if="diffTarget === `c-${c.fullHash}`"
                         :content="diffContent"
                         :loading="diffLoading"
@@ -2113,6 +2115,7 @@ function onBackdropClick() {
                             />
                           </div>
                           <GitDiffBox
+                            :title="`git diff --staged ${fileName(f.path)}`"
                             v-if="diffTarget === 'staged-' + f.path"
                             :content="diffContent"
                             :loading="diffLoading"
@@ -2167,6 +2170,7 @@ function onBackdropClick() {
                             />
                           </div>
                           <GitDiffBox
+                            :title="`git diff ${fileName(f.path)}`"
                             v-if="diffTarget === 'mod-' + f.path"
                             :content="diffContent"
                             :loading="diffLoading"
@@ -2705,6 +2709,7 @@ function onBackdropClick() {
                                   />
                                 </div>
                                 <GitDiffBox
+                                  :title="`git show ${c.hash}`"
                                   v-if="diffTarget === `c-${c.fullHash}`"
                                   :content="diffContent"
                                   :loading="diffLoading"

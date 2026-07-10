@@ -163,10 +163,14 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace);
   font-size: 12px;
   line-height: 1.6;
-  /* 不显示滚动条（项目偏好） */
-  scrollbar-width: none;
+  /* 细滚动条：diff 可达数百行，保留滚动位置提示（终端美学下做得克制） */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 217, 255, 0.2) transparent;
 }
-.gdb-view::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.gdb-view::-webkit-scrollbar { width: 6px; height: 6px; }
+.gdb-view::-webkit-scrollbar-track { background: transparent; }
+.gdb-view::-webkit-scrollbar-thumb { background: rgba(0, 217, 255, 0.18); border-radius: 3px; }
+.gdb-view::-webkit-scrollbar-thumb:hover { background: rgba(0, 217, 255, 0.32); }
 
 .gdb-ln {
   display: flex;
