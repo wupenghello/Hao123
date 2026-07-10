@@ -1988,10 +1988,10 @@ function onBackdropClick() {
                   <div class="gd-list">
                     <template v-for="c in dash.commits.value" :key="c.fullHash">
                       <div
-                        class="gd-list-row group cursor-pointer"
+                        class="gd-list-row gd-commit-row group cursor-pointer"
                         @click="viewDiff(`c-${c.fullHash}`, () => dash.getCommitDetail(c.fullHash))"
                       >
-                        <IconCommit class="w-3.5 h-3.5 flex-shrink-0 text-white/25" />
+                        <span class="gd-graph-node" aria-hidden="true" />
                         <span class="gd-hash flex-shrink-0">{{ c.hash }}</span>
                         <span class="flex-1 truncate text-white/75">{{ c.message }}</span>
                         <span class="text-white/35 text-[11px] flex-shrink-0">{{ c.author }}</span>
@@ -2919,7 +2919,7 @@ function onBackdropClick() {
   border: 1px solid rgba(255, 255, 255, 0.08);
   white-space: nowrap;
 }
-.gd-mono { font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; }
+.gd-mono { font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace); }
 .gd-hash {
   font-family: ui-monospace, 'Cascadia Code', monospace;
   font-size: 11px; color: rgba(255, 255, 255, 0.35);
@@ -3110,6 +3110,47 @@ function onBackdropClick() {
 .gd-list-row:hover { background: rgba(255, 255, 255, 0.03); }
 .gd-list-row.is-current { background: rgba(45, 212, 191, 0.06); }
 .gd-list-row.is-current:hover { background: rgba(45, 212, 191, 0.1); }
+
+/* ═══ 模块 4：提交日志 = 分支节点图（git log --graph 感）═══ */
+.gd-commit-row {
+  position: relative;
+  padding-left: 26px;
+}
+/* 左侧贯穿竖线（分支轨） */
+.gd-commit-row::before {
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  content: '';
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent, #00d9ff) 40%, transparent) 12%, color-mix(in srgb, var(--accent, #00d9ff) 40%, transparent) 88%, transparent);
+}
+/* 首尾淡出由渐变处理；节点圆点盖在竖线上 */
+.gd-graph-node {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--bg-base, #0a0b0e);
+  border: 2px solid var(--accent, #00d9ff);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent, #00d9ff) 55%, transparent);
+  z-index: 1;
+}
+.gd-commit-row:hover .gd-graph-node {
+  background: var(--accent, #00d9ff);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #00d9ff) 80%, transparent);
+}
+/* hash：终端绿等宽（致敬命令行 commit hash） */
+.gd-commit-row .gd-hash {
+  font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace);
+  color: #4ade80;
+  font-weight: 600;
+}
 
 .gd-status-badge {
   font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px;

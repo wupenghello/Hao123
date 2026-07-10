@@ -13,7 +13,10 @@ import { computed } from 'vue'
 import IconLoading from '~icons/mdi/loading'
 import IconRobot from '~icons/mdi/robot-outline'
 
-const props = defineProps<{ content: string; loading?: boolean; aiReady?: boolean }>()
+const props = withDefaults(
+  defineProps<{ content: string; loading?: boolean; aiReady?: boolean; title?: string }>(),
+  { loading: false, aiReady: false, title: 'git diff' },
+)
 defineEmits<{ explain: [] }>()
 
 type DiffLineType = 'hunk' | 'add' | 'del' | 'context' | 'meta'
@@ -66,6 +69,15 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
 
 <template>
   <div class="gdb-box">
+    <!-- 终端标题栏：交通灯 + 提示符标题，致敬开发者命令行 -->
+    <div class="gdb-term-bar">
+      <span class="gdb-traffic" aria-hidden="true">
+        <span class="gdb-tf is-red" />
+        <span class="gdb-tf is-amber" />
+        <span class="gdb-tf is-green" />
+      </span>
+      <span class="gdb-term-title"><span class="gdb-prompt">$</span> {{ title }}</span>
+    </div>
     <div v-if="loading" class="gdb-loading">
       <IconLoading class="gdb-spin" /> 加载中…
     </div>
@@ -99,9 +111,43 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
 
 <style scoped>
 .gdb-box {
-  background: rgba(0, 0, 0, 0.28);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.28));
+  border: 1px solid rgba(0, 217, 255, 0.14);
+  border-radius: 8px;
+  overflow: hidden;
 }
+/* 终端标题栏 */
+.gdb-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  border-bottom: 1px solid rgba(0, 217, 255, 0.12);
+}
+.gdb-traffic {
+  display: inline-flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.gdb-tf {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+.gdb-tf.is-red { background: #fb7185; }
+.gdb-tf.is-amber { background: #fbbf24; }
+.gdb-tf.is-green { background: #4ade80; }
+.gdb-term-title {
+  font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gdb-prompt { color: var(--accent, #00d9ff); font-weight: 700; }
 .gdb-loading {
   padding: 12px 16px;
   display: flex;
@@ -114,14 +160,13 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   max-height: 340px;
   overflow: auto;
   padding: 6px 0;
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace);
   font-size: 12px;
   line-height: 1.6;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  /* 不显示滚动条（项目偏好） */
+  scrollbar-width: none;
 }
-.gdb-view::-webkit-scrollbar { height: 6px; width: 6px; }
-.gdb-view::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
+.gdb-view::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 .gdb-ln {
   display: flex;
@@ -151,16 +196,17 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   white-space: pre;
 }
 
-.gdb-ln.is-context .gdb-code { color: rgba(255, 255, 255, 0.55); }
-.gdb-ln.is-add { background: rgba(34, 197, 94, 0.10); }
+.gdb-ln.is-context .gdb-code { color: rgba(255, 255, 255, 0.5); }
+/* 终端绿/红色块：增行用青柠绿、删行用玫红，更鲜明 */
+.gdb-ln.is-add { background: rgba(0, 255, 148, 0.1); }
 .gdb-ln.is-add .gdb-sign,
-.gdb-ln.is-add .gdb-code { color: rgb(134, 239, 172); }
-.gdb-ln.is-del { background: rgba(244, 63, 94, 0.10); }
+.gdb-ln.is-add .gdb-code { color: #86efac; }
+.gdb-ln.is-del { background: rgba(251, 113, 133, 0.1); }
 .gdb-ln.is-del .gdb-sign,
-.gdb-ln.is-del .gdb-code { color: rgb(252, 165, 165); }
-.gdb-ln.is-hunk { background: rgba(45, 212, 191, 0.07); }
-.gdb-ln.is-hunk .gdb-code { color: rgb(94, 234, 212); }
-.gdb-ln.is-meta .gdb-code { color: rgba(255, 255, 255, 0.42); }
+.gdb-ln.is-del .gdb-code { color: #fda4af; }
+.gdb-ln.is-hunk { background: rgba(0, 217, 255, 0.07); }
+.gdb-ln.is-hunk .gdb-code { color: var(--accent, #00d9ff); }
+.gdb-ln.is-meta .gdb-code { color: rgba(255, 255, 255, 0.4); }
 
 .gdb-empty { padding: 12px 16px; color: rgba(255, 255, 255, 0.3); font-size: 12px; }
 .gdb-truncated {
@@ -181,14 +227,14 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   gap: 4px;
   padding: 3px 9px;
   border-radius: 6px;
-  background: rgba(45, 212, 191, 0.10);
-  border: 1px solid rgba(45, 212, 191, 0.22);
-  color: rgb(94, 234, 212);
+  background: rgba(0, 217, 255, 0.1);
+  border: 1px solid rgba(0, 217, 255, 0.22);
+  color: var(--accent, #00d9ff);
   font-size: 11px;
   cursor: pointer;
   transition: all 0.15s;
 }
-.gdb-explain:hover { background: rgba(45, 212, 191, 0.18); }
+.gdb-explain:hover { background: rgba(0, 217, 255, 0.18); }
 
 .gdb-spin { animation: gdb-spin 1s linear infinite; }
 @keyframes gdb-spin { to { transform: rotate(360deg); } }
