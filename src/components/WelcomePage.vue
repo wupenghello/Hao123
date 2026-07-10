@@ -23,6 +23,7 @@ import { setLocalStorageItem } from '@/features/storage-health'
 import UnifiedInbox from '@/components/UnifiedInbox.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { ProgressRing, Sparkline } from '@/components/viz'
+import { getWeatherIcon } from '@/features/weather'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
@@ -100,21 +101,38 @@ const riskSegments = computed(() => {
 const riskTotal = computed(() => summary.value.total)
 const riskHasData = computed(() => riskTotal.value > 0)
 
-// ============ 未来 7 天温度趋势（sparkline，双线 max/min）============
-// weather.daily 由状态栏 WeatherWidget 拉起加载，首页直接读取已加载结果。
-const tempHigh = computed(() =>
-  weather.daily.map((d) => Number(d.tempMax)).filter((n) => Number.isFinite(n)),
-)
-const tempLow = computed(() =>
-  weather.daily.map((d) => Number(d.tempMin)).filter((n) => Number.isFinite(n)),
-)
-const tempHasData = computed(() => tempHigh.value.length >= 2)
-const tempRange = computed(() => {
-  if (!tempHigh.value.length) return ''
-  const hi = Math.max(...tempHigh.value)
-  const lo = Math.min(...tempLow.value.length ? tempLow.value : tempHigh.value)
-  return `${lo}° ~ ${hi}°`
+// ============ 模块 3：沉浸式天气卡 ============
+/** 当前天气图标组件（大号展示） */
+const weatherIcon = computed(() => (weather.now ? getWeatherIcon(weather.now.icon) : null))
+
+/**
+ * 天气码 → 背景氛围类。按大类归并（晴 / 多云阴 / 雨 / 雷 / 雪 / 雾霾沙尘 / 夜间），
+ * 让天气卡背景随天气变化而不必逐码写渐变。夜间（150~154 / 300+夜段）优先判夜。
+ */
+const weatherAmbient = computed(() => {
+  const c = Number(weather.now?.icon)
+  if (!Number.isFinite(c)) return 'default'
+  if (c === 150 || (c >= 151 && c <= 154)) return 'night'
+  if (c === 100) return 'clear'
+  if (c >= 101 && c <= 104) return 'cloudy'
+  if (c === 302 || c === 303 || c === 304) return 'storm'
+  if ((c >= 300 && c <= 318) || (c >= 350 && c <= 399)) return 'rain'
+  if ((c >= 400 && c <= 415) || (c >= 446 && c <= 499)) return 'snow'
+  if (c >= 500 && c <= 518) return 'fog'
+  return 'default'
 })
+
+/** 降水概率序列（未来逐小时 pop%，最多 12 项）——驱动降水 sparkline */
+const precipData = computed(() =>
+  (weather.hourly ?? [])
+    .slice(0, 12)
+    .map((h) => Number(h.pop))
+    .filter((n) => Number.isFinite(n)),
+)
+/** 是否有非零降水概率（全 0 时不渲染降水线，改显「无降水」） */
+const hasPrecip = computed(() => precipData.value.some((n) => n > 0))
+/** 峰值降水概率（卡片角标） */
+const precipPeak = computed(() => (precipData.value.length ? Math.max(...precipData.value) : 0))
 
 // ============ 紧急项检测（禅道口径集中在 zentao/shared/ui，本地待办口径在 local-tasks/ui）============
 const hasUrgentItems = computed(() =>
@@ -129,6 +147,8 @@ const showOnboarding = ref(false)
 
 onMounted(() => {
   isFirstVisit.value = !localStorage.getItem('hao123-onboarding-done')
+  // 降水概率 sparkline 需要逐小时数据（懒加载，按城市缓存，重复调用只发一次请求）
+  weather.ensureHourly()
 })
 
 function finishOnboarding() {
@@ -213,20 +233,55 @@ function finishOnboarding() {
         </div>
       </div>
 
-      <!-- bento 单元 D：未来 7 天温度趋势（sparkline，weather.daily） -->
-      <div v-if="tempHasData" class="bento-cell bento-temp" aria-label="未来 7 天温度趋势">
-        <div class="bento-section-label">
-          <span class="bento-kicker">7-day temp</span>
-          <span class="bento-temp-range">{{ tempRange }}</span>
+      <!-- bento 单元 D：沉浸式天气卡（大号等宽温度 + 天气图标 + 氛围背景 + 降水 sparkline） -->
+      <div
+        v-if="weather.now"
+        class="bento-cell bento-weather"
+        :data-ambient="weatherAmbient"
+        aria-label="天气"
+      >
+        <!-- 顶部：城市 + 天气文字 -->
+        <div class="weather-card-head">
+          <span class="bento-kicker">weather</span>
+          <span v-if="weather.now" class="weather-card-city">{{ weather.cityName }}</span>
         </div>
-        <Sparkline
-          :data="tempHigh"
-          :data2="tempLow"
-          :width="260"
-          :height="42"
-          tone="var(--home-tone)"
-          tone2="rgba(0, 217, 255, 0.4)"
-        />
+
+        <!-- 主体：大号温度 + 天气图标 -->
+        <div v-if="weather.now" class="weather-card-main">
+          <div class="weather-card-temp">
+            <span class="weather-card-temp-val">{{ weather.now.temp }}</span>
+            <span class="weather-card-temp-unit">°C</span>
+          </div>
+          <div class="weather-card-side">
+            <component :is="weatherIcon" v-if="weatherIcon" class="weather-card-icon" />
+            <span class="weather-card-text">{{ weather.now.text }}</span>
+          </div>
+        </div>
+
+        <!-- 次要信息：体感 · 湿度 · 风 -->
+        <div v-if="weather.now" class="weather-card-meta">
+          <span>体感 {{ weather.now.feelsLike }}°</span>
+          <span>湿度 {{ weather.now.humidity }}%</span>
+          <span>{{ weather.now.windDir }}{{ weather.now.windScale }}级</span>
+        </div>
+
+        <!-- 降水概率 sparkline（有非零概率才画线，否则一句无降水） -->
+        <div v-if="precipData.length >= 2" class="weather-card-precip">
+          <div class="weather-card-precip-head">
+            <span class="weather-card-precip-label">未来降水概率</span>
+            <span v-if="hasPrecip" class="weather-card-precip-peak">峰值 {{ precipPeak }}%</span>
+            <span v-else class="weather-card-precip-peak is-dry">未来无降水</span>
+          </div>
+          <Sparkline
+            v-if="hasPrecip"
+            :data="precipData"
+            :width="260"
+            :height="30"
+            tone="var(--accent, #00D9FF)"
+            :fill="true"
+            :dots="false"
+          />
+        </div>
       </div>
 
       <!-- bento 单元 E：每日晨报（高卡，左侧） -->
@@ -312,7 +367,7 @@ function finishOnboarding() {
 .bento-hero { grid-column: span 4; grid-row: 1; }
 .bento-signals { grid-column: span 4; grid-row: 1; }
 .bento-radar { grid-column: span 4; grid-row: 1; }
-.bento-temp { display: none; } /* 默认隐藏；宽屏 ≥1280 独占一格 */
+.bento-weather { display: none; } /* 默认隐藏；宽屏 ≥1280 独占一格 */
 .bento-briefing { grid-column: span 5; grid-row: 2; min-height: 0; }
 .bento-inbox { grid-column: span 7; grid-row: 2; min-height: 0; display: flex; }
 .bento-inbox > :deep(*) {
@@ -320,12 +375,12 @@ function finishOnboarding() {
   min-width: 0;
   min-height: 0;
 }
-/* 宽屏：顶部四张小卡并排（各 span 3），温度独占一格 */
+/* 宽屏：顶部四张小卡并排（各 span 3），天气独占一格 */
 @media (min-width: 1280px) {
   .bento-hero,
   .bento-signals,
   .bento-radar { grid-column: span 3; }
-  .bento-temp {
+  .bento-weather {
     grid-column: span 3;
     grid-row: 1;
     display: flex;
@@ -461,8 +516,7 @@ function finishOnboarding() {
 }
 
 /* ===== bento 单元通用：内边距 + 分区标签 ===== */
-.bento-radar,
-.bento-temp {
+.bento-radar {
   padding: var(--space-3) var(--space-4);
 }
 .bento-section-label {
@@ -547,16 +601,149 @@ function finishOnboarding() {
   font-style: italic;
 }
 
-/* ===== 7 天温度卡 ===== */
-.bento-temp-range {
+/* ===== 模块 3：沉浸式天气卡 ===== */
+.bento-weather {
+  padding: 12px 14px;
+  justify-content: space-between;
+}
+/* 氛围背景：随天气码变化（晴/多云/雨/雷/雪/雾/夜间），半透明叠在 bento 基座之上 */
+.bento-weather::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  z-index: 0;
+  opacity: 0.9;
+}
+.bento-weather > * { position: relative; z-index: 1; }
+.bento-weather[data-ambient='clear']::before {
+  background: radial-gradient(circle at 78% 18%, rgba(250, 204, 21, 0.22), transparent 60%),
+    radial-gradient(circle at 12% 88%, rgba(56, 189, 248, 0.14), transparent 58%);
+}
+.bento-weather[data-ambient='cloudy']::before {
+  background: radial-gradient(circle at 80% 20%, rgba(148, 163, 184, 0.18), transparent 62%),
+    radial-gradient(circle at 14% 86%, rgba(100, 116, 139, 0.14), transparent 60%);
+}
+.bento-weather[data-ambient='rain']::before {
+  background: radial-gradient(circle at 78% 16%, rgba(56, 189, 248, 0.2), transparent 60%),
+    radial-gradient(circle at 16% 88%, rgba(14, 165, 233, 0.16), transparent 58%);
+}
+.bento-weather[data-ambient='storm']::before {
+  background: radial-gradient(circle at 76% 14%, rgba(167, 139, 250, 0.2), transparent 58%),
+    radial-gradient(circle at 18% 88%, rgba(56, 189, 248, 0.18), transparent 60%);
+}
+.bento-weather[data-ambient='snow']::before {
+  background: radial-gradient(circle at 80% 18%, rgba(226, 232, 240, 0.2), transparent 62%),
+    radial-gradient(circle at 14% 86%, rgba(165, 243, 252, 0.16), transparent 60%);
+}
+.bento-weather[data-ambient='fog']::before {
+  background: radial-gradient(circle at 50% 30%, rgba(203, 213, 225, 0.16), transparent 66%),
+    radial-gradient(circle at 50% 90%, rgba(148, 163, 184, 0.12), transparent 60%);
+}
+.bento-weather[data-ambient='night']::before {
+  background: radial-gradient(circle at 80% 16%, rgba(125, 211, 252, 0.14), transparent 60%),
+    radial-gradient(circle at 14% 86%, rgba(30, 41, 59, 0.4), transparent 58%);
+}
+.bento-weather[data-ambient='default']::before {
+  background: radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--home-tone) 14%, transparent), transparent 60%);
+}
+
+.weather-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.weather-card-city {
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weather-card-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.weather-card-temp {
+  display: flex;
+  align-items: flex-start;
+  line-height: 0.9;
+}
+.weather-card-temp-val {
   font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.98);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 22px rgba(255, 255, 255, 0.12);
+}
+.weather-card-temp-unit {
+  margin-top: 4px;
+  margin-left: 2px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.6);
+}
+.weather-card-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.weather-card-icon {
+  width: 30px;
+  height: 30px;
+  color: rgba(226, 232, 240, 0.9);
+}
+.weather-card-text {
+  font-size: 11.5px;
+  color: rgba(226, 232, 240, 0.72);
+}
+.weather-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
   font-size: 11px;
   color: rgba(226, 232, 240, 0.5);
   font-variant-numeric: tabular-nums;
 }
-.bento-temp :deep(.sparkline) {
+.weather-card-precip {
+  margin-top: 8px;
+}
+.weather-card-precip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.weather-card-precip-label {
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.46);
+  letter-spacing: 0.02em;
+}
+.weather-card-precip-peak {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #00d9ff);
+  font-variant-numeric: tabular-nums;
+}
+.weather-card-precip-peak.is-dry {
+  color: rgba(226, 232, 240, 0.42);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+.bento-weather :deep(.sparkline) {
   width: 100%;
-  height: 42px;
+  height: 30px;
 }
 .welcome-urgent-dot {
   width: 6px;
@@ -615,7 +802,7 @@ function finishOnboarding() {
 .bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
 .bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
-.bento-temp { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
+.bento-weather { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
 .bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both; }
 .bento-inbox { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both; }
 @keyframes bento-rise {
@@ -638,13 +825,13 @@ function finishOnboarding() {
   .bento-hero,
   .bento-signals,
   .bento-radar,
-  .bento-temp,
+  .bento-weather,
   .bento-briefing,
   .bento-inbox {
     grid-column: 1 / -1;
     grid-row: auto;
   }
-  .bento-temp { display: flex; flex-direction: column; }
+  .bento-weather { display: flex; flex-direction: column; }
   .bento-inbox { min-height: 560px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -652,7 +839,7 @@ function finishOnboarding() {
   .bento-hero,
   .bento-signals,
   .bento-radar,
-  .bento-temp,
+  .bento-weather,
   .bento-briefing,
   .bento-inbox { animation: none; }
   .signal-tile { transition: none; }
