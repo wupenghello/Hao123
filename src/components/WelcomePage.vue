@@ -30,6 +30,9 @@ const weather = useWeatherStore()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
+/** wbscf 服务卡仅 dev + 配置了 wbscf-web 根目录时挂载（与 GitWidget 同口径门控），
+ *  避免生产环境 / 未配置时 useWbscfServices 仍空轮询 /wbscf/services（404 静默吞掉但轮询不停）。 */
+const wbscfCardEnabled = import.meta.env.DEV && !!import.meta.env.VITE_WBSCF_WEB_ROOT?.trim()
 /** 风险预测汇总（纯启发式，始终可用）——驱动「风险雷达」环 */
 const { summary } = useInboxInsights()
 
@@ -165,7 +168,7 @@ function finishOnboarding() {
   <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
   <div class="welcome-shell">
     <!-- 本地 dev 服务状态卡（仅 dev + wbscf-web 配置后、且探测到服务时出现） -->
-    <WbscfServicesCard class="welcome-services" />
+    <WbscfServicesCard v-if="wbscfCardEnabled" class="welcome-services" />
 
     <!-- 平铺 bento：顶部一行小卡（hero/信号/风险/温度），底部一行两张高卡（晨报/收件箱）。
          收件箱不再是唯一主角，降级成一张普通 bento 卡。 -->
@@ -807,7 +810,7 @@ function finishOnboarding() {
 .guide-fade-leave-to { opacity: 0; }
 
 /* ===== bento 进场：错峰淡入上浮，呼吸感 ===== */
-.welcome-services { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.welcome-services { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; flex-shrink: 0; }
 .bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
 .bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
@@ -850,7 +853,8 @@ function finishOnboarding() {
   .bento-radar,
   .bento-weather,
   .bento-briefing,
-  .bento-inbox { animation: none; }
+  .bento-inbox,
+  .welcome-services { animation: none; }
   .signal-tile { transition: none; }
   .signal-tile:hover { transform: none; box-shadow: none; }
   .welcome-onboard-btn,
