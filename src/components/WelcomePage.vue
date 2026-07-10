@@ -24,6 +24,7 @@ import UnifiedInbox from '@/components/UnifiedInbox.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { ProgressRing, Sparkline } from '@/components/viz'
 import { getWeatherIcon } from '@/features/weather'
+import WbscfServicesCard from '@/components/wbscf/WbscfServicesCard.vue'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
@@ -163,6 +164,9 @@ function finishOnboarding() {
 <template>
   <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
   <div class="welcome-shell">
+    <!-- 本地 dev 服务状态卡（仅 dev + wbscf-web 配置后、且探测到服务时出现） -->
+    <WbscfServicesCard class="welcome-services" />
+
     <!-- 平铺 bento：顶部一行小卡（hero/信号/风险/温度），底部一行两张高卡（晨报/收件箱）。
          收件箱不再是唯一主角，降级成一张普通 bento 卡。 -->
     <div class="welcome-bento">
@@ -325,6 +329,9 @@ function finishOnboarding() {
   height: 100%;
   overflow: hidden;
   padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   color: var(--home-text);
 }
 .welcome-shell::before {
@@ -358,7 +365,8 @@ function finishOnboarding() {
   z-index: 1;
   display: grid;
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   grid-template-columns: repeat(12, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-3);
@@ -799,6 +807,7 @@ function finishOnboarding() {
 .guide-fade-leave-to { opacity: 0; }
 
 /* ===== bento 进场：错峰淡入上浮，呼吸感 ===== */
+.welcome-services { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
 .bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
