@@ -82,11 +82,11 @@ const activeItem = computed(() => {
 
 function signalLabel(it?: ConstellationItem | null): string {
   if (!it) return ''
-  if (it.riskLevel === 'overdue') return '高压信号'
-  if (it.riskLevel === 'due-soon') return '近窗信号'
-  if (it.riskLevel === 'stalled') return '静默信号'
-  if (it.urgent) return '紧急信号'
-  return it.riskLabel || '平稳信号'
+  if (it.riskLevel === 'overdue') return '逾期'
+  if (it.riskLevel === 'due-soon') return '临期'
+  if (it.riskLevel === 'stalled') return '停滞'
+  if (it.urgent) return '紧急'
+  return it.riskLabel || '平稳'
 }
 
 const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
@@ -98,6 +98,7 @@ let nodesGroup: THREE.Group | null = null
 let core: THREE.Mesh | null = null
 let coreHalo: THREE.Sprite | null = null
 let coreOuter: THREE.Sprite | null = null
+let coreCorona: THREE.Sprite | null = null
 let dangerLight: THREE.PointLight | null = null
 let particles: THREE.Points | null = null
 let raycaster: THREE.Raycaster | null = null
@@ -181,22 +182,21 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
   c.width = w
   c.height = h
   const ctx = c.getContext('2d')!
-  // 深空底
+  // 深空底：冷蓝黑，电影级调色
   const base = ctx.createLinearGradient(0, 0, w, h)
-  base.addColorStop(0, '#03040d')
-  base.addColorStop(0.5, '#070a1c')
-  base.addColorStop(1, '#0a0820')
+  base.addColorStop(0, '#02030a')
+  base.addColorStop(0.5, '#05081a')
+  base.addColorStop(1, '#070914')
   ctx.fillStyle = base
   ctx.fillRect(0, 0, w, h)
 
-  // 大块星云气体（多色径向渐变，加性叠加）
+  // 星云气体：收敛为单一冷色主调（深青蓝）+ 一抹暖色（琥珀）做电影感互补
   ctx.globalCompositeOperation = 'lighter'
   const clouds: Array<[number, number, number, string]> = [
-    [w * 0.32, h * 0.4, w * 0.5, 'rgba(56,189,248,0.45)'],   // 青
-    [w * 0.7, h * 0.32, w * 0.46, 'rgba(168,85,247,0.4)'],    // 紫
-    [w * 0.6, h * 0.72, w * 0.42, 'rgba(244,114,182,0.32)'],  // 玫红
-    [w * 0.22, h * 0.7, w * 0.4, 'rgba(45,212,191,0.3)'],     // 青绿
-    [w * 0.5, h * 0.52, w * 0.6, 'rgba(99,102,241,0.28)'],    // 靛
+    [w * 0.34, h * 0.42, w * 0.52, 'rgba(45,120,170,0.42)'],   // 主调：深青蓝
+    [w * 0.66, h * 0.36, w * 0.46, 'rgba(28,90,140,0.34)'],    // 主调：更深的蓝
+    [w * 0.58, h * 0.68, w * 0.4, 'rgba(20,70,120,0.3)'],      // 主调：远景蓝
+    [w * 0.22, h * 0.72, w * 0.32, 'rgba(180,120,70,0.18)'],   // 暖色点缀：琥珀（极淡）
   ]
   for (const [x, y, r, color] of clouds) {
     const g = ctx.createRadialGradient(x, y, 0, x, y, r)
@@ -207,29 +207,29 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
     ctx.fillRect(0, 0, w, h)
   }
 
-  // 远处密集星尘
+  // 远处星尘：减半、更细、偏冷白，让前景节点不被背景淹没
   ctx.globalCompositeOperation = 'source-over'
-  for (let i = 0; i < 1400; i++) {
+  for (let i = 0; i < 700; i++) {
     const x = Math.random() * w
     const y = Math.random() * h
-    const r = Math.random() * 1.3
-    const a = Math.random() * 0.7 + 0.1
-    ctx.fillStyle = `rgba(255,255,255,${a})`
+    const r = Math.random() * 1.1
+    const a = Math.random() * 0.6 + 0.08
+    ctx.fillStyle = `rgba(220,235,255,${a})`
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
   }
-  // 几颗亮星带光晕
+  // 几颗亮星带光晕（减少，留白）
   ctx.globalCompositeOperation = 'lighter'
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 8; i++) {
     const x = Math.random() * w
     const y = Math.random() * h
-    const g = ctx.createRadialGradient(x, y, 0, x, y, 14)
-    g.addColorStop(0, 'rgba(255,255,255,0.9)')
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 12)
+    g.addColorStop(0, 'rgba(255,255,255,0.85)')
     g.addColorStop(1, 'rgba(255,255,255,0)')
     ctx.fillStyle = g
     ctx.beginPath()
-    ctx.arc(x, y, 14, 0, Math.PI * 2)
+    ctx.arc(x, y, 12, 0, Math.PI * 2)
     ctx.fill()
   }
   const tex = new THREE.CanvasTexture(c)
@@ -345,7 +345,7 @@ function setupScene() {
 
   scene = new THREE.Scene()
   scene.background = nebulaTex
-  scene.fog = new THREE.FogExp2(0x05071a, 0.028)
+  scene.fog = new THREE.FogExp2(0x040611, 0.038)
 
   camera = new THREE.PerspectiveCamera(52, 1, 0.1, 160)
   camera.position.set(0, 3.8, 16.5)
@@ -370,7 +370,7 @@ function setupScene() {
   // 后处理：辉光 + 色彩输出
   composer = new EffectComposer(r)
   composer.addPass(new RenderPass(scene, camera))
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0.6, 0.22)
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.5, 0.32)
   composer.addPass(bloom)
   composer.addPass(new OutputPass())
 
@@ -477,6 +477,19 @@ function createCore() {
   coreOuter = new THREE.Sprite(outerMat)
   coreOuter.scale.set(5.6, 5.6, 1)
   root.add(coreOuter)
+
+  // 最外层日冕：极淡弥散，让恒星有大气延伸感（节点浮在其前）
+  const coronaMat = new THREE.SpriteMaterial({
+    map: haloTex,
+    color,
+    transparent: true,
+    opacity: 0.06,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  coreCorona = new THREE.Sprite(coronaMat)
+  coreCorona.scale.set(9, 9, 1)
+  root.add(coreCorona)
 }
 
 /** 构建工作项的连续轨道环。 */
@@ -607,6 +620,7 @@ function updateCore() {
   }
   if (coreHalo?.material instanceof THREE.SpriteMaterial) coreHalo.material.color.copy(color)
   if (coreOuter?.material instanceof THREE.SpriteMaterial) coreOuter.material.color.copy(color)
+  if (coreCorona?.material instanceof THREE.SpriteMaterial) coreCorona.material.color.copy(color)
   if (dangerLight) dangerLight.intensity = corePressure.value === 'critical' ? 5 : 1.6
 }
 
@@ -628,22 +642,45 @@ function animate() {
   const slow = reduceMotion.value
 
   if (!slow) {
-    root.rotation.y = Math.sin(t * 0.16) * 0.12
-    if (particles) particles.rotation.y += 0.0004
+    root.rotation.y = Math.sin(t * 0.08) * 0.1
+    if (particles) {
+      particles.rotation.y += 0.0002
+      particles.rotation.x = Math.sin(t * 0.03) * 0.04
+    }
     if (core) {
-      core.rotation.x += 0.003
-      core.rotation.y += 0.0045
-      const s = 1 + Math.sin(t * 2.2) * 0.04
+      core.rotation.x += 0.0015
+      core.rotation.y += 0.0025
+      const s = 1 + Math.sin(t * 0.5) * 0.05
       core.scale.setScalar(s)
     }
     if (coreHalo) {
-      const s = 3.2 + Math.sin(t * 1.3) * 0.26
+      const s = 3.2 + Math.sin(t * 0.4) * 0.32
       coreHalo.scale.set(s, s, 1)
     }
     if (coreOuter) {
-      const s = 5.6 + Math.sin(t * 0.9) * 0.4
+      const s = 5.6 + Math.sin(t * 0.3) * 0.5
       coreOuter.scale.set(s, s, 1)
     }
+    if (coreCorona) {
+      const s = 9 + Math.sin(t * 0.2) * 0.6
+      coreCorona.scale.set(s, s, 1)
+    }
+  }
+
+  // 摄像机：极慢漂移 + 指针视差，让 3D 空间有体积感（像在空间站窗前看星图）
+  if (camera) {
+    if (slow) {
+      camera.position.x += (0 - camera.position.x) * 0.035
+      camera.position.y += (3.8 - camera.position.y) * 0.035
+    } else {
+      const driftX = Math.sin(t * 0.05) * 0.8
+      const driftY = 3.8 + Math.sin(t * 0.04) * 0.55
+      const parX = pointerInside ? lastPointer.x * 1.4 : 0
+      const parY = pointerInside ? lastPointer.y * 0.9 : 0
+      camera.position.x += (driftX + parX - camera.position.x) * 0.05
+      camera.position.y += (driftY + parY - camera.position.y) * 0.05
+    }
+    camera.lookAt(0, 0, 0)
   }
 
   const activeKey = hoveredKey.value
@@ -666,13 +703,14 @@ function animate() {
       sprite.position.y = base.position.y + Math.sin(t * 1.1 + (sprite.userData.index ?? 0) * 1.3) * 0.12
     }
 
-    const pulse = slow ? 0 : Math.sin(t * 2.4 + (sprite.userData.index ?? 0)) * 0.06
-    // 被指向的节点放大爆亮，其余在指向时压暗到 20%——一眼锁定
+    // 焦点节点单一慢呼吸，其余静态（建立层级：只有该看的在动）
+    const focalBreath = !slow && isActive ? Math.sin(t * 1.1) * 0.12 : 0
+    // 被指向的节点放大爆亮，其余压暗到 20%，一眼锁定
     const affinity = activeBase ? 1 - clamp01(sprite.position.distanceTo(activeBase.position) / 7.5) : 0
     const dim = hasActive && !isActive ? 0.16 + affinity * 0.34 : 1
-    const depthGlow = 0.8 + clamp01((sprite.position.z + 5.5) / 11) * 0.24
+    const depthGlow = 0.62 + clamp01((sprite.position.z + 6.5) / 12) * 0.5
     const boost = isActive ? 2.1 : 1
-    const target = base.scale * boost * dim * (1 + (slow ? 0 : Math.max(0, pulse) * 0.5))
+    const target = base.scale * boost * dim * (1 + focalBreath)
     sprite.scale.set(target, target, 1)
     if (sprite.material instanceof THREE.SpriteMaterial) {
       const riskOpacity = base.risk === 'calm' ? 0.82 : 0.98
@@ -689,11 +727,11 @@ function animate() {
       const riskPulse = slow
         ? 0
         : base.risk === 'overdue'
-          ? Math.max(0, Math.sin(t * 3.8 + (sprite.userData.index ?? 0))) * 0.16
+          ? Math.max(0, Math.sin(t * 0.8 + (sprite.userData.index ?? 0))) * 0.18
           : base.risk === 'due-soon'
-            ? Math.max(0, Math.sin(t * 2.4 + (sprite.userData.index ?? 0))) * 0.08
+            ? Math.max(0, Math.sin(t * 0.6 + (sprite.userData.index ?? 0))) * 0.1
             : 0
-      const urgentPulse = !slow && base.urgent ? Math.max(0, Math.sin(t * 3.0 + (sprite.userData.index ?? 0))) * 0.1 : 0
+      const urgentPulse = !slow && base.urgent ? Math.max(0, Math.sin(t * 0.9 + (sprite.userData.index ?? 0))) * 0.12 : 0
       orbit.ring.material.opacity = isActive
         ? 0.74
         : hasActive
@@ -733,15 +771,18 @@ function raycastNode(): string | null {
   return (intersects[0]?.object.userData.key as string | undefined) ?? null
 }
 
-function onPointerMove(event: PointerEvent) {
-  if (!host.value) return
+function setPointerFrom(event: PointerEvent): boolean {
+  if (!host.value) return false
   const rect = host.value.getBoundingClientRect()
   lastPointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
   lastPointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-  pointerInside = true
+  return true
 }
-function onPointerEnter() {
-  pointerInside = true
+function onPointerMove(event: PointerEvent) {
+  if (setPointerFrom(event)) pointerInside = true
+}
+function onPointerEnter(event: PointerEvent) {
+  if (setPointerFrom(event)) pointerInside = true
 }
 function onPointerLeave() {
   pointerInside = false
@@ -791,7 +832,7 @@ onBeforeUnmount(() => {
       <div class="ic3d-vignette" />
 
       <div class="ic3d-core-readout" :class="`is-${corePressure}`">
-        <span>焦点</span>
+        <span>在轨</span>
         <strong>{{ summary.total || urgentCount || items.length }}</strong>
         <em>{{ corePressureLabel }}</em>
       </div>
@@ -828,18 +869,16 @@ onBeforeUnmount(() => {
         </div>
       </transition>
 
-      <div v-if="remainder" class="ic3d-remainder">另有 {{ remainder }} 个焦点未入图</div>
+      <div v-if="remainder" class="ic3d-remainder">另有 {{ remainder }} 项未入图</div>
     </div>
 
     <aside class="ic3d-hud">
       <div class="ic3d-hud-header">
-        <p>今日态势</p>
         <h3>工作星图</h3>
-        <span>{{ items.length }} 个焦点已入图</span>
+        <span>{{ items.length }} 项在轨</span>
       </div>
 
       <div class="ic3d-pressure" :class="`is-${corePressure}`">
-        <span>场域状态</span>
         <strong>{{ corePressureLabel }}</strong>
       </div>
 
@@ -850,14 +889,14 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="ic3d-risk-grid">
-        <span><b>{{ summary.overdue }}</b> 高压</span>
-        <span><b>{{ summary.dueSoon }}</b> 近窗</span>
-        <span><b>{{ summary.stalled }}</b> 静默</span>
+        <span><b>{{ summary.overdue }}</b> 逾期</span>
+        <span><b>{{ summary.dueSoon }}</b> 临期</span>
+        <span><b>{{ summary.stalled }}</b> 停滞</span>
       </div>
 
       <div class="ic3d-signal-list">
         <header>
-          <span>优先焦点</span>
+          <span>优先目标</span>
           <em>{{ hotItems.length || 0 }}</em>
         </header>
         <button
@@ -872,7 +911,7 @@ onBeforeUnmount(() => {
           <span>{{ it.kindLabel }}</span>
           <strong>{{ it.title }}</strong>
         </button>
-        <p v-if="!hotItems.length" class="ic3d-calm">星图平稳，没有需要优先锁定的焦点</p>
+        <p v-if="!hotItems.length" class="ic3d-calm">星图平稳，暂无优先目标</p>
       </div>
     </aside>
   </div>
@@ -886,13 +925,14 @@ onBeforeUnmount(() => {
   --ic3d-accent: rgba(94, 234, 212, 0.82);
   --ic3d-line: rgba(148, 163, 184, 0.18);
   --ic3d-panel: rgba(8, 13, 28, 0.7);
+  --ic3d-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Consolas", ui-monospace, monospace;
   flex: 1;
   min-height: 0;
   position: relative;
   overflow: hidden;
   isolation: isolate;
   padding: 18px;
-  background: #03040d;
+  background: #02030a;
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
     "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -904,7 +944,7 @@ onBeforeUnmount(() => {
   inset: 0;
   overflow: hidden;
   isolation: isolate;
-  background: #03040d;
+  background: #02030a;
   box-shadow: inset 0 0 120px rgba(14, 165, 233, 0.12), inset 0 0 220px rgba(0, 0, 0, 0.52);
 }
 .ic3d-canvas,
@@ -917,11 +957,11 @@ onBeforeUnmount(() => {
 .ic3d-scan {
   z-index: 3;
   pointer-events: none;
-  opacity: 0.22;
+  opacity: 0.1;
   background:
     linear-gradient(transparent 0 48%, rgba(125, 211, 252, 0.32) 50%, transparent 52% 100%);
   transform: translateY(-100%);
-  animation: ic3d-scan 6s linear infinite;
+  animation: ic3d-scan 14s linear infinite;
   mix-blend-mode: screen;
 }
 .ic3d-vignette {
@@ -956,21 +996,23 @@ onBeforeUnmount(() => {
 .ic3d-core-readout em {
   font-size: 11px;
   line-height: 1.35;
-  letter-spacing: 0;
+  letter-spacing: 0.12em;
   color: var(--ic3d-text-muted);
   font-style: normal;
 }
 .ic3d-core-readout strong {
   grid-row: span 2;
+  font-family: var(--ic3d-mono);
   font-size: 32px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 0.9;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   color: rgba(248, 250, 252, 0.96);
-  text-shadow: 0 0 14px rgba(125, 211, 252, 0.45);
+  text-shadow: 0 0 18px rgba(125, 211, 252, 0.5);
 }
-.ic3d-core-readout.is-critical strong { color: #fecdd3; text-shadow: 0 0 16px rgba(244, 63, 94, 0.58); }
-.ic3d-core-readout.is-elevated strong { color: #fde68a; text-shadow: 0 0 16px rgba(245, 158, 11, 0.5); }
+.ic3d-core-readout.is-critical strong { color: #fecdd3; text-shadow: 0 0 20px rgba(244, 63, 94, 0.62); }
+.ic3d-core-readout.is-elevated strong { color: #fde68a; text-shadow: 0 0 20px rgba(245, 158, 11, 0.54); }
 .ic3d-target-card {
   position: absolute;
   z-index: 7;
@@ -1023,7 +1065,7 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   border: 1px solid rgba(125, 211, 252, 0.6);
   box-shadow: 0 0 22px rgba(125, 211, 252, 0.4), inset 0 0 14px rgba(125, 211, 252, 0.18);
-  animation: ic3d-reticle-pulse 1.4s ease-in-out infinite;
+  animation: ic3d-reticle-pulse 2.2s ease-in-out infinite;
 }
 .ic3d-reticle.risk-overdue::before { border-color: rgba(244, 63, 94, 0.75); box-shadow: 0 0 24px rgba(244, 63, 94, 0.5), inset 0 0 14px rgba(244, 63, 94, 0.22); }
 .ic3d-reticle.risk-due-soon::before { border-color: rgba(251, 191, 36, 0.72); box-shadow: 0 0 24px rgba(251, 191, 36, 0.45); }
@@ -1082,8 +1124,8 @@ onBeforeUnmount(() => {
 .ic3d-reticle.risk-due-soon .ic3d-reticle-label em { color: rgba(253, 230, 138, 0.9); }
 .ic3d-reticle.risk-stalled .ic3d-reticle-label em { color: rgba(221, 214, 254, 0.9); }
 @keyframes ic3d-reticle-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.85; }
-  50% { transform: scale(1.12); opacity: 1; }
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.07); opacity: 1; }
 }
 .ic3d-target-card h4 {
   margin: 0;
@@ -1141,120 +1183,92 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 32px rgba(14, 165, 233, 0.05), 0 18px 60px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(16px) saturate(135%);
 }
-.ic3d-hud::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(105deg, transparent 0 36%, rgba(125, 211, 252, 0.14) 48%, transparent 60% 100%);
-  transform: translateX(-120%);
-  animation: ic3d-hud-sheen 6.5s ease-in-out infinite;
-}
-.ic3d-hud-header p,
-.ic3d-signal-list header span,
-.ic3d-pressure span {
+.ic3d-signal-list header span {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  letter-spacing: 0;
+  letter-spacing: 0.06em;
   color: var(--ic3d-accent);
 }
 .ic3d-hud-header h3 {
-  margin: 6px 0 5px;
-  font-size: 24px;
+  margin: 0 0 4px;
+  font-size: 22px;
   line-height: 1.2;
-  font-weight: 650;
-  letter-spacing: 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--ic3d-text);
 }
 .ic3d-hud-header > span {
-  font-size: 13px;
+  font-family: var(--ic3d-mono);
+  font-size: 12px;
   line-height: 1.45;
-  letter-spacing: 0;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--ic3d-text-muted);
 }
 .ic3d-pressure {
-  margin-top: 18px;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(94, 234, 212, 0.2);
+  margin-top: 16px;
+  padding: 12px 0 6px;
+  border-top: 1px solid rgba(125, 211, 252, 0.14);
 }
 .ic3d-pressure strong {
   display: block;
-  margin-top: 6px;
-  font-size: 22px;
+  margin-top: 4px;
+  font-family: var(--ic3d-mono);
+  font-size: 20px;
   line-height: 1.25;
-  font-weight: 650;
-  letter-spacing: 0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--ic3d-text);
-  text-shadow: 0 0 12px rgba(34, 211, 238, 0.32);
 }
-.ic3d-pressure.is-critical { background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.38); }
-.ic3d-pressure.is-critical strong { color: #fecdd3; text-shadow: 0 0 14px rgba(244, 63, 94, 0.48); }
-.ic3d-pressure.is-elevated { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.32); }
-.ic3d-pressure.is-elevated strong { color: #fde68a; text-shadow: 0 0 14px rgba(245, 158, 11, 0.44); }
+.ic3d-pressure.is-critical { border-top-color: rgba(244, 63, 94, 0.42); }
+.ic3d-pressure.is-critical strong { color: #fecdd3; }
+.ic3d-pressure.is-elevated { border-top-color: rgba(245, 158, 11, 0.36); }
+.ic3d-pressure.is-elevated strong { color: #fde68a; }
 .ic3d-metrics,
 .ic3d-risk-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 .ic3d-metrics span,
 .ic3d-risk-grid span {
-  padding: 11px 8px;
-  border-radius: 12px;
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.35;
-  letter-spacing: 0;
+  padding: 10px 0 6px 12px;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
   color: var(--ic3d-text-muted);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid rgba(125, 211, 252, 0.12);
+}
+.ic3d-metrics span:first-child,
+.ic3d-risk-grid span:first-child {
+  padding-left: 0;
+  border-left: none;
 }
 .ic3d-metrics b,
 .ic3d-risk-grid b {
   display: block;
-  margin-bottom: 3px;
-  font-size: 20px;
-  line-height: 1.15;
-  font-weight: 650;
+  margin-bottom: 4px;
+  font-family: var(--ic3d-mono);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   color: var(--ic3d-text);
 }
-.ic3d-metrics span.is-task {
-  color: rgba(186, 230, 253, 0.78);
-  background: rgba(56, 189, 248, 0.08);
-  border-color: rgba(56, 189, 248, 0.24);
-}
-.ic3d-metrics span.is-task b {
-  color: #7dd3fc;
-  text-shadow: 0 0 12px rgba(56, 189, 248, 0.42);
-}
-.ic3d-metrics span.is-bug {
-  color: rgba(254, 205, 211, 0.78);
-  background: rgba(251, 113, 133, 0.08);
-  border-color: rgba(251, 113, 133, 0.24);
-}
-.ic3d-metrics span.is-bug b {
-  color: #fda4af;
-  text-shadow: 0 0 12px rgba(251, 113, 133, 0.42);
-}
-.ic3d-metrics span.is-local {
-  color: rgba(204, 251, 241, 0.78);
-  background: rgba(45, 212, 191, 0.08);
-  border-color: rgba(45, 212, 191, 0.24);
-}
-.ic3d-metrics span.is-local b {
-  color: #5eead4;
-  text-shadow: 0 0 12px rgba(45, 212, 191, 0.42);
-}
+.ic3d-metrics span.is-task b { color: #7dd3fc; }
+.ic3d-metrics span.is-bug b { color: #fda4af; }
+.ic3d-metrics span.is-local b { color: #5eead4; }
 .ic3d-risk-grid span:first-child b { color: #fda4af; }
 .ic3d-risk-grid span:nth-child(2) b { color: #fde68a; }
 .ic3d-risk-grid span:nth-child(3) b { color: #ddd6fe; }
-.ic3d-signal-list { margin-top: 18px; }
+.ic3d-signal-list {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(125, 211, 252, 0.14);
+}
 .ic3d-signal-list header {
   display: flex;
   align-items: center;
@@ -1263,6 +1277,7 @@ onBeforeUnmount(() => {
 }
 .ic3d-signal-list header em {
   font-style: normal;
+  font-family: var(--ic3d-mono);
   font-size: 12px;
   color: var(--ic3d-text-muted);
 }
@@ -1270,38 +1285,38 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   display: grid;
-  grid-template-columns: 24px 42px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 22px 38px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  padding: 11px 0;
+  padding: 10px 8px 10px 14px;
   color: var(--ic3d-text-soft);
   text-align: left;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  transition: color 0.16s, background 0.16s, padding 0.16s;
+  border-top: 1px solid rgba(125, 211, 252, 0.1);
+  transition: color 0.16s, background 0.16s;
 }
 .ic3d-signal-list button::before {
   content: '';
   position: absolute;
-  left: -8px;
-  top: 8px;
-  bottom: 8px;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
   width: 2px;
-  border-radius: 999px;
-  background: rgba(125, 211, 252, 0.42);
+  background: rgba(125, 211, 252, 0.55);
   opacity: 0;
-  box-shadow: 0 0 12px currentColor;
+  transition: opacity 0.16s;
 }
 .ic3d-signal-list button:hover,
 .ic3d-signal-list button.is-active {
   color: #fff;
-  padding-left: 8px;
-  background: linear-gradient(90deg, rgba(125, 211, 252, 0.1), transparent);
+  background: rgba(125, 211, 252, 0.06);
 }
 .ic3d-signal-list button:hover::before,
 .ic3d-signal-list button.is-active::before { opacity: 1; }
 .ic3d-signal-list i {
   font-style: normal;
+  font-family: var(--ic3d-mono);
   font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--ic3d-text-muted);
 }
 .ic3d-signal-list span {
@@ -1322,15 +1337,13 @@ onBeforeUnmount(() => {
 .ic3d-signal-list button.risk-due-soon strong { color: #fde68a; }
 .ic3d-signal-list button.risk-stalled strong { color: #ddd6fe; }
 .ic3d-calm {
-  margin: 14px 0 0;
-  padding: 12px;
-  border-radius: 12px;
-  font-size: 13px;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  font-size: 12px;
   line-height: 1.55;
-  letter-spacing: 0;
-  color: rgba(153, 246, 228, 0.78);
-  background: rgba(45, 212, 191, 0.08);
-  border: 1px solid rgba(45, 212, 191, 0.14);
+  letter-spacing: 0.02em;
+  color: var(--ic3d-text-muted);
+  border-top: 1px solid rgba(125, 211, 252, 0.1);
 }
 .ic3d-lock-enter-active,
 .ic3d-lock-leave-active { transition: opacity 0.18s, transform 0.18s; }
@@ -1339,10 +1352,6 @@ onBeforeUnmount(() => {
 @keyframes ic3d-scan {
   0% { transform: translateY(-100%); }
   58%, 100% { transform: translateY(100%); }
-}
-@keyframes ic3d-hud-sheen {
-  0%, 34% { transform: translateX(-120%); }
-  70%, 100% { transform: translateX(120%); }
 }
 @media (max-width: 1100px) {
   .ic3d-hud {
@@ -1353,8 +1362,7 @@ onBeforeUnmount(() => {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ic3d-scan,
-  .ic3d-hud::before { animation: none; }
+  .ic3d-scan { animation: none; }
 }
 /* 紧急（玫红）标识：与 UnifiedInbox 紧急色一致，叠加在风险色之上 */
 .ic3d-reticle.is-urgent::before {
