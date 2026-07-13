@@ -25,6 +25,8 @@ import IconCheck from '~icons/mdi/check'
 import IconChevronDown from '~icons/mdi/chevron-down'
 import IconCog from '~icons/mdi/cog-outline'
 import IconAlert from '~icons/mdi/alert-circle-outline'
+import IconMagnify from '~icons/mdi/magnify'
+import IconClose from '~icons/mdi/close'
 
 const { status: connectivityStatus, message: connectivityMsg } = useConnectivity()
 
@@ -80,6 +82,71 @@ const confirmedModels = computed<FlatModelEntry[]>(() => {
   return entries
 })
 
+// ── 多模型场景：搜索 + 按 Provider 分组（>10 个已确认模型时启用，否则保持原平铺）──
+const richMode = computed(() => confirmedModels.value.length > 10)
+
+interface ModelGroup {
+  providerId: string
+  providerName: string
+  models: FlatModelEntry[]
+}
+const groupedModels = computed<ModelGroup[]>(() => {
+  const map = new Map<string, ModelGroup>()
+  for (const entry of confirmedModels.value) {
+    let g = map.get(entry.providerId)
+    if (!g) {
+      g = { providerId: entry.providerId, providerName: entry.providerName, models: [] }
+      map.set(entry.providerId, g)
+    }
+    g.models.push(entry)
+  }
+  const groups = [...map.values()]
+  for (const g of groups) {
+    // 当前模型置顶，确保大列表里始终可见
+    g.models.sort((a, b) => Number(b.isActive) - Number(a.isActive))
+  }
+  return groups
+})
+
+// 默认展开当前 Provider（或第一个类别），其余折叠
+const defaultOpenId = computed(() => {
+  const activeId = activeProvider.value?.id
+  if (activeId && groupedModels.value.some((g) => g.providerId === activeId)) return activeId
+  return groupedModels.value[0]?.providerId
+})
+const groupOpenOverride = ref<Record<string, boolean>>({})
+function isGroupOpen(providerId: string): boolean {
+  if (providerId in groupOpenOverride.value) return groupOpenOverride.value[providerId]
+  return providerId === defaultOpenId.value
+}
+function toggleGroup(providerId: string): void {
+  groupOpenOverride.value = { ...groupOpenOverride.value, [providerId]: !isGroupOpen(providerId) }
+}
+
+const search = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const searching = computed(() => search.value.trim().length > 0)
+const filteredModels = computed<FlatModelEntry[]>(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return []
+  return confirmedModels.value.filter(
+    (e) => e.modelName.toLowerCase().includes(q) || e.providerName.toLowerCase().includes(q),
+  )
+})
+
+// hover 菜单关闭时清空搜索与手动展开态，下次打开回到默认视图
+function onMenuClose(): void {
+  if (search.value) search.value = ''
+  groupOpenOverride.value = {}
+  searchInput.value?.blur()
+}
+
+// 清空搜索并把焦点还给输入框（清除按钮点击后自身卸载，避免焦点落到 body）
+function clearSearch(): void {
+  search.value = ''
+  searchInput.value?.focus()
+}
+
 function switchModel(entry: FlatModelEntry) {
   const key = `${entry.providerId}:${entry.modelId}`
   if (entry.isActive && switchedKey.value === key) return
@@ -104,7 +171,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="model-widget-wrapper">
+  <div class="model-widget-wrapper" @mouseleave="onMenuClose">
     <button
       class="model-widget"
       :class="{ 'is-unconfigured': !configured, 'is-switched': !!switchNotice }"
@@ -150,23 +217,136 @@ onUnmounted(() => {
         </Transition>
 
         <template v-if="confirmedModels.length > 0">
-          <div class="model-menu-section-label">已确认可用模型</div>
-          <button
-            v-for="entry in confirmedModels"
-            :key="`${entry.providerId}:${entry.modelId}`"
-            type="button"
-            class="model-menu-item"
-            :class="{
-              'is-active': entry.isActive,
-              'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
-            }"
-            role="menuitem"
-            @click.stop="switchModel(entry)"
-          >
-            <span class="model-menu-provider">{{ entry.providerName }}</span>
-            <span class="model-menu-model">{{ entry.modelName }}</span>
-            <IconCheck v-if="entry.isActive" class="model-menu-check w-3.5 h-3.5" />
-          </button>
+          <div v-if="richMode" class="mm-search">
+            <IconMagnify class="w-3.5 h-3.5" />
+            <input
+              ref="searchInput"
+              v-model="search"
+              type="text"
+              placeholder="搜索模型…"
+              spellcheck="false"
+            />
+            <button
+              v-if="searching"
+              type="button"
+              class="mm-search-clear"
+              title="清除"
+              tabindex="-1"
+              @click.stop="clearSearch"
+            >
+              <IconClose class="w-3 h-3" />
+            </button>
+          </div>
+
+          <div class="model-menu-scroll">
+            <!-- 简单模式：模型不多时保持原平铺 -->
+            <template v-if="!richMode">
+              <div class="model-menu-section-label">已确认可用模型</div>
+              <button
+                v-for="entry in confirmedModels"
+                :key="`${entry.providerId}:${entry.modelId}`"
+                type="button"
+                class="model-menu-item"
+                :class="{
+                  'is-active': entry.isActive,
+                  'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
+                }"
+                role="menuitem"
+                :title="`${entry.providerName} · ${entry.modelName}`"
+                @click.stop="switchModel(entry)"
+              >
+                <span class="model-menu-provider">{{ entry.providerName }}</span>
+                <span class="model-menu-model">{{ entry.modelName }}</span>
+                <IconCheck v-if="entry.isActive" class="model-menu-check w-3.5 h-3.5" />
+              </button>
+            </template>
+
+            <!-- 搜索结果：跨类别平铺匹配项 -->
+            <template v-else-if="searching">
+              <div class="model-menu-section-label">
+                {{ filteredModels.length ? `${filteredModels.length} 个匹配` : '搜索模型' }}
+              </div>
+              <button
+                v-for="entry in filteredModels"
+                :key="`${entry.providerId}:${entry.modelId}`"
+                type="button"
+                class="model-menu-item"
+                :class="{
+                  'is-active': entry.isActive,
+                  'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
+                }"
+                role="menuitem"
+                :title="`${entry.providerName} · ${entry.modelName}`"
+                @click.stop="switchModel(entry)"
+              >
+                <span class="model-menu-provider">{{ entry.providerName }}</span>
+                <span class="model-menu-model">{{ entry.modelName }}</span>
+                <IconCheck v-if="entry.isActive" class="model-menu-check w-3.5 h-3.5" />
+              </button>
+              <div v-if="filteredModels.length === 0" class="model-menu-empty">没有匹配的模型</div>
+            </template>
+
+            <!-- 多模型浏览：按类别分组（仅一个类别时省略分组头） -->
+            <template v-else>
+              <template v-if="groupedModels.length > 1">
+                <div
+                  v-for="group in groupedModels"
+                  :key="group.providerId"
+                  class="mm-group"
+                  :class="{ 'is-open': isGroupOpen(group.providerId) }"
+                >
+                  <button
+                    type="button"
+                    class="mm-group-head"
+                    role="menuitem"
+                    :aria-expanded="isGroupOpen(group.providerId)"
+                    @click.stop="toggleGroup(group.providerId)"
+                  >
+                    <IconChevronDown class="mm-group-chev w-3 h-3" />
+                    <span class="mm-group-name">{{ group.providerName }}</span>
+                    <span class="mm-group-count">{{ group.models.length }}</span>
+                  </button>
+                  <div v-show="isGroupOpen(group.providerId)" class="mm-group-body">
+                    <button
+                      v-for="entry in group.models"
+                      :key="`${entry.providerId}:${entry.modelId}`"
+                      type="button"
+                      class="model-menu-item"
+                      :class="{
+                        'is-active': entry.isActive,
+                        'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
+                      }"
+                      role="menuitem"
+                      :title="`${entry.providerName} · ${entry.modelName}`"
+                      @click.stop="switchModel(entry)"
+                    >
+                      <span class="model-menu-model">{{ entry.modelName }}</span>
+                      <IconCheck v-if="entry.isActive" class="model-menu-check w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <button
+                  v-for="entry in groupedModels[0].models"
+                  :key="`${entry.providerId}:${entry.modelId}`"
+                  type="button"
+                  class="model-menu-item"
+                  :class="{
+                    'is-active': entry.isActive,
+                    'is-switching': switchedKey === `${entry.providerId}:${entry.modelId}`,
+                  }"
+                  role="menuitem"
+                  :title="`${entry.providerName} · ${entry.modelName}`"
+                  @click.stop="switchModel(entry)"
+                >
+                  <span class="model-menu-provider">{{ entry.providerName }}</span>
+                  <span class="model-menu-model">{{ entry.modelName }}</span>
+                  <IconCheck v-if="entry.isActive" class="model-menu-check w-3.5 h-3.5" />
+                </button>
+              </template>
+            </template>
+          </div>
         </template>
         <div v-else class="model-menu-empty">暂无已确认可用模型</div>
 
@@ -301,13 +481,14 @@ onUnmounted(() => {
   padding-top: 6px;
   opacity: 0; pointer-events: none;
   transition: opacity 0.15s;
-  z-index: 50; min-width: 220px;
+  z-index: 50; min-width: 260px; max-width: min(380px, 92vw);
 }
 .model-widget-wrapper:hover .model-menu { opacity: 1; pointer-events: auto; }
 
 .model-menu-card {
   position: relative;
   display: flex; flex-direction: column;
+  max-height: min(70vh, 460px, 100vh - 64px);
   padding: 6px; border-radius: 10px;
   background:
     linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.82)),
@@ -408,7 +589,7 @@ onUnmounted(() => {
   }
 }
 .model-menu-provider { font-weight: 600; color: rgba(139, 92, 246, 0.85); flex-shrink: 0; }
-.model-menu-model { flex: 1; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
+.model-menu-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
 .model-menu-check { flex-shrink: 0; color: #a78bfa; }
 
 .model-menu-empty { padding: 12px 10px; font-size: 12px; color: rgba(255, 255, 255, 0.35); text-align: center; }
@@ -425,10 +606,126 @@ onUnmounted(() => {
 }
 .model-menu-config:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 
+/* ── 多模型：内部滚动 + 搜索 + 分组 ── */
+.model-menu-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.model-menu-scroll::-webkit-scrollbar { width: 6px; }
+.model-menu-scroll::-webkit-scrollbar-track { background: transparent; }
+.model-menu-scroll::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.28);
+  border-radius: 999px;
+}
+.model-menu-scroll::-webkit-scrollbar-thumb:hover { background: rgba(139, 92, 246, 0.5); }
+
+.mm-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 2px 6px;
+  padding: 0 8px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.mm-search:focus-within {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.08);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+  color: rgba(196, 181, 253, 0.85);
+}
+.mm-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+.mm-search input::placeholder { color: rgba(255, 255, 255, 0.3); }
+.mm-search-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.mm-search-clear:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+
+.mm-group { display: flex; flex-direction: column; }
+.mm-group + .mm-group { margin-top: 2px; }
+.mm-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  user-select: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+.mm-group-head:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.mm-group-chev {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+  transform: rotate(-90deg);
+}
+.mm-group.is-open .mm-group-chev { transform: rotate(0deg); opacity: 0.85; }
+.mm-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.mm-group-count {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  font-weight: 700;
+}
+.mm-group-body {
+  display: grid;
+  gap: 1px;
+  padding: 2px 0 6px;
+}
+.mm-group-body .model-menu-item { padding-left: 26px; }
+
 @media (max-width: 760px) {
   .model-widget { max-width: 38vw; }
   .model-name { max-width: 16vw; }
   .model-provider-label { display: none; }
+  .model-menu { min-width: 220px; max-width: 92vw; }
 }
 @media (prefers-reduced-motion: reduce) {
   .model-dot.is-down { animation: none; }
@@ -437,6 +734,7 @@ onUnmounted(() => {
   .model-menu-item.is-switching::before {
     animation: none;
   }
+  .mm-group-chev { transition: none; }
   .model-switch-notice-enter-active,
   .model-switch-notice-leave-active {
     transition: none;
