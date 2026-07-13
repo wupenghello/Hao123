@@ -557,7 +557,7 @@ function itemMeta(it: InboxItem): string {
 }
 const orbitItems = computed(() =>
   items.value.slice(0, 18).map((it) => {
-    const riskLevel = (it.risk?.level ?? (isUrgent(it) ? 'overdue' : 'calm')) as
+    const riskLevel = (it.risk?.level ?? 'calm') as
       | 'overdue'
       | 'due-soon'
       | 'stalled'
@@ -568,7 +568,7 @@ const orbitItems = computed(() =>
       kind: it.kind,
       kindLabel: itemKindLabel(it.kind),
       riskLevel,
-      riskLabel: it.risk?.label ?? (isUrgent(it) ? '高压' : '平稳'),
+      riskLabel: it.risk?.label ?? '平稳',
       riskWhy: it.risk?.why ?? '',
       meta: itemMeta(it),
       urgent: isUrgent(it),

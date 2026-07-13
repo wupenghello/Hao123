@@ -85,6 +85,7 @@ function signalLabel(it?: ConstellationItem | null): string {
   if (it.riskLevel === 'overdue') return '高压信号'
   if (it.riskLevel === 'due-soon') return '近窗信号'
   if (it.riskLevel === 'stalled') return '静默信号'
+  if (it.urgent) return '紧急信号'
   return it.riskLabel || '平稳信号'
 }
 
@@ -97,6 +98,7 @@ let nodesGroup: THREE.Group | null = null
 let core: THREE.Mesh | null = null
 let coreHalo: THREE.Sprite | null = null
 let coreOuter: THREE.Sprite | null = null
+let dangerLight: THREE.PointLight | null = null
 let particles: THREE.Points | null = null
 let raycaster: THREE.Raycaster | null = null
 const lastPointer = new THREE.Vector2(99, 99)
@@ -117,7 +119,7 @@ interface OrbitVisual {
   kind: ConstellationKind
 }
 const nodeOrbits = new Map<string, OrbitVisual>()
-const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; kind: ConstellationKind; drifts: boolean }>()
+const nodeBase = new Map<string, { position: THREE.Vector3; scale: number; color: THREE.Color; risk: ConstellationRisk; kind: ConstellationKind; urgent: boolean; drifts: boolean }>()
 
 // 程序生成的贴图（星点、星体光晕、星云背景），卸载时统一释放
 let starTex: THREE.CanvasTexture | null = null
@@ -247,6 +249,9 @@ const RISK_TINTS: Partial<Record<ConstellationRisk, THREE.Color>> = {
   stalled: new THREE.Color('#b7a3ff'),
 }
 
+/** 紧急（玫红）—— 与 UnifiedInbox 紧急色一致；紧急是优先级维度，叠加在来源/风险色之上 */
+const URGENT_TINT = new THREE.Color('#fb7185')
+
 const FIELD_PLANE = { opacity: 0.18 }
 const SOURCE_BIASES: Record<ConstellationKind, { tiltX: number; tiltY: number; tiltZ: number }> = {
   task: { tiltX: -0.04, tiltY: -0.02, tiltZ: -0.05 },
@@ -267,7 +272,9 @@ function sourceColorOf(kind: ConstellationKind): THREE.Color {
 function spectralColorOf(it: ConstellationItem): THREE.Color {
   const color = sourceColorOf(it.kind)
   const risk = RISK_TINTS[it.riskLevel]
-  return risk ? color.lerp(risk, it.riskLevel === 'overdue' ? 0.18 : 0.12) : color
+  if (risk) return color.lerp(risk, it.riskLevel === 'overdue' ? 0.18 : 0.12)
+  if (it.urgent) return color.lerp(URGENT_TINT, 0.5)
+  return color
 }
 
 function orbitFamilyOf(index: number): (typeof ORBIT_FAMILIES)[number] {
@@ -372,7 +379,7 @@ function setupScene() {
   const keyLight = new THREE.PointLight(0x7dd3fc, 6, 30)
   keyLight.position.set(-5, 6, 8)
   scene.add(keyLight)
-  const dangerLight = new THREE.PointLight(0xff3b6b, props.summary.overdue ? 5 : 1.6, 22)
+  dangerLight = new THREE.PointLight(0xff3b6b, corePressure.value === 'critical' ? 5 : 1.6, 22)
   dangerLight.position.set(5, 1.5, 5)
   scene.add(dangerLight)
 
@@ -429,7 +436,7 @@ function createStarfield() {
 function createCore() {
   if (!root || !haloTex) return
   // 核心刻意用与任务节点（青蓝）拉开距离的暖白金色，避免和内圈节点糊在一起
-  const pressureColor = props.summary.overdue ? '#ff3b6b' : props.summary.dueSoon ? '#f59e0b' : '#ffe0a3'
+  const pressureColor = corePressure.value === 'critical' ? '#ff3b6b' : corePressure.value === 'elevated' ? '#f59e0b' : '#ffe0a3'
   const color = new THREE.Color(pressureColor)
 
   core = new THREE.Mesh(
@@ -538,9 +545,11 @@ function rebuildNodes() {
       0.46,
       FIELD_PLANE.opacity
         + stableJitter(`${it.key}:opacity`, 0.06)
-        + (it.riskLevel === 'overdue' ? 0.1 : it.riskLevel === 'due-soon' ? 0.06 : it.riskLevel === 'stalled' ? 0.04 : 0),
+        + (it.riskLevel === 'overdue' ? 0.1 : it.riskLevel === 'due-soon' ? 0.06 : it.riskLevel === 'stalled' ? 0.04 : 0)
+        + (it.urgent ? 0.06 : 0),
     ))
     const ring = makeOrbitRing(radiusX, radiusY, tiltX, tiltY, tiltZ, color, baseOpacity)
+    if (it.urgent && ring.material instanceof THREE.LineBasicMaterial) ring.material.color.lerp(URGENT_TINT, 0.5)
     nodesGroup!.add(ring)
 
     const angle = hashUnit(`${it.key}:angle`) * Math.PI * 2
@@ -562,7 +571,7 @@ function rebuildNodes() {
     nodesGroup!.add(coreMesh)
     nodeCores.set(it.key, coreMesh)
 
-    nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, kind: it.kind, drifts: false })
+    nodeBase.set(it.key, { position: pos.clone(), scale, color: color.clone(), risk: it.riskLevel, kind: it.kind, urgent: it.urgent, drifts: false })
   })
 
 }
@@ -591,13 +600,14 @@ function makeNodeCore(color: THREE.Color, riskBoost: number): THREE.Mesh {
 }
 
 function updateCore() {
-  const color = new THREE.Color(props.summary.overdue ? '#ff3b6b' : props.summary.dueSoon ? '#f59e0b' : '#ffe0a3')
+  const color = new THREE.Color(corePressure.value === 'critical' ? '#ff3b6b' : corePressure.value === 'elevated' ? '#f59e0b' : '#ffe0a3')
   if (core?.material instanceof THREE.MeshStandardMaterial) {
     core.material.emissive.copy(color)
     core.material.emissiveIntensity = props.summary.total ? 2.0 : 1.4
   }
   if (coreHalo?.material instanceof THREE.SpriteMaterial) coreHalo.material.color.copy(color)
   if (coreOuter?.material instanceof THREE.SpriteMaterial) coreOuter.material.color.copy(color)
+  if (dangerLight) dangerLight.intensity = corePressure.value === 'critical' ? 5 : 1.6
 }
 
 function resize() {
@@ -683,11 +693,12 @@ function animate() {
           : base.risk === 'due-soon'
             ? Math.max(0, Math.sin(t * 2.4 + (sprite.userData.index ?? 0))) * 0.08
             : 0
+      const urgentPulse = !slow && base.urgent ? Math.max(0, Math.sin(t * 3.0 + (sprite.userData.index ?? 0))) * 0.1 : 0
       orbit.ring.material.opacity = isActive
         ? 0.74
         : hasActive
           ? orbit.baseOpacity * (0.22 + affinity * 0.46)
-          : Math.min(0.5, orbit.baseOpacity + riskPulse)
+          : Math.min(0.5, orbit.baseOpacity + riskPulse + urgentPulse)
     }
   }
 
@@ -746,11 +757,14 @@ function openHudItem(key: string) {
 
 onMounted(() => {
   reduceMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  void nextTick(setupScene)
+  void nextTick(() => {
+    setupScene()
+    updateCore()
+  })
 })
 
 watch(() => props.items, rebuildNodes, { deep: true })
-watch(() => props.summary, updateCore, { deep: true })
+watch([corePressure, () => props.summary.total], updateCore)
 
 onBeforeUnmount(() => {
   if (frame) cancelAnimationFrame(frame)
@@ -786,7 +800,7 @@ onBeforeUnmount(() => {
       <div
         v-show="hoverScreen.visible && activeItem"
         class="ic3d-reticle"
-        :class="activeItem ? `risk-${activeItem.riskLevel}` : ''"
+        :class="activeItem ? [`risk-${activeItem.riskLevel}`, { 'is-urgent': activeItem.urgent && activeItem.riskLevel === 'calm' }] : ''"
         :style="{ left: hoverScreen.x + 'px', top: hoverScreen.y + 'px' }"
       >
         <span class="ic3d-reticle-bracket is-tl" />
@@ -796,12 +810,12 @@ onBeforeUnmount(() => {
         <span class="ic3d-reticle-label">
           <i>{{ activeItem?.kindLabel }}</i>
           <b>{{ activeItem?.title }}</b>
-          <em v-if="activeItem?.riskLevel !== 'calm'">{{ signalLabel(activeItem) }}</em>
+          <em v-if="activeItem?.riskLevel !== 'calm' || activeItem?.urgent">{{ signalLabel(activeItem) }}</em>
         </span>
       </div>
 
       <transition name="ic3d-lock">
-        <div v-if="activeItem" class="ic3d-target-card" :class="`risk-${activeItem.riskLevel}`">
+        <div v-if="activeItem" class="ic3d-target-card" :class="[`risk-${activeItem.riskLevel}`, { 'is-urgent': activeItem.urgent && activeItem.riskLevel === 'calm' }]">
           <p>当前焦点</p>
           <h4>{{ activeItem.title }}</h4>
           <div>
@@ -849,7 +863,7 @@ onBeforeUnmount(() => {
         <button
           v-for="(it, idx) in hotItems"
           :key="it.key"
-          :class="[`risk-${it.riskLevel}`, { 'is-active': activeItem?.key === it.key }]"
+          :class="[`risk-${it.riskLevel}`, { 'is-active': activeItem?.key === it.key, 'is-urgent': it.urgent }]"
           @pointerenter="hudHoveredKey = it.key"
           @pointerleave="hudHoveredKey = null"
           @click="openHudItem(it.key)"
@@ -1342,4 +1356,23 @@ onBeforeUnmount(() => {
   .ic3d-scan,
   .ic3d-hud::before { animation: none; }
 }
+/* 紧急（玫红）标识：与 UnifiedInbox 紧急色一致，叠加在风险色之上 */
+.ic3d-reticle.is-urgent::before {
+  border-color: rgba(251, 113, 133, 0.78);
+  box-shadow: 0 0 26px rgba(251, 113, 133, 0.55), inset 0 0 14px rgba(251, 113, 133, 0.24);
+}
+.ic3d-reticle.is-urgent .ic3d-reticle-bracket {
+  border-color: #fda4af;
+  filter: drop-shadow(0 0 6px rgba(251, 113, 133, 0.8));
+}
+.ic3d-target-card.is-urgent {
+  border-color: rgba(251, 113, 133, 0.5);
+  box-shadow: 0 0 42px rgba(251, 113, 133, 0.26);
+}
+.ic3d-signal-list button.is-urgent::before {
+  opacity: 1;
+  background: rgba(251, 113, 133, 0.85);
+  box-shadow: 0 0 10px rgba(251, 113, 133, 0.6);
+}
+.ic3d-signal-list button.is-urgent.risk-calm strong { color: #fda4af; }
 </style>
