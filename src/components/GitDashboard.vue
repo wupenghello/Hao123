@@ -899,9 +899,15 @@ function askXiaowuConflict() {
 function askXiaowuDiff() {
   if (!aiReady.value || !diffContent.value) return
   const target = diffTarget.value
-  const snippet = diffContent.value.slice(0, 2000)
+  // 完整 diff 直达小吴（用户要求准确、不截断）；仅极端巨型 diff（>100KB）按行截断，避免撑爆上下文
+  const full = diffContent.value
+  const CAP = 100_000
+  const body =
+    full.length > CAP
+      ? full.slice(0, CAP) + `\n\n…（diff 共 ${full.length} 字符，已截断到前 ${CAP} 字符；如需完整解释请缩小到单文件 diff）`
+      : full
   chat.show()
-  void chat.send(`解释下面这段 git diff（${target}）的目的、改了什么、有没有潜在风险：\n\n${snippet}`)
+  void chat.send(`解释下面这段 git diff（${target}）的目的、改了什么、有没有潜在风险：\n\n${body}`)
 }
 
 /** 让小吴基于「自上一 tag 以来的提交」生成发版说明 */

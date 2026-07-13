@@ -165,7 +165,7 @@ onUnmounted(unlockScroll)
       leave-to-class="opacity-0"
     >
       <div v-if="props.show" class="fixed inset-0 z-40 flex items-center justify-center">
-        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" @click="emit('close')" />
+        <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" @click="emit('close')" />
 
         <Transition
           appear
@@ -175,10 +175,12 @@ onUnmounted(unlockScroll)
           leave-to-class="opacity-0 scale-97"
         >
           <div
-            class="relative z-10 w-[92vw] max-w-[440px] max-h-[90vh] sm:max-h-[85vh] flex flex-col rounded-3xl glass-dark
-                   shadow-2xl shadow-black/20 will-change-transform"
+            class="hud-panel hud-sheen relative z-10 w-[92vw] max-w-[440px] max-h-[90vh] sm:max-h-[85vh] flex flex-col rounded-[20px] will-change-transform"
             @click.stop
           >
+            <div class="hud-accent-bar hud-accent-bar--cyan" aria-hidden="true" />
+            <div class="hud-corners" aria-hidden="true" />
+
             <!-- 头部 -->
             <div class="px-6 pt-5 pb-3 flex items-start justify-between flex-shrink-0">
               <div>
@@ -392,14 +394,6 @@ onUnmounted(unlockScroll)
 </template>
 
 <style scoped>
-.glass-dark {
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  contain: layout paint;
-}
-
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

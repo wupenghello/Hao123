@@ -6,14 +6,16 @@
  * 字段经 cleanText 过滤伪值（如已关闭任务的 assignedTo='closed'），
  * 富文本（描述/规格/验收）经 sanitizeHtml 安全渲染，图片预览由 DetailModal 内置处理。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import DetailModal from '@/components/common/DetailModal.vue'
 import { useTaskStore } from '../store'
 import { taskStatusBadge, taskClosedReasonLabel, taskTypeLabel } from '../ui'
 import { priorityBadge, sanitizeHtml, hasRichContent, cleanText } from '../../shared/ui'
 import { toArray } from '../../shared/http'
+import { ModaoDeepReadPanel, extractModaoUrls, MODAO_PROJECT_URL } from '@/features/modao'
 import IconCheckboxOutline from '~icons/mdi/checkbox-marked-circle-outline'
 import IconOpenInNew from '~icons/mdi/open-in-new'
+import IconBookOpen from '~icons/mdi/book-open-page-variant'
 
 const store = useTaskStore()
 const task = computed(() => store.detail)
@@ -35,6 +37,28 @@ const verifyHtml = computed(() => {
   if (!hasRichContent(task.value?.storyVerify)) return ''
   return sanitizeHtml(task.value?.storyVerify)
 })
+
+/**
+ * 原型深读：从任务描述/需求规格/验收标准 HTML 里提取墨刀原型外链（modao.cc/proto），
+ * 提取不到回退 .env 的 VITE_MODAO_PROJECT_URL。墨刀读取后端（/modao/read）仅 dev 生效，
+ * 故按钮可见性门控在 dev 且有可读链接；生产或无链接不渲染入口。
+ */
+const modaoUrls = computed<string[]>(() => {
+  const t = task.value
+  if (!t) return []
+  return extractModaoUrls([t.desc, t.storySpec, t.storyVerify].filter(Boolean).join('\n'))
+})
+const deepReadUrl = computed(() => modaoUrls.value[0] || MODAO_PROJECT_URL || '')
+const canDeepRead = computed(() => import.meta.env.DEV && !!deepReadUrl.value)
+const showDeepRead = ref(false)
+// TaskDetailModal 常驻挂载（TaskPanel 里无条件渲染），showDeepRead 不会随任务切换自动复位；
+// 切到另一个任务时收起面板，避免上一任务展开的深读为新任务意外留着
+watch(
+  () => task.value?.id,
+  () => {
+    showDeepRead.value = false
+  },
+)
 
 /** 子任务列表（父任务才有；归一化对象/数组为数组，复用 toArray） */
 const subTasks = computed(() => {
@@ -190,9 +214,28 @@ const taskTimeline = computed(() => {
 
       <!-- 任务描述（desc 为空时回退需求规格，富文本含图片） -->
       <section>
-        <h3 class="zt-section-title">{{ descHtml?.fromStory ? '需求规格' : '任务描述' }}</h3>
+        <h3 class="zt-section-title">
+          {{ descHtml?.fromStory ? '需求规格' : '任务描述' }}
+          <button
+            v-if="canDeepRead"
+            type="button"
+            class="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md text-teal-200/80 hover:text-teal-100 hover:bg-teal-400/10 transition-colors"
+            :title="showDeepRead ? '收起原型深读' : '读取墨刀原型，结合任务描述生成清晰视图'"
+            @click="showDeepRead = !showDeepRead"
+          >
+            <IconBookOpen class="w-3.5 h-3.5" />
+            {{ showDeepRead ? '收起原型深读' : '原型深读' }}
+          </button>
+        </h3>
         <div v-if="descHtml" class="zt-richtext" v-html="descHtml.html" />
         <p v-else class="zt-empty">该任务暂无描述</p>
+        <!-- 原型深读：拉取墨刀原型内容 + 任务描述合并展示（LLM 已配置时可交给小吴解读） -->
+        <ModaoDeepReadPanel
+          v-if="showDeepRead && canDeepRead"
+          :url="deepReadUrl"
+          :task-title="task?.name"
+          :task-desc-html="descHtml?.html || ''"
+        />
       </section>
 
       <!-- 需求验收标准（存在则展示） -->

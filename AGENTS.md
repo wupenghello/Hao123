@@ -135,7 +135,7 @@ App.vue (router-view)
 | `config.ts` | 助手身份（`ASSISTANT_NAME`）+ LLM 接入参数（OpenAI 兼容，当前接 DeepSeek，env 驱动；API Key 由 vite 代理注入，客户端不碰密钥，用非敏感开关 `VITE_DEEPSEEK_CONFIGURED` 表达「已配置」） |
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
-| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果按字段裁剪（`clipForModel` 保持合法 JSON）；abort / retry / 重新生成；👍/👎 反馈统计 |
+| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果按字段裁剪（`clipForModel` 保持合法 JSON；`git.show`/`git.diff` 的 diff 例外，工具侧按行裁剪 ~100KB、不再二次裁剪，完整 diff 直达模型）；abort / retry / 重新生成；👍/👎 反馈统计 |
 | `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
 | `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次）；首页「行动建议」已合并进晨报，不再产 headline |
 | `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |
@@ -182,7 +182,7 @@ App.vue (router-view)
 | `types.ts` | `GitBranch` / `GitCommit` / `GitFileStatus` / `GitTag` / `GitStash` / `GitRemote` / `GitOverviewResponse` / `GitActionResponse` 等契约 |
 | `api.ts` | 浏览器侧 fetch 封装：`fetchGitOverview` / `fetchGitCommits` / `fetchGitDiff` / `fetchGitCommitDetail` / `fetchGitBlame` / `fetchGitReflog` / `fetchGitContributors` / `fetchGitConfig` / `fetchGitSearchCommits` / `triggerGitAction` |
 | `composable.ts` | `useGitDashboard`（**模块级单例**）：Widget 与 Dashboard 共享状态避免重复轮询（widget 低频 30s / dashboard 高频 8s / 切后台暂停）+ 操作（fetch/pull/push/checkout/commit/stage/unstage/**discard**/stash/tag/branch-create/branch-delete/**reset/merge/revert/cherry-pick**）+ 按需查询（diff/commit-detail/**blame/reflog/search/branch-log**）；派生 `repoName`（仓库短名，取 root basename） |
-| `llm-tools.ts` | LLM 工具层 `gitToolDefs`（声明）+ `callGitTool`（执行，14 工具：`status`/`log`/`blame`/`search`/`contributors`/`reflog`/`config` 查询 + `checkout`/`fetch`/`pull`/`push`/`add`/`commit`/`branch` 操作；merge/cherry-pick/revert/reset/stash/tag 仅走 Dashboard，不暴露给 LLM 控制风险面） |
+| `llm-tools.ts` | LLM 工具层 `gitToolDefs`（声明）+ `callGitTool`（执行，16 工具：`status`/`log`/`show`/`diff`/`blame`/`search`/`contributors`/`reflog`/`config` 查询 + `checkout`/`fetch`/`pull`/`push`/`add`/`commit`/`branch` 操作；merge/cherry-pick/revert/reset/stash/tag 仅走 Dashboard，不暴露给 LLM 控制风险面） |
 | `components/status/GitWidget.vue` | 状态栏小组件：分支名 + 变更数，点击进入 Dashboard（通过共享 composable 读取状态） |
 | `components/GitDashboard.vue` | 全屏仪表盘：5 个标签页 + More 下拉菜单（**去重** Fetch/Pull/Push——这三项已在 header，More 只放次要与高级操作），HUD 玻璃面板风格 |
 | `components/GitDiffBox.vue` | diff 渲染盒：把 `git diff` / `git show` 原文解析成带 old/new 双行号、`+/-` 配色（增绿删红、hunk 青）、横向滚动（不做 `word-break`）、超长截断的视图；LLM 已配置时底部出「让小吴解释这段 diff」 |

@@ -1106,7 +1106,8 @@ export function gitPlugin(options: GitPluginOptions): Plugin {
             }
             const hash = u.searchParams.get('hash') || 'HEAD'
             assertSafeHash(hash)
-            const r = await git(root, ['show', hash, '--stat', '--format=fuller'])
+            // --stat 会抑制 patch（只剩文件统计、看不到代码），必须显式 --patch 才能让代码 diff 一起输出
+            const r = await git(root, ['show', hash, '--stat', '--patch', '--format=fuller'])
             sendJson(res, 200, { enabled: true, diff: r.stdout || '' })
             return
           }

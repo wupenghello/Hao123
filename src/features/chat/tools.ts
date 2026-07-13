@@ -113,6 +113,8 @@ const TOOL_LABELS: Record<string, string> = {
   'wbscf__launch': '启动本地服务',
   'git__status': '查询 Git 仓库状态',
   'git__log': '查看 Git 提交日志',
+  'git__show': '查看 commit 改动',
+  'git__diff': '查看文件 diff',
   'git__blame': '追溯文件修改历史',
   'git__search': '搜索 Git 提交信息',
   'git__contributors': '查看贡献者统计',

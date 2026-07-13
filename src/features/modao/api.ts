@@ -54,3 +54,29 @@ export async function fetchModaoPrototype(
   if (!res.ok) throw new Error(await responseError(res, `/modao/read -> ${res.status}`))
   return res.json() as Promise<ModaoPrototypeReadResponse>
 }
+/**
+ * 从 HTML 文本中提取公开墨刀原型链接（modao.cc/proto/<token> 或带 access_token 的分享链接）。
+ * 优先解析 <a href>（禅道富文本里墨刀链接通常是超链接），再用正则兜底裸链接；
+ * 过 isModaoPrototypeUrl 校验后去重，供「原型深读」从任务描述/需求规格里找原型外链。
+ */
+export function extractModaoUrls(html?: string): string[] {
+  if (!html) return []
+  const found: string[] = []
+  // modao 原型链接本身为纯 ASCII、不会以标点结尾；裸链接（正则兜底）常尾随句号 /
+  // 逗号 / 右括号 / 引号 / CJK 标点或汉字，剥离后再过 isModaoPrototypeUrl，避免
+  // token 被尾随字符污染导致后端 404。对 <a href> 通常无影响（href 本身就是干净的）。
+  const TRAILING_JUNK = /(?:[^\x21-\x7e]|[.,;:!?)\]}"'。，；：！？）】》」』""'…])+$/
+  const push = (raw: string) => {
+    const u = raw.trim().replace(TRAILING_JUNK, '')
+    if (u && isModaoPrototypeUrl(u) && !found.includes(u)) found.push(u)
+  }
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.querySelectorAll('a[href]').forEach((a) => push(a.getAttribute('href') || ''))
+  } catch {
+    // DOMParser 不可用时跳过，走正则兜底
+  }
+  const matches = html.match(/https?:\/\/[^\s"'<>]*modao\.cc[^\s"'<>]*/gi)
+  if (matches) matches.forEach(push)
+  return found
+}

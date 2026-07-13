@@ -8,6 +8,7 @@
  *   - 不再做 word-break: break-all（破坏代码可读性的旧实现已移除）
  *
  * 仅渲染前 MAX_LINES 行，防止巨型 diff 撑爆 DOM；LLM 已配置时底部出现「让小吴解释」入口。
+ * 用户要求弹出框看到准确 diff，MAX_LINES 已放宽到 5000 行（覆盖绝大多数 commit），超出仍按行截断并提示。
  */
 import { computed } from 'vue'
 import IconLoading from '~icons/mdi/loading'
@@ -27,7 +28,7 @@ interface DiffLine {
   newNo?: number
 }
 
-const MAX_LINES = 2000
+const MAX_LINES = 5000
 
 const diffLines = computed<DiffLine[]>(() => {
   const raw = props.content

@@ -8,6 +8,8 @@
  *   查询类（只读，安全）：
  *     git.status        查仓库概览（分支 / 状态 / ahead-behind / 最近提交）
  *     git.log           查 commit 日志
+ *     git.show          查单个 commit 的实际改动（元信息 + 文件统计 + diff）
+ *     git.diff          查某文件的 diff（工作区 / 已暂存 / ref 区间）
  *     git.blame         查文件逐行追溯（谁在什么时候改了什么）
  *     git.search        按关键词搜索 commit 信息
  *     git.contributors  查贡献者统计
@@ -29,6 +31,8 @@ import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
 import {
   fetchGitOverview,
   fetchGitCommits,
+  fetchGitDiff,
+  fetchGitCommitDetail,
   fetchGitBlame,
   fetchGitSearchCommits,
   fetchGitContributors,
@@ -56,6 +60,31 @@ function notEnabled() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  查询类工具
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * diff 文本体积控制：默认完整保留（用户要求 diff 不截断，让小吴看到准确的代码改动），
+ * 仅在超过 DIFF_MAX_CHARS（100KB，约 2.5 万 token）的极端巨型 diff 时按行边界截断头部，
+ * 避免单个工具结果撑爆模型上下文。chat/store.ts 的 clipForModel 对 git.show/git.diff 不再二次裁剪。
+ */
+const DIFF_MAX_CHARS = 100_000
+function clipDiff(raw: string, kind: 'show' | 'diff', file?: string): Record<string, unknown> {
+  const totalLines = raw ? raw.split(/\r?\n/).length : 0
+  const base: Record<string, unknown> = { enabled: true, kind, totalLines }
+  if (file) base.file = file
+  if (!raw || raw.length <= DIFF_MAX_CHARS) {
+    return { ...base, diff: raw || '', truncated: false }
+  }
+  const cut = raw.slice(0, DIFF_MAX_CHARS)
+  const lastNl = cut.lastIndexOf('\n')
+  const head = lastNl > 0 ? cut.slice(0, lastNl) : cut
+  const keptLines = head ? head.split(/\r?\n/).length : 0
+  return {
+    ...base,
+    diff: `${head}\n…（已截断：共 ${totalLines} 行，仅显示前 ${keptLines} 行）`,
+    keptLines,
+    truncated: true,
+  }
+}
 
 /** 1. 查询仓库概览 */
 const statusTool: LlmTool = {
@@ -257,11 +286,92 @@ const configTool: LlmTool = {
   },
 }
 
+/** 8. 查看单个 commit 的实际改动（git show） */
+const showTool: LlmTool = {
+  name: 'git.show',
+  description:
+    '查看 wbscf-web 代码库中某个 commit 的实际代码改动（git show --stat --format=fuller）：' +
+    '包含 commit 元信息（作者/时间/完整 message）、改动文件统计（每文件 +/- 行数）与具体 diff hunk。' +
+    '【适用】用户问「这个 commit 改了什么」「1a74cbf 具体动了哪些代码」「看看那次提交的实际内容」等。' +
+    '【注意】hash 必填且须为十六进制 commit hash（短 hash 如 1a74cbf 即可，不支持 HEAD/分支名），' +
+    '可先 git.log / git.status 取到 hash；默认完整返回 diff（不截断），仅极端巨型 diff（>100KB）按行截断头部，' +
+    '若想看某文件完整改动，可用 git.diff 传该文件路径单独查。',
+  parameters: {
+    type: 'object',
+    properties: {
+      hash: {
+        type: 'string',
+        description: 'commit 的十六进制 hash（4~40 位，短 hash 如 1a74cbf 即可；不支持 HEAD/分支名）',
+      },
+    },
+    required: ['hash'],
+  },
+  async execute({ hash }: Record<string, unknown>) {
+    const h = (hash as string)?.trim()
+    if (!h) return { enabled: false, error: '缺少 hash 参数' }
+    if (!/^[0-9a-f]{4,40}$/i.test(h)) {
+      return {
+        enabled: false,
+        error: `hash 必须是十六进制 commit hash（不支持 HEAD/分支名）：${h}。请先用 git.log / git.status 取到 commit hash。`,
+      }
+    }
+    try {
+      const data = await fetchGitCommitDetail(h)
+      if (!data.enabled) return notEnabled()
+      return clipDiff(data.diff, 'show')
+    } catch (e) {
+      return { enabled: false, error: (e as Error)?.message || '查询 commit 详情失败' }
+    }
+  },
+}
+
+/** 9. 查看某文件的 git diff */
+const diffTool: LlmTool = {
+  name: 'git.diff',
+  description:
+    '查看 wbscf-web 代码库中某个文件的 git diff。默认查该文件工作区未暂存的改动；' +
+    'cached=true 查已暂存改动（--cached）；传 ref1 查该文件相对某 commit/分支的改动；' +
+    'ref1+ref2 查 ref1..ref2 区间内该文件的差异。' +
+    '【适用】用户问「这个文件改了什么」「看看 src/foo.ts 的 diff」「develop 和 main 之间这个文件差在哪」等。' +
+    '【工作流】先 git.status 拿到变更文件列表，再传具体 path 查看该文件改动。' +
+    '【注意】path 必填（相对仓库根，如 src/views/Home.vue）；默认完整返回原始 diff（不截断），仅极端巨型 diff（>100KB）按行截断。',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: '文件路径（相对仓库根，如 src/views/Home.vue），必填' },
+      cached: { type: 'boolean', description: '是否查已暂存改动（--cached），默认 false（工作区未暂存改动）' },
+      ref1: { type: 'string', description: '可选，diff 起点引用（commit hash / 分支名 / HEAD）' },
+      ref2: { type: 'string', description: '可选，diff 终点引用（与 ref1 配合表示 ref1..ref2 区间）' },
+    },
+    required: ['path'],
+  },
+  async execute({ path, cached, ref1, ref2 }: Record<string, unknown>) {
+    const p = (path as string)?.trim()
+    if (!p) {
+      return {
+        enabled: false,
+        error: '缺少 path 参数（文件路径，相对仓库根，如 src/views/Home.vue）。请先用 git.status 取到变更文件列表。',
+      }
+    }
+    try {
+      const data = await fetchGitDiff(p, {
+        cached: !!cached,
+        ref1: (ref1 as string) || undefined,
+        ref2: (ref2 as string) || undefined,
+      })
+      if (!data.enabled) return notEnabled()
+      return clipDiff(data.diff, 'diff', p)
+    } catch (e) {
+      return { enabled: false, error: (e as Error)?.message || '查询 diff 失败' }
+    }
+  },
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  操作类工具
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** 8. 切换分支 */
+/** 10. 切换分支 */
 const checkoutTool: LlmTool = {
   name: 'git.checkout',
   description:
@@ -286,7 +396,7 @@ const checkoutTool: LlmTool = {
   },
 }
 
-/** 9. Fetch */
+/** 11. Fetch */
 const fetchTool: LlmTool = {
   name: 'git.fetch',
   description:
@@ -304,7 +414,7 @@ const fetchTool: LlmTool = {
   },
 }
 
-/** 10. Pull */
+/** 12. Pull */
 const pullTool: LlmTool = {
   name: 'git.pull',
   description:
@@ -322,7 +432,7 @@ const pullTool: LlmTool = {
   },
 }
 
-/** 11. Push */
+/** 13. Push */
 const pushTool: LlmTool = {
   name: 'git.push',
   description:
@@ -357,7 +467,7 @@ const pushTool: LlmTool = {
   },
 }
 
-/** 12. Add（暂存文件） */
+/** 14. Add（暂存文件） */
 const addTool: LlmTool = {
   name: 'git.add',
   description:
@@ -384,7 +494,7 @@ const addTool: LlmTool = {
   },
 }
 
-/** 13. Commit（创建提交） */
+/** 15. Commit（创建提交） */
 const commitTool: LlmTool = {
   name: 'git.commit',
   description:
@@ -416,7 +526,7 @@ const commitTool: LlmTool = {
   },
 }
 
-/** 14. 分支管理（创建 / 删除） */
+/** 16. 分支管理（创建 / 删除） */
 const branchTool: LlmTool = {
   name: 'git.branch',
   description:
@@ -460,11 +570,13 @@ const branchTool: LlmTool = {
 //  聚合 & 分发
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** 全部 git 工具（14 个） */
+/** 全部 git 工具（16 个） */
 export const gitTools: LlmTool[] = [
   // 查询
   statusTool,
   logTool,
+  showTool,
+  diffTool,
   blameTool,
   searchTool,
   contributorsTool,

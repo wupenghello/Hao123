@@ -52,8 +52,9 @@ onMounted(() => {
 <template>
   <div
     v-if="store.now"
-    class="absolute top-full mt-2 right-0 w-[268px] rounded-2xl px-4 py-3 glass-dark shadow-xl"
+    class="hud-panel absolute top-full mt-2 right-0 w-[268px] rounded-2xl px-4 py-3"
   >
+    <div class="hud-corners" aria-hidden="true" />
     <!-- 头部：图标 + 温度 + 天气 + 城市 -->
     <div class="flex items-center gap-3 mb-2.5">
       <component v-if="icon" :is="icon" class="w-9 h-9 text-white/85 flex-shrink-0" />
@@ -136,12 +137,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.glass-dark {
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

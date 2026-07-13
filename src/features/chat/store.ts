@@ -122,8 +122,16 @@ function trimLongStrings(value: unknown, max: number): unknown {
  * 关键字段 title/url/metrics 短小、完整保留，尾部字段如 sources 不再被整段切掉），
  * 再整体校验；极端情况（字段极多）整体仍超限时返回合法 JSON 的提示对象，
  * 而非切断字符串产出非法 JSON。
+ *
+ * 例外：git.show / git.diff 的 diff 已在工具侧（llm-tools.ts 的 clipDiff）按行边界
+ * 裁剪并标注 truncated，用户要求 diff 不截断、让小吴看到准确代码改动，故此处不再
+ * 二次裁剪，完整 diff（上限 ~100KB）直达模型。
  */
-function clipForModel(result: unknown): string {
+function clipForModel(result: unknown, toolName?: string): string {
+  // git diff 工具已在工具侧按行边界处理，跳过二次裁剪，保证 diff 完整直达模型
+  if (toolName === 'git__show' || toolName === 'git__diff') {
+    return JSON.stringify(result)
+  }
   const trimmed = trimLongStrings(result, TOOL_RESULT_FIELD_MAX)
   const json = JSON.stringify(trimmed)
   if (json.length <= TOOL_RESULT_MAX_CHARS) return json
@@ -1023,7 +1031,7 @@ export const useChatStore = defineStore('chat', () => {
             activity.duration = activity.endTime - activity.startTime!
             // 超大结果（如 read_url 的整页正文）做体积裁剪，避免多轮把上下文撑爆；
             // 常规结果完整保留。完整结果仍在活动卡里可供用户展开查看。
-            return clipForModel(result)
+            return clipForModel(result, call.function.name)
           }),
         )
 
