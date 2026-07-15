@@ -44,6 +44,7 @@ export const useLocalTaskStore = defineStore('local-tasks', () => {
       pri: input.pri,
       deadline: input.deadline || undefined,
       createdAt: Date.now(),
+      source: input.source,
     }
     tasks.value = [task, ...tasks.value]
     return task

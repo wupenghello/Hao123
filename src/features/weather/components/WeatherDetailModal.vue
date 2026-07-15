@@ -175,7 +175,7 @@ onUnmounted(unlockScroll)
           leave-to-class="opacity-0 scale-97"
         >
           <div
-            class="hud-panel hud-sheen relative z-10 w-[92vw] max-w-[440px] max-h-[90vh] sm:max-h-[85vh] flex flex-col rounded-[20px] will-change-transform"
+            class="hud-panel hud-sheen relative z-10 w-[92vw] max-w-[560px] max-h-[90vh] sm:max-h-[85vh] flex flex-col rounded-[20px] will-change-transform"
             @click.stop
           >
             <div class="hud-accent-bar hud-accent-bar--cyan" aria-hidden="true" />
@@ -312,7 +312,7 @@ onUnmounted(unlockScroll)
                   <component :is="getWeatherIcon(day.iconDay)" class="w-5 h-5 text-white/70 flex-shrink-0" />
                   <span class="text-white/60 text-[12px] flex-1 truncate">{{ dayWeather(day) }}</span>
                   <span class="text-white/40 text-[12px] w-6 text-right tabular-nums">{{ day.tempMin }}°</span>
-                  <div class="w-16 h-1 rounded-full bg-white/10 relative overflow-hidden flex-shrink-0">
+                  <div class="w-20 h-1 rounded-full bg-white/10 relative overflow-hidden flex-shrink-0">
                     <div
                       class="absolute top-0 left-0 h-full rounded-full"
                       :style="[barStyle(day), { background: 'linear-gradient(to right, rgba(96,165,250,0.6), rgba(251,146,60,0.6))' }]"

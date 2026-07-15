@@ -25,8 +25,9 @@ import {
 } from '@/features/zentao'
 import type { ZentaoTask, ZentaoBug } from '@/features/zentao'
 import { useLocalTaskStore, priBadge, deadlineLabel, isUrgentLocalTask } from '@/features/local-tasks'
-import type { LocalTask, LocalTaskFormPayload } from '@/features/local-tasks'
+import type { LocalTask, LocalTaskFormPayload, LocalTaskInput, LocalTaskSource } from '@/features/local-tasks'
 import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormModal.vue'
+import ZentaoImportModal from '@/components/inbox/ZentaoImportModal.vue'
 import { defineAsyncComponent } from 'vue'
 // 星图走异步加载，避免 Three.js 进入首屏 bundle（用户切到「星图」时才下载）
 const InboxConstellation = defineAsyncComponent(() => import('@/components/inbox/InboxConstellation.vue'))
@@ -59,6 +60,7 @@ import IconPause from '~icons/mdi/pause-circle-outline'
 import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
 import IconInfo from '~icons/mdi/information-outline'
+import IconLinkVariant from '~icons/mdi/link-variant'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
@@ -282,10 +284,44 @@ const trustSources = computed<TrustSource[]>(() => {
 
 const unavailableSources = computed(() => trustSources.value.filter((s) => s.unavailable))
 
-/** 行点击：禅道项打开详情；本地项不在整行绑定点击（标题/圆点各有自己的交互） */
+/** 打开禅道详情弹窗（按来源类型分派到任务 / Bug store） */
+function openZentaoDetail(source: LocalTaskSource) {
+  if (source.kind === 'task') taskStore.openDetail(source.id)
+  else bugStore.openDetail(source.id)
+}
+
+/**
+ * 行点击：禅道项打开详情；本地项里「由禅道导入」的（带 source）也打开禅道详情，
+ * 纯手动本地项不在整行绑定点击（标题/圆点各有自己的交互）。
+ */
 function onRowClick(it: InboxItem) {
   if (it.kind === 'task') taskStore.openDetail((it.ref as ZentaoTask).id)
   else if (it.kind === 'bug') bugStore.openDetail((it.ref as ZentaoBug).id)
+  else {
+    const src = (it.ref as LocalTask).source
+    if (src) openZentaoDetail(src)
+  }
+}
+
+/** 本地项是否由禅道导入（带 source）——决定整行可点、点标题回看禅道详情 */
+function isImportedLocal(it: InboxItem): boolean {
+  return it.kind === 'local' && !!(it.ref as LocalTask).source
+}
+
+/** 行的禅道 id：正经禅道任务 / Bug 取自身 id；由禅道导入的本地待办取 source.id；纯本地待办返回 null */
+function zentaoIdOf(it: InboxItem): string | null {
+  if (it.kind === 'task') return (it.ref as ZentaoTask).id
+  if (it.kind === 'bug') return (it.ref as ZentaoBug).id
+  return (it.ref as LocalTask).source?.id ?? null
+}
+
+/** 禅道来源徽标 title：统一「禅道任务/Bug #id」；导入的本地待办额外提示点行回看禅道详情 */
+function zentaoBadgeTitle(it: InboxItem): string {
+  const id = zentaoIdOf(it)
+  if (!id) return ''
+  const isTask = it.kind === 'task' || (it.kind === 'local' && (it.ref as LocalTask).source?.kind === 'task')
+  const base = `禅道${isTask ? '任务' : 'Bug'} #${id}`
+  return isImportedLocal(it) ? `${base}（点击行查看禅道详情）` : base
 }
 
 function isUrgent(it: InboxItem): boolean {
@@ -588,25 +624,48 @@ const formOpen = ref(false)
 const editing = ref<LocalTask | null>(null)
 function openCreate() {
   editing.value = null
+  importPrefill.value = null
   formOpen.value = true
 }
 function openEdit(task: LocalTask) {
   editing.value = task
   formOpen.value = true
 }
+
+// ============ 本地待办：一键导入禅道任务 / Bug ============
+// 入口收进「新建」弹窗：表单里点「导入禅道」→ 打开更高层级的输入台 → 成功后回填表单交用户确认。
+const importOpen = ref(false)
+const importPrefill = ref<{ input: LocalTaskInput; source?: LocalTaskSource } | null>(null)
+/** 表单请求导入：先确保新建表单已打开，再叠一层导入输入台 */
+function onRequestImport() {
+  importOpen.value = true
+}
+/** 导入成功：把结果作为预填灌进（已打开的）新建表单，交用户确认后再提交 */
+function onImported(payload: { input: LocalTaskInput; source: LocalTaskSource }) {
+  importPrefill.value = payload
+}
+
 async function onSubmit(payload: LocalTaskFormPayload) {
-  const baseInput = { title: payload.title, note: payload.note, pri: payload.pri, deadline: payload.deadline }
   const targetId = editing.value?.id
   if (targetId) {
+    const baseInput = { title: payload.title, note: payload.note, pri: payload.pri, deadline: payload.deadline }
     for (const attId of payload.removeAttachmentIds) await localStore.removeAttachment(targetId, attId)
     localStore.update(targetId, baseInput)
+    for (const file of payload.newFiles) await localStore.addAttachment(targetId, file)
   } else {
-    const created = localStore.add(baseInput)
+    // 新建：带上导入来源（若本次由禅道导入预填）
+    const created = localStore.add({
+      title: payload.title,
+      note: payload.note,
+      pri: payload.pri,
+      deadline: payload.deadline,
+      source: importPrefill.value?.source,
+    })
     if (!created) return
     for (const file of payload.newFiles) await localStore.addAttachment(created.id, file)
-    return
   }
-  for (const file of payload.newFiles) await localStore.addAttachment(targetId, file)
+  // 表单关闭后清掉预填，避免下次新建残留
+  importPrefill.value = null
 }
 
 // ============ 本地待办：删除（轻量二次确认）============
@@ -1002,7 +1061,7 @@ onUnmounted(() => {
           class="zt-mission-card"
           :class="{
             'is-urgent': isUrgent(it),
-            'is-clickable': it.kind !== 'local',
+            'is-clickable': it.kind !== 'local' || isImportedLocal(it),
             'in-thread': g.isCluster,
             'is-completing': it.kind === 'local' && hasCompleting((it.ref as LocalTask).id),
             [`is-status-${it.kind === 'task' ? (it.ref as ZentaoTask).status : it.kind === 'bug' ? (it.ref as ZentaoBug).status : 'local'}`]: true,
@@ -1048,14 +1107,22 @@ onUnmounted(() => {
                 'is-local': it.kind === 'local',
               }"
             >{{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}</span>
-            <span class="zt-src">#{{ (it.ref as { id: string | number }).id }}</span>
+            <span
+              v-if="zentaoIdOf(it)"
+              class="zt-from-zentao"
+              :title="zentaoBadgeTitle(it)"
+            >
+              <IconLinkVariant class="w-3 h-3" />
+              禅道#{{ zentaoIdOf(it) }}
+            </span>
+            <span v-if="!zentaoIdOf(it)" class="zt-src">#{{ (it.ref as { id: string | number }).id }}</span>
             <span v-if="isUrgent(it)" class="zt-pressure">HIGH PRESSURE</span>
             <button
               v-if="it.kind === 'local'"
               type="button"
               class="zt-title"
-              :title="(it.ref as LocalTask).title"
-              @click.stop="openEdit(it.ref as LocalTask)"
+              :title="isImportedLocal(it) ? '查看禅道详情' : (it.ref as LocalTask).title"
+              @click.stop="isImportedLocal(it) ? openZentaoDetail((it.ref as LocalTask).source!) : openEdit(it.ref as LocalTask)"
             >{{ (it.ref as LocalTask).title }}</button>
             <span v-else-if="it.kind === 'task'" class="zt-title" :title="(it.ref as ZentaoTask).name">
               {{ (it.ref as ZentaoTask).name }}
@@ -1191,7 +1258,14 @@ onUnmounted(() => {
     <!-- 详情 / 编辑弹窗 -->
     <TaskDetailModal />
     <BugDetailModal />
-    <LocalTaskFormModal v-model:open="formOpen" :task="editing" @submit="onSubmit" />
+    <LocalTaskFormModal
+      v-model:open="formOpen"
+      :task="editing"
+      :prefill="importPrefill"
+      @submit="onSubmit"
+      @request-import="onRequestImport"
+    />
+    <ZentaoImportModal v-model:open="importOpen" @imported="onImported" />
   </section>
 </template>
 
@@ -1487,6 +1561,24 @@ onUnmounted(() => {
     color-mix(in srgb, var(--zt-tone) 14%, rgba(255,255,255,0.05));
   outline: 0;
   transform: translateY(-1px);
+}
+/* 「由禅道导入」的本地待办：主体行内一枚小徽标，标明出处（点击行看禅道详情） */
+.zt-from-zentao {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, #a78bfa 34%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #a78bfa 14%, transparent);
+  color: color-mix(in srgb, #a78bfa 78%, white);
+  font-size: 10.5px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  tab-size: 4;
 }
 .zt-create-core {
   display: grid;
@@ -2136,6 +2228,7 @@ onUnmounted(() => {
 .zt-title {
   flex: 1;
   min-width: 0;
+  text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -10,6 +10,20 @@
 /** 优先级：数字越小越高（沿用禅道口径），默认 3 */
 export type LocalTaskPri = 1 | 2 | 3 | 4
 
+/**
+ * 导入来源：一键从禅道任务 / Bug 导入本地待办时记录出处。
+ * 仅结构化保存 kind/id/url，本模块不因此依赖禅道特性模块——
+ * 点击回看禅道详情由页面级（UnifiedInbox）编排。
+ */
+export interface LocalTaskSource {
+  /** 来源类型 */
+  kind: 'task' | 'bug'
+  /** 禅道任务 / Bug 的 id */
+  id: string
+  /** 原始链接（用于「在禅道中打开」兜底） */
+  url: string
+}
+
 /** 任务附件的元数据（二进制 Blob 存 IndexedDB，见 attachments.ts） */
 export interface TaskAttachment {
   /** 唯一 id，同时是 IndexedDB 里的 key */
@@ -44,6 +58,8 @@ export interface LocalTask {
   completedAt?: number
   /** 附件列表（元数据；二进制在 IndexedDB） */
   attachments?: TaskAttachment[]
+  /** 导入来源（一键从禅道导入时记录；手动新建为空） */
+  source?: LocalTaskSource
 }
 
 /** 新建 / 编辑表单提交的载荷（无 id、无时间戳，由 store 填充） */
@@ -52,6 +68,8 @@ export interface LocalTaskInput {
   note?: string
   pri: LocalTaskPri
   deadline?: string
+  /** 导入来源（一键从禅道导入时带上；手动新建为空） */
+  source?: LocalTaskSource
 }
 
 /**

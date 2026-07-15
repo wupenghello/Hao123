@@ -13,7 +13,7 @@
  *   - 关闭/重开 → revoke 所有本地预览 URL，重置三个列表
  */
 import { ref, watch, nextTick } from 'vue'
-import type { LocalTask, LocalTaskPri, LocalTaskFormPayload } from '../types'
+import type { LocalTask, LocalTaskPri, LocalTaskInput, LocalTaskSource, LocalTaskFormPayload } from '../types'
 import { getAttachmentBlob } from '../attachments'
 import { isImageMime, formatFileSize, MAX_ATTACHMENT_SIZE } from '../util'
 import IconClose from '~icons/mdi/close'
@@ -22,12 +22,18 @@ import IconUpload from '~icons/mdi/cloud-upload-outline'
 import IconFile from '~icons/mdi/file-document-outline'
 import IconDownload from '~icons/mdi/download'
 import IconClipboardCheck from '~icons/mdi/clipboard-check-outline'
+import IconLinkVariant from '~icons/mdi/link-variant'
 
 const props = defineProps<{
   /** 是否打开 */
   open: boolean
   /** 编辑目标；null = 新建 */
   task: LocalTask | null
+  /**
+   * 一键导入禅道后的预填载荷（页面级把 ZentaoImportModal 的结果传进来）。
+   * 仅新建态生效：非空且 open 时把字段灌入表单，交用户确认后再提交。
+   */
+  prefill?: { input: LocalTaskInput; source?: LocalTaskSource } | null
 }>()
 
 /** 提交载荷：表单字段 + 新增文件 + 待移除附件 id（类型见 types.ts，供面板与弹窗共用） */
@@ -35,7 +41,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [value: boolean]
   submit: [payload: LocalTaskFormPayload]
+  /** 请求打开「导入禅道」输入台（由页面级承接，弹出层级更高的 ZentaoImportModal） */
+  'request-import': []
 }>()
+
+/** 当前任务的导入来源（新建可由禅道导入预填；编辑时沿用原值），随提交回吐 */
+const source = ref<LocalTaskSource | undefined>(undefined)
 
 const title = ref('')
 const note = ref('')
@@ -94,22 +105,46 @@ watch(
       note.value = props.task.note ?? ''
       pri.value = props.task.pri
       deadline.value = props.task.deadline ?? ''
+      source.value = props.task.source
       // 已有图片附件：从 IDB 读 Blob 生成预览（非图片走文件图标，无需 URL）
       for (const att of props.task.attachments ?? []) {
         if (!att.isImage) continue
         const blob = await getAttachmentBlob(att.id)
         if (blob) existingImageUrls.value[att.id] = trackUrl(URL.createObjectURL(blob))
       }
+    } else if (props.prefill) {
+      // 新建 · 由禅道导入预填：灌入字段 + 记住来源，交用户确认后再提交
+      title.value = props.prefill.input.title
+      note.value = props.prefill.input.note ?? ''
+      pri.value = props.prefill.input.pri
+      deadline.value = props.prefill.input.deadline ?? ''
+      source.value = props.prefill.source
     } else {
       title.value = ''
       note.value = ''
       pri.value = 3
       deadline.value = ''
+      source.value = undefined
     }
     await nextTick()
     titleRef.value?.focus()
   },
   { immediate: true },
+)
+
+// 导入结果晚于表单打开到达（先开表单 → 用户去导入台粘贴 → 回填）：
+// prefill 变化且表单开着、非编辑态时把字段灌进来。
+watch(
+  () => props.prefill,
+  (pf) => {
+    if (!pf || !props.open || props.task) return
+    title.value = pf.input.title
+    note.value = pf.input.note ?? ''
+    pri.value = pf.input.pri
+    deadline.value = pf.input.deadline ?? ''
+    source.value = pf.source
+    nextTick(() => titleRef.value?.focus())
+  },
 )
 
 // ============ 文件选择（点击 / 拖放）============
@@ -208,6 +243,7 @@ function submit() {
     note: note.value.trim() || undefined,
     pri: pri.value,
     deadline: deadline.value || undefined,
+    source: source.value,
     newFiles: pending.value.map((p) => p.file),
     removeAttachmentIds: [...removedIds.value],
   })
@@ -258,10 +294,20 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
                 <IconClipboardCheck class="w-5 h-5" />
               </div>
               <div class="min-w-0 flex-1">
-                <p class="lt-eyebrow">Local Task Route</p>
+                <p class="lt-eyebrow">{{ source ? `From ZenTao ${source.kind === 'task' ? 'Task' : 'Bug'} #${source.id}` : 'Local Task Route' }}</p>
                 <h3 class="lt-title">{{ task ? '编辑本地待办' : '新建本地待办' }}</h3>
                 <p class="lt-subtitle">标题、优先级、截止日和附件都会保存在本机工作台。</p>
               </div>
+              <button
+                v-if="!task"
+                type="button"
+                class="lt-import-btn"
+                title="粘贴禅道链接，自动读取任务 / Bug 详情填入"
+                @click="emit('request-import')"
+              >
+                <IconLinkVariant class="w-3.5 h-3.5" />
+                导入禅道
+              </button>
               <button class="lt-icon-btn" title="关闭" @click="close">
                 <IconClose class="w-4 h-4" />
               </button>
@@ -594,6 +640,30 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
   color: white;
   border-color: color-mix(in srgb, var(--lt-tone) 30%, transparent);
   background: color-mix(in srgb, var(--lt-tone) 9%, rgba(255,255,255,0.07));
+  outline: 0;
+}
+.lt-import-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--lt-tone) 34%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--lt-tone) 10%, rgba(255,255,255,0.04));
+  color: color-mix(in srgb, var(--lt-tone) 78%, white);
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.lt-import-btn:hover,
+.lt-import-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--lt-tone) 52%, transparent);
+  background: color-mix(in srgb, var(--lt-tone) 16%, rgba(255,255,255,0.05));
+  color: color-mix(in srgb, var(--lt-tone) 92%, white);
+  transform: translateY(-1px);
   outline: 0;
 }
 .lt-form-scroll {

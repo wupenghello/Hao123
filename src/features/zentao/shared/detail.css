@@ -276,22 +276,36 @@
   white-space: nowrap;
 }
 
-/* 底部「在禅道中打开」按钮 */
+/* 底部「在禅道中打开」按钮：与 .zt-flow-btn（开始/完成）同尺寸、同质感，仅配色区分语义 */
 .zt-external-link {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  margin-left: 8px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: 8px;
-  font-size: 12px;
-  color: #cffafe;
-  background: rgba(45, 212, 191, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.25);
-  transition: background 0.15s;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-decoration: none;
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  background: rgba(45, 212, 191, 0.16);
+  color: #5eead4;
+  transition: transform 0.15s, filter 0.15s, background 0.15s, border-color 0.15s;
 }
 .zt-external-link:hover {
-  background: rgba(45, 212, 191, 0.2);
-  box-shadow:
-    inset 0 0 0 1px rgba(94, 234, 212, 0.4),
-    0 0 14px -2px rgba(45, 212, 191, 0.6);
+  transform: translateY(-1px);
+  filter: brightness(1.12);
+  background: rgba(45, 212, 191, 0.24);
+  border-color: rgba(45, 212, 191, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zt-external-link { transition: none; }
+  .zt-external-link:hover { transform: none; }
 }

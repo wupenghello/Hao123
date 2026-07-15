@@ -201,5 +201,6 @@ export const useTaskStore = defineStore('zentao-task', () => {
     detailError,
     openDetail,
     closeDetail,
+    toMessage: session.toMessage,
   }
 })

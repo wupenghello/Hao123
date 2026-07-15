@@ -67,6 +67,7 @@ export const taskApi = {
     if (!task.projectName && data.project?.name) task.projectName = data.project.name
     return task
   },
+
 }
 
 export type TaskApi = typeof taskApi

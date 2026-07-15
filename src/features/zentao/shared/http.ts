@@ -50,6 +50,10 @@ export class ZentaoApiError extends Error {
 export interface RequestOptions {
   /** 传入 AbortSignal 以支持取消请求 */
   signal?: AbortSignal
+  /** HTTP 方法，默认 GET；写操作（task-finish 等）用 POST 表单 */
+  method?: 'GET' | 'POST'
+  /** POST 请求体；GET 忽略。表单字段用 URLSearchParams（自带表单 Content-Type）或 urlencoded 字符串 */
+  body?: URLSearchParams | string
 }
 
 /** 把禅道 message（可能是字符串/数组/字段映射）压平成一行文案 */
@@ -95,10 +99,17 @@ export async function request(
 
   let res: Response
   try {
-    res = await fetch(url, {
-      signal: opts.signal,
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    })
+    const headers: Record<string, string> = { 'X-Requested-With': 'XMLHttpRequest' }
+    const init: RequestInit = { signal: opts.signal, headers }
+    if (opts.method === 'POST') {
+      init.method = 'POST'
+      if (opts.body != null) {
+        init.body = opts.body
+        // URLSearchParams 自带 application/x-www-form-urlencoded；裸字符串需显式标注
+        if (typeof opts.body === 'string') headers['Content-Type'] = 'application/x-www-form-urlencoded'
+      }
+    }
+    res = await fetch(url, init)
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw e
     throw new ZentaoApiError('network', '网络请求失败，请检查禅道地址与网络连接')
@@ -138,6 +149,23 @@ export async function request(
       env.data = JSON.parse(env.data)
     } catch {
       // 不是 JSON 字符串就原样保留（极少数纯文本场景）
+    }
+  }
+
+  // 写操作（POST，如 task-finish）失败时，禅道外层仍返回 status:success，
+  // 把 result:fail 藏在 data 内层——必须单独识别，否则前端误判成功、保留乐观更新，
+  // 刷新才暴露（真实禅道并未改动）。仅对 POST 检测，避免波及 GET 读路径
+  // （读失败由外层 status:failed 或下面的 locate 重定向兜底）。
+  if (opts.method === 'POST') {
+    const inner = (env.data && typeof env.data === 'object' ? env.data : {}) as {
+      result?: unknown
+      message?: unknown
+    }
+    if (inner.result === 'fail') {
+      const msg = flattenMessage(inner.message as ZentaoEnvelope['message']) || '禅道操作失败'
+      // 会话/登录类失败归 auth，让 withSession 自动重登重试一次（而非永久 biz 错）
+      const isAuth = /未登录|请登录|登录超时|登录失效|会话|session|not\s*logged|please\s*login/i.test(msg)
+      throw new ZentaoApiError(isAuth ? 'auth' : 'biz', msg)
     }
   }
 

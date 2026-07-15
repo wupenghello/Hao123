@@ -121,6 +121,7 @@ const taskTimeline = computed(() => {
   if (cleanText(t.lastEditedDate)) rows.push({ k: '修改', who: cleanText(t.lastEditedBy), when: cleanText(t.lastEditedDate) })
   return rows
 })
+
 </script>
 
 <template>
@@ -245,9 +246,9 @@ const taskTimeline = computed(() => {
       </section>
     </template>
 
-    <!-- 底部操作条 -->
-    <template v-if="externalUrl" #footer>
-      <a :href="externalUrl" target="_blank" rel="noopener noreferrer" class="zt-external-link">
+    <!-- 底部操作条：禅道任务只读，仅保留「在禅道中打开」（状态流转回禅道原生界面操作） -->
+    <template #footer>
+      <a v-if="externalUrl" :href="externalUrl" target="_blank" rel="noopener noreferrer" class="zt-external-link">
         <IconOpenInNew class="w-3.5 h-3.5" />
         在禅道中打开
       </a>
