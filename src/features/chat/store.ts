@@ -43,12 +43,14 @@ import {
   truncateHistory,
   cleanupEmptyAssistant,
 } from './utils'
-import type { ChatMessage, ChatUiBlock, ToolActivity, ToolApproval } from './types'
+import type { ChatMessage, ChatSession, ChatUiBlock, ToolActivity, ToolApproval } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
 import { getActiveConfig } from '@/features/model-config'
 import { logPreference, countPreferences, clearPreferences, exportPreferences } from './preference-log'
 import type { PreferenceContextMessage } from './preference-log'
 import { getFewShotSystemMessage } from './few-shot'
+import { modePromptMessage } from './composer-modes'
+import type { ComposerMode } from './composer-modes'
 
 /**
  * activity.result 持久化时的截断长度。内存里 activity.result 持有完整 JSON（供活动卡
@@ -738,31 +740,129 @@ function loadHistory(): ChatMessage[] {
   }
 }
 
+/** 生成唯一 id（消息 / 会话） */
+function genId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** 消息写盘前剥离不持久化字段（图片 data URL + agent 循环标记），并裁剪 activity.result */
+function slimMessage(m: ChatMessage): ChatMessage {
+  const { _loopGroup, _loopFinal, images, ...rest } = m
+  if (rest.activities?.length) {
+    rest.activities = rest.activities.map((a) =>
+      a.result ? { ...a, result: clipActivityResultForStorage(a.result) } : a,
+    )
+  }
+  return rest as ChatMessage
+}
+
+/** sessions 写盘前对每条消息做 slim，避免 localStorage 撑爆 */
+function slimSessions(list: ChatSession[]): ChatSession[] {
+  return list.map((s) => ({
+    id: s.id,
+    title: s.title,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+    messages: s.messages.map(slimMessage),
+  }))
+}
+
+/** 从消息派生会话标题：首条 user 消息前 28 字 */
+function deriveSessionTitle(msgs: ChatMessage[]): string {
+  const firstUser = msgs.find((m) => m.role === 'user' && m.content.trim())
+  const raw = firstUser?.content.replace(/\s+/g, ' ').trim()
+  if (!raw) return '新的协作会话'
+  return raw.length > 28 ? raw.slice(0, 28) + '…' : raw
+}
+
+/** 读取多会话列表；无则迁移旧 hao123-chat-history 为单个会话 */
+function loadSessions(): ChatSession[] {
+  try {
+    const raw = localStorage.getItem('hao123-chat-sessions')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.every((s) => s && typeof s.id === 'string' && Array.isArray(s.messages))) {
+        return parsed
+      }
+    }
+  } catch {
+    console.warn('[chat] sessions 解析失败，尝试迁移旧历史')
+  }
+  const oldHistory = loadHistory()
+  if (oldHistory.length) {
+    return [{
+      id: genId('s'),
+      title: deriveSessionTitle(oldHistory),
+      messages: oldHistory,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }]
+  }
+  return []
+}
+
 export const useChatStore = defineStore('chat', () => {
   const open = ref(false)
-  // 对话历史（user/assistant/tool；不含 system）。不再用 useStorage 默认持久化——
-  // user 消息可能带图片 data URL（多模态输入），base64 体积过大会撑爆 localStorage。
-  // 这里自定义持久化：内存中完整持有（供 agent loop 多轮 + 当前会话回显），写入前剥离 images。
-  const messages = ref<ChatMessage[]>(loadHistory())
+  // 多会话：sessions 持久化（写盘前 slim）+ activeSessionId；messages 是当前活动会话消息镜像。
+  // messages 仍是顶层 ref--agent loop / approval / 全部业务逻辑都操作 messages.value，
+  // 切换会话时把目标 session.messages 载入 messages，watch 再同步回 activeSession。
+  // 这样多会话对现有循环逻辑零侵入。
+  const sessions = ref<ChatSession[]>(loadSessions())
+  const activeSessionId = useStorage<string | null>('hao123-chat-active-session', null)
+
+  function ensureActiveSession(): ChatSession {
+    let sess = sessions.value.find((s) => s.id === activeSessionId.value)
+    if (!sess) sess = sessions.value[0]
+    if (!sess) {
+      sess = { id: genId('s'), title: '新的协作会话', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
+      sessions.value.push(sess)
+    }
+    activeSessionId.value = sess.id
+    return sess
+  }
+  const activeSession = computed(() => sessions.value.find((s) => s.id === activeSessionId.value) ?? null)
+  const messages = ref<ChatMessage[]>(ensureActiveSession().messages.map((m) => ({ ...m })))
+
+  // sessions 写盘防抖：流式时每 token 触发 deep watch，整 sessions stringify 会卡顿，故合并写盘
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
+  function writeSessionsNow() {
+    setLocalStorageItem('hao123-chat-sessions', JSON.stringify(slimSessions(sessions.value)))
+  }
+  function schedulePersist() {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => { writeSessionsNow(); persistTimer = null }, 400)
+  }
+  /** 立即落盘（清掉防抖定时器后直写）：页面关闭/隐藏时调用，避免防抖窗口内消息丢失 */
+  function flushPersist() {
+    if (persistTimer) { clearTimeout(persistTimer); persistTimer = null }
+    writeSessionsNow()
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flushPersist)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushPersist()
+    })
+  }
   watch(
     messages,
     (val) => {
-      const slim = val.map((m) => {
-        // 剥离不持久化的内部字段：图片 data URL（体积过大）+ agent 循环标记
-        const { _loopGroup, _loopFinal, images, ...rest } = m
-        // activity.result 内存里持有完整结果供活动卡解析；写盘前裁剪，避免 localStorage 撑爆
-        if (rest.activities?.length) {
-          rest.activities = rest.activities.map((a) =>
-            a.result ? { ...a, result: clipActivityResultForStorage(a.result) } : a,
-          )
-        }
-        return rest as ChatMessage
-      })
-      setLocalStorageItem('hao123-chat-history', JSON.stringify(slim))
+      const sess = activeSession.value
+      if (!sess) return
+      sess.messages = val
+      sess.updatedAt = Date.now()
+      // 自动标题：会话无标题或仍为默认时，按首条 user 消息更新
+      if (!sess.title || sess.title === '新的协作会话') {
+        sess.title = deriveSessionTitle(val)
+      }
+      schedulePersist()
     },
     { deep: true },
   )
+  // 初始化时落盘一次：迁移/新建的 session 立即持久化（含空会话），避免刷新丢失
+  schedulePersist()
   const streaming = ref(false)
+  /** 最近一次 send 的合成器模式；approve/reject/regenerate/retry/恢复续答续跑时沿用，避免中途丢模式 */
+  const lastMode = ref<ComposerMode>('ask')
   const error = ref<string | null>(null)
   /** 未读提示：面板关闭时收到新回复，圆钮上显示小红点 */
   const unread = ref(false)
@@ -780,6 +880,22 @@ export const useChatStore = defineStore('chat', () => {
   const hasMessages = computed(() =>
     messages.value.some((m) => m.role === 'user' || m.role === 'assistant' || !!m.ui?.length),
   )
+  /** 当前会话标题（来自 session 持久化，非实时派生） */
+  const currentSessionTitle = computed(() => activeSession.value?.title ?? '新的协作会话')
+  /** 全局待确认审批--扫描当前会话所有消息的 pending 活动；UI 据此渲染常驻聚合条，
+   *  解决 pending 挂在中间步骤消息、审批卡只在最终回答渲染导致的死锁。 */
+  const pendingApprovals = computed(() => {
+    const out: { messageIndex: number; activityIndex: number; activity: ToolActivity }[] = []
+    messages.value.forEach((m, mi) => {
+      if (!m.activities) return
+      m.activities.forEach((a, ai) => {
+        if (a.status === 'pending' && a.approval) {
+          out.push({ messageIndex: mi, activityIndex: ai, activity: a })
+        }
+      })
+    })
+    return out
+  })
   const feedbackCategoryRows = computed(() =>
     FEEDBACK_CATEGORIES
       .map((cat) => {
@@ -807,7 +923,7 @@ export const useChatStore = defineStore('chat', () => {
   onRecover(() => {
     if (streaming.value) return
     const tail = messages.value[messages.value.length - 1]
-    if (tail?.role === 'user') void runAgentLoop()
+    if (tail?.role === 'user') void runAgentLoop([], lastMode.value)
   })
 
   function toggle() {
@@ -831,10 +947,79 @@ export const useChatStore = defineStore('chat', () => {
     open.value = false
   }
 
+  /** 把当前 messages 镜像同步回活动会话（切换/新建前保险） */
+  function flushCurrentSession() {
+    const sess = activeSession.value
+    if (sess) sess.messages = messages.value
+  }
+
+  /** 新建空会话并切换过去；生成中不打断 */
+  function newSession(): string {
+    if (streaming.value) return activeSessionId.value ?? ''
+    flushCurrentSession()
+    const sess: ChatSession = {
+      id: genId('s'),
+      title: '新的协作会话',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    sessions.value.unshift(sess)
+    activeSessionId.value = sess.id
+    messages.value = []
+    return sess.id
+  }
+
+  /** 切换到指定会话；载入其消息到 messages 镜像 */
+  function switchSession(id: string) {
+    if (streaming.value) return
+    const sess = sessions.value.find((s) => s.id === id)
+    if (!sess || sess.id === activeSessionId.value) return
+    flushCurrentSession()
+    activeSessionId.value = id
+    messages.value = sess.messages.map((m) => ({ ...m }))
+  }
+
+  /** 删除会话；删的是当前则切到首个或新建空 */
+  function deleteSession(id: string) {
+    if (streaming.value) return
+    const idx = sessions.value.findIndex((s) => s.id === id)
+    if (idx < 0) return
+    sessions.value.splice(idx, 1)
+    if (activeSessionId.value === id) {
+      const next = sessions.value[0]
+      if (next) {
+        activeSessionId.value = next.id
+        messages.value = next.messages.map((m) => ({ ...m }))
+      } else {
+        const sess: ChatSession = { id: genId('s'), title: '新的协作会话', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
+        sessions.value.push(sess)
+        activeSessionId.value = sess.id
+        messages.value = []
+      }
+    }
+    schedulePersist()
+  }
+
+  /** 重命名会话 */
+  function renameSession(id: string, title: string) {
+    const sess = sessions.value.find((s) => s.id === id)
+    if (!sess) return
+    sess.title = title.trim() || sess.title
+    schedulePersist()
+  }
+
   function clear() {
     stop()
     messages.value = []
     error.value = null
+    const sess = activeSession.value
+    if (sess) {
+      sess.messages = []
+      sess.title = '新的协作会话'
+      sess.updatedAt = Date.now()
+      schedulePersist()
+    }
   }
 
   function stop() {
@@ -896,7 +1081,7 @@ export const useChatStore = defineStore('chat', () => {
    * 跑一轮 agent 循环（基于当前 messages 末尾的上下文）。
    * 调用前应已 push 好用户消息（或已截断到要重答的位置）。
    */
-  async function runAgentLoop(extraHiddenContexts: ChatMessage[] = []) {
+  async function runAgentLoop(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask') {
     abortController?.abort()
     const controller = new AbortController()
     abortController = controller
@@ -918,6 +1103,8 @@ export const useChatStore = defineStore('chat', () => {
     // data-table」。两者冲突会让对比矩阵永远无法输出。因此始终下发全量工具，让模型在 reach
     // 调研后仍能主动调 ui.render 画对比表（重复渲染至多是冗余，appendUiBlocks 只追加不覆盖）。
     const hiddenContexts: ChatMessage[] = [...extraHiddenContexts]
+  const modeMsg = modePromptMessage(mode)
+  if (modeMsg) hiddenContexts.push(modeMsg)
     const latestUser = [...messages.value].reverse().find((m) => m.role === 'user')
     const ambientKbContext = await ambientKbContextFromUser(latestUser?.content || '', signal)
     if (ambientKbContext) hiddenContexts.push(ambientKbContext)
@@ -934,9 +1121,10 @@ export const useChatStore = defineStore('chat', () => {
       // 防御：maxRounds 至少为 1（用户在弹窗中直接键入 0 或 localStorage 残缺时兜底），
       // 避免 for 循环条件立即为 false 导致静默 0 回复。
       const maxRounds = Math.max(1, chatSettings.maxRounds || 5)
+      let brokeForPending = false
       for (let round = 0; round < maxRounds; round++) {
         // 每轮新建一个 assistant 占位消息；改「数组里的响应式代理」以驱动流式重渲染
-        const idx = messages.value.push({ role: 'assistant', content: '', ts: Date.now() }) - 1
+        const idx = messages.value.push({ id: genId('msg'), role: 'assistant', content: '', ts: Date.now() }) - 1
         const assistant = messages.value[idx]
         assistant._loopGroup = loopGroup
         assistant._loopFinal = false
@@ -1044,6 +1232,13 @@ export const useChatStore = defineStore('chat', () => {
             content: results[i],
           })
         }
+        // 有 pending 审批时停止循环，等用户确认后由 approveTool 续跑--
+        // 否则模型看到 approvalRequired 结果会重复调用同一写工具，产生多个 pending。
+        if (activities.some((a) => a.status === 'pending')) {
+          assistant._loopFinal = true
+          brokeForPending = true
+          break
+        }
         hiddenContexts.push(...visionContexts.filter((m): m is ChatMessage => !!m))
         // 继续下一轮，让模型基于工具结果作答
       }
@@ -1051,7 +1246,7 @@ export const useChatStore = defineStore('chat', () => {
       // 没有给出最终文本答复。补一条兜底提示，避免页面在工具活动后静默停止、
       // 看起来「答完却没有回答」。兜底文案带上本轮已执行的查询，让用户知道小吴做了什么。
       const tail = messages.value[messages.value.length - 1]
-      if (tail?.role === 'tool') {
+      if (!brokeForPending && tail?.role === 'tool') {
         // 只统计成功（done）的 reach 查询——与活动卡徽标的口径一致；失败/中止的不算「已执行」。
         const reachActivities = messages.value
           .filter((m) => m._loopGroup === loopGroup && m.role === 'assistant' && m.activities?.length)
@@ -1120,7 +1315,7 @@ export const useChatStore = defineStore('chat', () => {
    * 发送一条用户消息并跑完 agent 循环。
    * @param images 可选的图片 data URL（多模态输入）；纯文字时可空。带图时跳过本地意图分类。
    */
-  async function send(text: string, images: string[] = []) {
+  async function send(text: string, images: string[] = [], mode: ComposerMode = 'ask') {
     const content = text.trim()
     if (streaming.value) return
     if (!content && !images.length) return
@@ -1128,12 +1323,14 @@ export const useChatStore = defineStore('chat', () => {
     // 轻量意图分类：仅纯文字、且命中明确句式时本地直答，省一次 LLM 调用（带图不走）
     const localIntent = images.length ? null : detectLocalIntent(content)
     if (localIntent) {
-      messages.value.push({ role: 'user', content, ts: Date.now() })
-      messages.value.push({ role: 'assistant', content: localIntent.answer, ts: Date.now(), qualityCategory: 'general' })
+      messages.value.push({ id: genId('msg'), role: 'user', content, ts: Date.now() })
+      messages.value.push({ id: genId('msg'), role: 'assistant', content: localIntent.answer, ts: Date.now(), qualityCategory: 'general' })
       return
     }
 
+    lastMode.value = mode
     messages.value.push({
+      id: genId('msg'),
       role: 'user',
       content,
       images: images.length ? images : undefined,
@@ -1146,7 +1343,7 @@ export const useChatStore = defineStore('chat', () => {
       const ok = await probeConnectivity()
       if (!ok) return
     }
-    await runAgentLoop()
+    await runAgentLoop([], mode)
   }
 
   /**
@@ -1176,7 +1373,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = messages.value.slice(0, lastUser + 1)
     feedbackStats.value.regenerations++
     incCategory(feedbackStats.value, regenCategory, 'regenerations', 1)
-    await runAgentLoop()
+    await runAgentLoop([], lastMode.value)
     // 飞轮：配对写入（新/老任一为空则跳过——如生成失败/未配置模型）
     if (oldContent) {
       const newAssistant = [...messages.value].reverse().find((m) => m.role === 'assistant' && m.content)
@@ -1275,7 +1472,7 @@ export const useChatStore = defineStore('chat', () => {
         else break
       }
       messages.value = messages.value.slice(0, lastToolIdx + 1)
-      await runAgentLoop(visionContext ? [visionContext] : [])
+      await runAgentLoop(visionContext ? [visionContext] : [], lastMode.value)
     } catch (e) {
       result = { error: (e as Error)?.message || '工具执行失败' }
       activity.status = 'error'
@@ -1364,7 +1561,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value[toolMsgIndex].content = JSON.stringify(result)
 
     truncateAfterToolResult(toolMsgIndex)
-    await runAgentLoop(visionContext ? [visionContext] : [])
+    await runAgentLoop(visionContext ? [visionContext] : [], lastMode.value)
   }
 
   /** 用户拒绝 pending approval：不执行工具，只把拒绝结果回灌给模型 */
@@ -1394,7 +1591,7 @@ export const useChatStore = defineStore('chat', () => {
     if (toolMsgIndex < 0) return
     messages.value[toolMsgIndex].content = JSON.stringify(result)
     truncateAfterToolResult(toolMsgIndex)
-    await runAgentLoop()
+    await runAgentLoop([], lastMode.value)
   }
 
   /**
@@ -1415,7 +1612,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!ok) return
     if (streaming.value) return
     const tail = messages.value[messages.value.length - 1]
-    if (tail?.role === 'user') await runAgentLoop()
+    if (tail?.role === 'user') await runAgentLoop([], lastMode.value)
   }
 
   /** 刷新偏好数据条数（UI 挂载时调用） */
@@ -1436,6 +1633,11 @@ export const useChatStore = defineStore('chat', () => {
   return {
     open,
     messages,
+    sessions,
+    activeSessionId,
+    activeSession,
+    currentSessionTitle,
+    pendingApprovals,
     streaming,
     error,
     unread,
@@ -1449,6 +1651,10 @@ export const useChatStore = defineStore('chat', () => {
     close,
     openModelConfig,
     clear,
+    newSession,
+    switchSession,
+    deleteSession,
+    renameSession,
     stop,
     send,
     regenerate,

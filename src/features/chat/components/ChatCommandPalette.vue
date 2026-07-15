@@ -22,9 +22,11 @@ import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import ToolActivityRow from './ToolActivityRow.vue'
 import ChatSettingsModal from './ChatSettingsModal.vue'
 import { useConnectivity } from '../connectivity'
+import { currentModelSupportsVision } from '../vision-models'
 import type { ChatMessage, ToolActivity } from '../types'
 import IconRobot from '~icons/mdi/robot-happy-outline'
 import IconClose from '~icons/mdi/close'
+import IconPlus from '~icons/mdi/plus'
 import IconSend from '~icons/mdi/arrow-up'
 import IconStop from '~icons/mdi/stop'
 import IconBroom from '~icons/mdi/broom'
@@ -75,6 +77,26 @@ const panelEl = ref<HTMLElement | null>(null)
 const copiedIdx = ref(-1)
 const copyFailedIdx = ref(-1)
 const showSettings = ref(false)
+const confirmClear = ref(false)
+const sessionMenuOpen = ref(false)
+
+/** 双击会话项重命名（沉浸式侧栏） */
+function renameSessionPrompt(id: string, title: string) {
+  const next = window.prompt('重命名会话', title)
+  if (next !== null) store.renameSession(id, next)
+}
+
+/** 删除会话前确认（避免误触丢失整段历史；与 clear() 二次确认同口径） */
+function confirmDeleteSession(id: string, title: string) {
+  const name = title && title !== '新的协作会话' ? `「${title}」` : '该会话'
+  if (window.confirm(`确定删除${name}？整段对话历史不可恢复。`)) store.deleteSession(id)
+}
+
+/** 点击会话切换器外部关闭下拉 */
+function onDocClick(e: MouseEvent) {
+  if (!sessionMenuOpen.value) return
+  if (!(e.target as HTMLElement)?.closest?.('.cmd-session-switcher-wrap')) sessionMenuOpen.value = false
+}
 const isImmersive = useStorage<boolean>('hao123-chat-immersive', false)
 const immersiveSidebarOpen = useStorage<boolean>('hao123-chat-immersive-sidebar', true)
 const activeComposerMode = ref<'ask' | 'plan' | 'write' | 'debug'>('ask')
@@ -182,6 +204,29 @@ const recentActivities = computed(() => {
     .reverse()
 })
 
+/** 跨会话最近 3 条 user 提问（空态「最近提问」快捷重问） */
+const recentUserMessages = computed(() => {
+  const all: string[] = []
+  for (const s of store.sessions) {
+    for (const m of s.messages) {
+      if (m.role === 'user' && m.content.trim()) all.push(m.content.replace(/\s+/g, ' ').trim())
+    }
+  }
+  return all.slice(-3).reverse()
+})
+
+/** 把上一条 user 消息回填输入框（错误后「换个问法」） */
+function refillLastUser() {
+  for (let i = store.messages.length - 1; i >= 0; i--) {
+    if (store.messages[i].role === 'user' && store.messages[i].content.trim()) {
+      input.value = store.messages[i].content
+      store.error = null
+      nextTick(() => { autoGrow(); inputEl.value?.focus() })
+      return
+    }
+  }
+}
+
 const activeToolSummary = computed(() => {
   const stats = conversationStats.value
   if (stats.running) return `${stats.running} 个工具执行中`
@@ -285,6 +330,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /** 把图片文件加入待发送列表（校验类型 / 体积 / 数量） */
 async function addImages(files: File[]) {
+  if (!currentModelSupportsVision()) flashImageError('当前模型可能不支持图片，建议切换 VL 模型')
   for (const file of files) {
     if (!isImage(file.type)) continue
     if (pendingImages.value.length >= settings.value.maxImages) {
@@ -344,7 +390,7 @@ function commitSend(text: string) {
   isAwayFromLatest.value = false
   hasNewContentWhileAway.value = false
   scrollToBottom()
-  store.send(finalText, imgs)
+  store.send(finalText, imgs, activeComposerMode.value)
 }
 
 // ============ 拖拽缩放相关 ============
@@ -665,15 +711,34 @@ const loopMeta = computed(() => {
   return meta
 })
 
-/** 用户手动展开的中间步骤 key（`${loopGroup}_${round}`） */
-const expandedLoopSteps = ref(new Set<string>())
+/** 用户手动 toggle 的步骤展开状态（key -> 是否展开）；未记录的走默认（副作用步骤默认展开） */
+const manualExpand = ref(new Map<string, boolean>())
 
-function toggleLoopStep(group: string, round: number) {
+/** 是否副作用工具调用（默认展开；纯查询折叠）--与 store.approvalPolicy 同源：写操作 + pending */
+function isSideEffectActivity(a: ToolActivity): boolean {
+  if (a.status === 'pending') return true
+  const n = a.name
+  if (['local__create', 'local__update', 'local__delete', 'local__complete'].includes(n)) return true
+  if (n === 'wbscf__launch' || n === 'claude__launch') return true
+  // git__ 写操作展开；查询类（status/log/show/diff/blame/search/contributors/reflog/config）折叠
+  if (n.startsWith('git__') && !['git__status', 'git__log', 'git__show', 'git__diff', 'git__blame', 'git__search', 'git__contributors', 'git__reflog', 'git__config'].includes(n)) return true
+  return false
+}
+
+/** 步骤是否展开：手动 toggle 优先，否则含副作用活动则默认展开 */
+function isLoopStepExpanded(m: ChatMessage, round: number): boolean {
+  const key = `${m._loopGroup}_${round}`
+  if (manualExpand.value.has(key)) return manualExpand.value.get(key)!
+  return !!(m.activities?.some(isSideEffectActivity))
+}
+
+function toggleLoopStep(group: string, round: number, activities?: ToolActivity[]) {
   const key = `${group}_${round}`
-  const s = new Set(expandedLoopSteps.value)
-  if (s.has(key)) s.delete(key)
-  else s.add(key)
-  expandedLoopSteps.value = s
+  const cur = manualExpand.value.has(key)
+    ? manualExpand.value.get(key)!
+    : !!(activities?.some(isSideEffectActivity))
+  manualExpand.value.set(key, !cur)
+  manualExpand.value = new Map(manualExpand.value)
 }
 
 // ============ 统一错误入口（问题9·方案A）============
@@ -742,6 +807,7 @@ const unifiedError = computed<UnifiedError>(() => {
     actionClass: 'text-rose-200/80 hover:text-rose-100',
     actions: [
       { label: '重新回答', handler: () => store.regenerate() },
+      { label: '换个问法', handler: () => refillLastUser() },
     ],
   }
 })
@@ -910,6 +976,12 @@ watch(
   },
 )
 
+// 切换会话时清空引用回复 / 待发图片，避免残留指向新会话的错误消息（P2.5）
+watch(() => store.activeSessionId, () => {
+  quoteMessageIdx.value = null
+  pendingImages.value = []
+})
+
 /** 输入框最大高度（面板高度的 40%，最小 160px） */
 const maxInputHeight = computed(() => {
   if (isImmersive.value) return Math.max(maxHeight.value * 0.45, 180)
@@ -1055,6 +1127,7 @@ function isLastAssistant(idx: number): boolean {
 onMounted(() => {
   initSize()
   window.addEventListener('resize', onWindowResize)
+  document.addEventListener('click', onDocClick)
   window.addEventListener('keydown', onImmersiveKeydown, true)
   // 每分钟检查小时变化，驱动 contextSuggestions 刷新（Fix 3）
   hourTimer = setInterval(() => {
@@ -1066,6 +1139,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('keydown', onImmersiveKeydown, true)
+  document.removeEventListener('click', onDocClick)
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeEnd)
   document.removeEventListener('mouseleave', onResizeEnd)
@@ -1119,7 +1193,19 @@ onUnmounted(() => {
                 <span>{{ conversationStats.total }} 轮</span>
                 <span>{{ activeToolSummary }}</span>
               </div>
-              <div v-else class="cmd-header-spacer" />
+              <div v-else class="cmd-session-switcher-wrap">
+                <button type="button" class="cmd-session-switcher" :disabled="store.streaming" :title="store.currentSessionTitle" @click="sessionMenuOpen = !sessionMenuOpen">
+                  <IconMessageText class="w-3.5 h-3.5 shrink-0" />
+                  <span class="flex-1">{{ store.currentSessionTitle }}</span>
+                  <svg class="w-3 h-3 shrink-0 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9" /></svg>
+                </button>
+                <div v-if="sessionMenuOpen" class="cmd-session-menu cmd-scroll">
+                  <button type="button" class="cmd-session-menu-new" :disabled="store.streaming" @click="store.newSession(); sessionMenuOpen = false"><IconPlus class="w-3.5 h-3.5" /> 新建会话</button>
+                  <button v-for="s in store.sessions" :key="s.id" type="button" class="cmd-session-menu-item" :class="{ 'is-active': s.id === store.activeSessionId }" @click="store.switchSession(s.id); sessionMenuOpen = false">
+                    <span class="truncate">{{ s.title || '新的协作会话' }}</span>
+                  </button>
+                </div>
+              </div>
 
               <div class="cmd-header-actions">
                 <button
@@ -1147,7 +1233,7 @@ onUnmounted(() => {
                   class="cmd-iconbtn"
                   :disabled="store.streaming"
                   title="清空对话"
-                  @click="store.clear()"
+                  @click="confirmClear = true"
                 >
                   <IconBroom class="w-4 h-4" />
                 </button>
@@ -1157,19 +1243,39 @@ onUnmounted(() => {
               </div>
             </header>
 
+            <!-- 清空确认条（P1.3：清空不可逆，二次确认） -->
+            <div v-show="confirmClear" class="cmd-confirm-clear">
+                <span class="flex-1">确定清空当前会话？此操作不可撤销。</span>
+                <button class="cmd-confirm-clear-btn is-cancel" @click="confirmClear = false">取消</button>
+                <button class="cmd-confirm-clear-btn is-ok" :disabled="store.streaming" @click="store.clear(); confirmClear = false">确认清空</button>
+              </div>
+
             <div class="cmd-body-shell" :class="{ 'has-sidebar': isImmersive && immersiveSidebarOpen }">
               <aside v-if="isImmersive" class="cmd-session-rail relative z-10" aria-label="会话导航">
                 <div class="cmd-session-head">
                   <span>会话</span>
-                  <strong>{{ conversationStats.total }}</strong>
+                  <button type="button" class="cmd-session-new" :disabled="store.streaming" title="新建会话" @click="store.newSession()">
+                    <IconPlus class="w-4 h-4" />
+                  </button>
                 </div>
-                <button type="button" class="cmd-session-item is-active">
-                  <IconMessageText class="w-4 h-4" />
-                  <span>{{ conversationTitle }}</span>
-                </button>
-                <div class="cmd-session-meta">
-                  <span>{{ conversationStats.user }} 次提问</span>
-                  <span>{{ conversationStats.activities }} 次工具</span>
+                <div class="cmd-session-list cmd-scroll">
+                  <button
+                    v-for="s in store.sessions"
+                    :key="s.id"
+                    type="button"
+                    class="cmd-session-item"
+                    :class="{ 'is-active': s.id === store.activeSessionId }"
+                    :disabled="store.streaming"
+                    :title="s.title || '新的协作会话'"
+                    @click="store.switchSession(s.id)"
+                    @dblclick="renameSessionPrompt(s.id, s.title)"
+                  >
+                    <IconMessageText class="w-4 h-4 shrink-0" />
+                    <span class="flex-1 truncate text-left">{{ s.title || '新的协作会话' }}</span>
+                    <span class="cmd-session-del" @click.stop="confirmDeleteSession(s.id, s.title)" title="删除会话">
+                      <IconClose class="w-3 h-3" />
+                    </span>
+                  </button>
                 </div>
                 <div class="cmd-session-context">
                   <span>快捷上下文</span>
@@ -1197,7 +1303,8 @@ onUnmounted(() => {
                     <div v-if="!store.configured" class="cmd-setup">
                       <IconAlert class="w-7 h-7" />
                       <p class="cmd-setup-title">尚未接入 LLM</p>
-                      <p class="cmd-setup-hint">点击头部模型芯片，填写 API Key 后即可对话</p>
+                      <p class="cmd-setup-hint">点击下方按钮或头部模型芯片，填写 API Key 后即可对话</p>
+                      <button class="cmd-setup-btn" @click="store.openModelConfig()">配置模型</button>
                     </div>
 
                     <!-- 消息列表 -->
@@ -1230,8 +1337,8 @@ onUnmounted(() => {
                           <div class="cmd-step-body">
                             <div
                               class="cmd-loop-intermediate"
-                              :class="{ 'is-expanded': expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`) }"
-                              @click="toggleLoopStep(m._loopGroup!, loopMeta.get(i)!.round)"
+                              :class="{ 'is-expanded': isLoopStepExpanded(m, loopMeta.get(i)!.round) }"
+                              @click="toggleLoopStep(m._loopGroup!, loopMeta.get(i)!.round, m.activities)"
                             >
                               <div class="flex items-center gap-2">
                                 <span class="cmd-loop-step-num">步骤 {{ loopMeta.get(i)!.round }}</span>
@@ -1254,7 +1361,7 @@ onUnmounted(() => {
                                 </span>
                                 <svg
                                   class="w-3 h-3 text-white/25 transition-transform duration-200"
-                                  :class="{ 'rotate-180': expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`) }"
+                                  :class="{ 'rotate-180': isLoopStepExpanded(m, loopMeta.get(i)!.round) }"
                                   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                 >
                                   <polyline points="6 9 12 15 18 9" />
@@ -1265,7 +1372,7 @@ onUnmounted(() => {
                               {{ m.content }}
                             </div>
                             <div
-                              v-if="expandedLoopSteps.has(`${m._loopGroup}_${loopMeta.get(i)!.round}`)"
+                              v-if="isLoopStepExpanded(m, loopMeta.get(i)!.round)"
                               class="mt-1.5 space-y-1"
                             >
                               <div
@@ -1275,6 +1382,18 @@ onUnmounted(() => {
                                 :class="[toolColorClass(a.label), a.status, { 'is-error': a.status === 'error' }]"
                               >
                                 <ToolActivityRow :activity="a" compact />
+                                <div v-if="a.status === 'pending' && a.approval" class="cmd-approval mt-1" @click.stop>
+                                  <div class="cmd-approval-head">
+                                    <span class="cmd-approval-kicker">需要确认</span>
+                                    <strong>{{ a.approval.title }}</strong>
+                                  </div>
+                                  <p class="cmd-approval-desc">{{ a.approval.description }}</p>
+                                  <p class="cmd-approval-risk">{{ a.approval.risk }}</p>
+                                  <div class="cmd-approval-actions">
+                                    <button class="cmd-approval-btn is-cancel" :disabled="store.streaming" @click="store.rejectTool(i, ai)">取消</button>
+                                    <button class="cmd-approval-btn is-confirm" :disabled="store.streaming" @click="store.approveTool(i, ai)">确认执行</button>
+                                  </div>
+                                </div>
                                 <div v-if="a.result" class="mt-1 pt-1 border-t border-white/10">
                                   <pre class="text-[11px] text-white/70 bg-black/30 p-2 rounded-md max-h-[220px] overflow-auto whitespace-pre-wrap break-all">{{ formatActivityResult(a) }}</pre>
                                 </div>
@@ -1493,6 +1612,27 @@ onUnmounted(() => {
                   </div>
                 </div>
 
+                <!-- 待确认操作聚合条（P0：pending 审批常驻可见，解决挂在中间步骤不可达的死锁） -->
+                <div v-show="store.pendingApprovals.length" class="cmd-approval-stack relative z-10 mx-4 mb-2">
+                    <div
+                      v-for="p in store.pendingApprovals"
+                      :key="`pa-${p.messageIndex}-${p.activityIndex}`"
+                      class="cmd-approval"
+                    >
+                      <div class="cmd-approval-head">
+                        <IconAlert class="w-4 h-4 shrink-0 text-amber-300/80" />
+                        <span class="cmd-approval-kicker">需要确认</span>
+                        <strong>{{ p.activity.approval?.title }}</strong>
+                      </div>
+                      <p class="cmd-approval-desc">{{ p.activity.approval?.description }}</p>
+                      <p class="cmd-approval-risk">{{ p.activity.approval?.risk }}</p>
+                      <div class="cmd-approval-actions">
+                        <button class="cmd-approval-btn is-cancel" :disabled="store.streaming" @click="store.rejectTool(p.messageIndex, p.activityIndex)">取消</button>
+                        <button class="cmd-approval-btn is-confirm" :disabled="store.streaming" @click="store.approveTool(p.messageIndex, p.activityIndex)">确认执行</button>
+                      </div>
+                    </div>
+                  </div>
+
                 <!-- 空态：助理主页 -->
                 <Transition name="content-fade" mode="out-in">
                   <div
@@ -1519,6 +1659,15 @@ onUnmounted(() => {
                           <span class="flex-1 text-left">{{ s.text }}</span>
                           <IconSend class="w-3.5 h-3.5 -rotate-90" />
                         </button>
+                          </div>
+                        </div>
+                        <div v-if="recentUserMessages.length" class="cmd-empty-recent">
+                          <span class="cmd-empty-start-label">最近提问</span>
+                          <div class="cmd-empty-recent-list">
+                            <button v-for="(u, ui) in recentUserMessages" :key="ui" class="cmd-empty-recent-item" :title="u" @click="ask(u)">
+                              <IconMessageText class="w-3.5 h-3.5 shrink-0" />
+                              <span class="flex-1 truncate text-left">{{ u }}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1577,7 +1726,7 @@ onUnmounted(() => {
                   @dragleave.prevent="isDraggingImage = false"
                   @drop.prevent="onImageDrop"
                 >
-                  <div v-if="isImmersive" class="cmd-composer-rail">
+                  <div class="cmd-composer-rail">
                     <div class="cmd-mode-tabs">
                       <button
                         v-for="mode in composerModes"
@@ -1645,6 +1794,7 @@ onUnmounted(() => {
                     <span class="cmd-footer-hint">
                       <kbd>Enter</kbd> 发送 <span class="cmd-footer-sep">·</span> <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
                     </span>
+                    <span v-if="store.hasMessages" class="cmd-footer-stats">{{ conversationStats.total }} 轮 · {{ conversationStats.activities }} 工具</span>
                   </div>
                 </div>
               </main>
@@ -1934,6 +2084,27 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .cmd-header-spacer { flex: 1; min-width: 0; }
+.cmd-session-new { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: rgba(190,230,252,0.7); cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-new:hover:not(:disabled) { background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.06)); color: #fff; }
+.cmd-session-new:disabled { cursor: not-allowed; opacity: 0.4; }
+.cmd-session-list { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; max-height: 240px; overflow-y: auto; }
+.cmd-session-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.cmd-session-item:hover:not(:disabled) { background: rgba(255,255,255,0.04); color: #fff; }
+.cmd-session-item.is-active { background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.04)); border-color: color-mix(in srgb, var(--cmd-tone) 30%, transparent); color: #fff; }
+.cmd-session-item:disabled { cursor: not-allowed; opacity: 0.5; }
+.cmd-session-del { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px; color: rgba(190,230,252,0.4); cursor: pointer; transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.cmd-session-del:hover { color: rgba(253,164,175,0.95); background: rgba(244,63,94,0.14); }
+.cmd-session-switcher-wrap { position: relative; flex: 1; min-width: 0; }
+.cmd-session-switcher { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 11px; border: 1px solid rgba(0,217,255,0.1); border-radius: var(--radius-pill); background: rgba(12,18,28,0.4); color: rgba(190,230,252,0.7); font-size: 11.5px; cursor: pointer; transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-switcher:hover:not(:disabled) { border-color: color-mix(in srgb, var(--cmd-tone) 32%, transparent); color: #fff; }
+.cmd-session-switcher:disabled { cursor: not-allowed; opacity: 0.5; }
+.cmd-session-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-session-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px; max-width: 100%; max-height: 320px; overflow-y: auto; padding: 5px; border: 1px solid rgba(0,217,255,0.14); border-radius: 12px; background: rgba(13,17,24,0.96); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,0.5); z-index: 30; }
+.cmd-session-menu-new, .cmd-session-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; border: none; background: transparent; color: rgba(190,230,252,0.8); font-size: 12px; text-align: left; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-menu-new { color: color-mix(in srgb, var(--cmd-tone) 90%, white); font-weight: 600; }
+.cmd-session-menu-new:hover:not(:disabled), .cmd-session-menu-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.cmd-session-menu-new:disabled { cursor: not-allowed; opacity: 0.5; }
+.cmd-session-menu-item.is-active { background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.04)); color: #fff; }
 .cmd-header-actions {
   display: inline-flex;
   flex-shrink: 0;
@@ -2010,6 +2181,19 @@ onUnmounted(() => {
 .cmd-setup svg { color: rgba(251, 191, 36, 0.7); }
 .cmd-setup-title { margin: 4px 0 0; color: rgba(248, 250, 252, 0.85); font-size: 15px; font-weight: 700; }
 .cmd-setup-hint { margin: 0; max-width: 18rem; font-size: 12px; color: rgba(190, 230, 252, 0.4); line-height: 1.6; }
+.cmd-setup-btn { margin-top: 14px; padding: 8px 20px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--cmd-tone) 18%, rgba(12,18,28,0.6)); border: 1px solid color-mix(in srgb, var(--cmd-tone) 42%, transparent); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.cmd-setup-btn:hover { background: color-mix(in srgb, var(--cmd-tone) 30%, rgba(12,18,28,0.6)); border-color: color-mix(in srgb, var(--cmd-tone) 60%, transparent); }
+.cmd-confirm-clear { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--cmd-border); background: rgba(244,63,94,0.08); color: rgba(253,164,175,0.92); font-size: 12px; }
+.cmd-confirm-clear-btn { padding: 4px 12px; border-radius: 7px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background var(--dur) var(--ease); }
+.cmd-confirm-clear-btn.is-cancel { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: rgba(190,230,252,0.7); }
+.cmd-confirm-clear-btn.is-cancel:hover { background: rgba(255,255,255,0.1); }
+.cmd-confirm-clear-btn.is-ok { background: rgba(244,63,94,0.85); color: #fff; border: 1px solid transparent; }
+.cmd-confirm-clear-btn.is-ok:hover:not(:disabled) { background: rgb(244,63,94); }
+.cmd-confirm-clear-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.cmd-empty-recent { margin-top: 18px; }
+.cmd-empty-recent-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.cmd-empty-recent-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.025); color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-empty-recent-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
 
 .cmd-messages {
   display: flex;
@@ -2214,6 +2398,7 @@ onUnmounted(() => {
 .cmd-approval-args { margin-top: 8px; color: rgba(190, 230, 252, 0.44); font-size: 11px; }
 .cmd-approval-args summary { width: fit-content; cursor: pointer; }
 .cmd-approval-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.cmd-approval-stack { display: flex; flex-direction: column; gap: 8px; }
 .cmd-approval-btn {
   height: 30px;
   padding: 0 12px;
@@ -2593,6 +2778,7 @@ onUnmounted(() => {
   font: 600 10px/1.4 var(--hud-font-data, ui-monospace, monospace);
 }
 .cmd-footer-sep { color: rgba(255,255,255,0.16); margin: 0 2px; }
+.cmd-footer-stats { margin-left: auto; color: rgba(190,230,252,0.3); font-size: 11px; white-space: nowrap; }
 
 /* ---------- 沉浸式侧栏 ---------- */
 .cmd-workspace-side {
@@ -2650,11 +2836,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   border-bottom-right-radius: var(--radius-card);
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: se-resize;
   transition: opacity var(--dur) var(--ease);
 }
-.resize-handle:hover { opacity: 0.8; }
+.resize-handle:hover { opacity: 0.95; }
 .resize-icon { width: 10px; height: 10px; fill: rgba(255,255,255,0.5); }
 .resize-handle:hover .resize-icon { fill: color-mix(in srgb, var(--cmd-tone) 86%, white); }
 .is-resizing, .is-resizing * { cursor: se-resize !important; user-select: none; -webkit-user-select: none; }

@@ -102,6 +102,8 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   /** 文本内容；assistant 发起纯工具调用时可能为空串 */
   content: string
+  /** 消息唯一 id（genId 生成；引用回复定位、跨会话最近提问汇总用） */
+  id?: string
   /** 仅 user 消息：附带的图片 data URL（多模态输入）。不持久化（localStorage 装不下 base64），
    *  仅当前会话内存持有，供 agent loop 多轮与回显；刷新页面后丢失。 */
   images?: string[]
@@ -128,6 +130,15 @@ export interface ChatMessage {
   _loopGroup?: string
   /** 内部字段：是否为该 agent 循环的最终回答（有正文、不再继续调用工具）。 */
   _loopFinal?: boolean
+}
+
+/** 多会话：一个独立对话单元 */
+export interface ChatSession {
+  id: string
+  title: string
+  messages: ChatMessage[]
+  createdAt: number
+  updatedAt: number
 }
 
 /** 一轮流式响应的累积结果 */
