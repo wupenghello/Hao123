@@ -147,6 +147,8 @@ const hasUrgentItems = computed(() =>
 
 // ============ 首次访问引导 ============
 const isFirstVisit = ref(false)
+/** 收件箱专注模式（最大化）：由 UnifiedInbox 触发；本组件只负责隐去其余 bento + 重排网格 */
+const inboxMax = ref(false)
 const showOnboarding = ref(false)
 
 onMounted(() => {
@@ -166,7 +168,7 @@ function finishOnboarding() {
 
 <template>
   <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
-  <div class="welcome-shell">
+  <div class="welcome-shell" :class="{ 'is-inbox-max': inboxMax }">
     <!-- 本地 dev 服务状态卡（仅 dev + wbscf-web 配置后、且探测到服务时出现） -->
     <WbscfServicesCard v-if="wbscfCardEnabled" class="welcome-services" />
 
@@ -296,7 +298,7 @@ function finishOnboarding() {
 
       <!-- bento 单元 F：统一收件箱（高卡，右侧，不再是唯一主角） -->
       <section class="bento-cell bento-inbox" aria-label="统一收件箱">
-        <UnifiedInbox />
+        <UnifiedInbox @maximize="inboxMax = $event" />
       </section>
     </div>
 
@@ -846,6 +848,22 @@ function finishOnboarding() {
   .bento-weather { display: flex; flex-direction: column; }
   .bento-inbox { min-height: 560px; }
 }
+/* ===== 收件箱专注模式（最大化）：隐去其余 bento，收件箱独占整块 ===== */
+.welcome-shell.is-inbox-max .welcome-services,
+.welcome-shell.is-inbox-max .bento-hero,
+.welcome-shell.is-inbox-max .bento-signals,
+.welcome-shell.is-inbox-max .bento-radar,
+.welcome-shell.is-inbox-max .bento-weather,
+.welcome-shell.is-inbox-max .bento-briefing { display: none; }
+.welcome-shell.is-inbox-max .welcome-bento { grid-template-rows: minmax(0, 1fr); }
+.welcome-shell.is-inbox-max .bento-inbox {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  z-index: 2;
+}
+/* 专注时压暗 shell 装饰光晕，让收件箱更突出 */
+.welcome-shell.is-inbox-max::before { opacity: 0.45; transition: opacity 0.4s ease; }
+
 @media (prefers-reduced-motion: reduce) {
   .welcome-urgent-dot { animation: none; }
   .bento-hero,
@@ -861,5 +879,6 @@ function finishOnboarding() {
   .guide-fade-enter-active,
   .guide-fade-leave-active { transition: none; }
   .welcome-onboard-btn:hover { transform: none; }
+  .welcome-shell.is-inbox-max::before { transition: none; }
 }
 </style>

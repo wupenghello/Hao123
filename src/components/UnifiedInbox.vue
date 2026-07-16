@@ -11,7 +11,7 @@
  * 数据来源：禅道（task/bug store 的 assigned 维度，配置后才加载）+ 本地（localStorage，始终可用）。
  * 未配置禅道时，本地待办即清单主角；两者都空时给清闲空态 + 创建入口。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import StateNotice from '@/components/common/StateNotice.vue'
 import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/features/zentao'
 import {
@@ -61,6 +61,8 @@ import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
 import IconInfo from '~icons/mdi/information-outline'
 import IconLinkVariant from '~icons/mdi/link-variant'
+import IconExpand from '~icons/mdi/arrow-expand'
+import IconCollapse from '~icons/mdi/arrow-collapse'
 
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
@@ -785,21 +787,141 @@ function completeLocalTask(task: LocalTask): void {
   completionTimers.set(task.id, timer)
 }
 
+// ============ 专注模式（最大化）：FLIP 形变，从点击点向外生长 ============
+// 父级 WelcomePage 收到 maximize 事件后隐去其余 bento + 重排网格；
+// 本组件只负责把面板自身从原尺寸平滑形变到全尺寸（再点 / Esc 反向收回）。
+const panelEl = ref<HTMLElement | null>(null)
+const maximized = ref(false)
+const animating = ref(false)
+const emit = defineEmits<{ maximize: [boolean] }>()
+
+const MORPH_DUR = 460
+const MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+let morphCleanup: (() => void) | null = null
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** 点击坐标 → 面板内的 transform-origin（%）；无坐标（Esc）取面板中心 */
+function originPercent(el: HTMLElement, x?: number, y?: number): string {
+  const r = el.getBoundingClientRect()
+  const px = x == null ? r.left + r.width / 2 : x
+  const py = y == null ? r.top + r.height / 2 : y
+  const ox = Math.min(100, Math.max(0, ((px - r.left) / r.width) * 100))
+  const oy = Math.min(100, Math.max(0, ((py - r.top) / r.height) * 100))
+  return `${ox}% ${oy}%`
+}
+
+/** FLIP：状态切换后面板已跳到 Last，这里把它「拉回 First 视觉位」再过渡到 identity */
+function flipMorph(el: HTMLElement, first: DOMRect, origin: string): void {
+  function cleanup() {
+    el.removeEventListener('transitionend', onEnd)
+    el.style.transition = ''
+    el.style.transform = ''
+    el.style.transformOrigin = ''
+    el.style.willChange = ''
+    morphCleanup = null
+  }
+  function finish() {
+    if (!morphCleanup) return
+    cleanup()
+    animating.value = false
+  }
+  function onEnd(ev: TransitionEvent) {
+    if (ev.target !== el || ev.propertyName !== 'transform') return
+    finish()
+  }
+  morphCleanup?.()
+  morphCleanup = cleanup
+
+  el.style.transformOrigin = origin
+  el.style.willChange = 'transform'
+  // Invert：无过渡地落到 First 视觉位
+  el.style.transition = 'none'
+  const last = el.getBoundingClientRect()
+  const dx = first.left - last.left
+  const dy = first.top - last.top
+  const sx = last.width ? first.width / last.width : 1
+  const sy = last.height ? first.height / last.height : 1
+  el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`
+  // 强制 reflow，确保 Invert 已生效再过渡
+  el.getBoundingClientRect()
+  // Play
+  el.style.transition = `transform ${MORPH_DUR}ms ${MORPH_EASE}`
+  el.style.transform = ''
+  el.addEventListener('transitionend', onEnd)
+  // 兜底：transitionend 偶发不触发，到点强制收尾
+  window.setTimeout(finish, MORPH_DUR + 120)
+}
+
+function toggleMaximize(e?: MouseEvent): void {
+  if (animating.value) return
+  const el = panelEl.value
+  if (!el) {
+    maximized.value = !maximized.value
+    emit('maximize', maximized.value)
+    return
+  }
+  const first = el.getBoundingClientRect()
+  const origin = originPercent(el, e?.clientX, e?.clientY)
+  maximized.value = !maximized.value
+  emit('maximize', maximized.value)
+  if (prefersReducedMotion()) return // 无障碍：瞬时切换，不形变
+  animating.value = true
+  // 直接在 nextTick 里跑：FLIP 的 Invert→Play 提交靠 flipMorph 内部的强制 reflow
+  // （getBoundingClientRect）即可，不必再套 requestAnimationFrame——避免在 rAF 不触发的
+  // 环境（如无渲染管线的 headless）里 flipMorph 永不执行、animating 永久卡住。
+  nextTick(() => {
+    if (!panelEl.value) {
+      animating.value = false
+      return
+    }
+    flipMorph(panelEl.value, first, origin)
+  })
+}
+
+/** 是否有全屏弹层（详情 / 表单 / 导入 / 命令面板 / 图片预览）打开--Esc 此时让位给弹层。
+  判据：body 直系子节点里 position:fixed 且覆盖大半个视口的元素（各弹层都 Teleport 到 body）。 */
+function overlayOpen(): boolean {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  if (!vw || !vh) return false // 视口尺寸未知（无头环境）时不阻断 Esc
+  return [...document.body.children].some((el): el is HTMLElement => {
+    if (!(el instanceof HTMLElement)) return false
+    const cs = getComputedStyle(el)
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return false
+    const r = el.getBoundingClientRect()
+    // 真正覆盖大半个视口的弹层遮罩（排掉常驻但空尺寸的 toast 容器等）
+    return r.width > 0 && r.height > 0 && r.width >= vw * 0.6 && r.height >= vh * 0.6
+  })
+}
+
+/** Esc 退出专注（从面板中心收回）；有弹层时让位给弹层先关 */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') return
+  if (!maximized.value || animating.value) return
+  if (overlayOpen()) return
+  toggleMaximize()
+}
+
 // ============ 生命周期：按需加载禅道指派项 ============
 onMounted(() => {
   if (taskStore.configured) taskStore.loadAssigned()
   if (bugStore.configured) bugStore.loadAssigned()
+  window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
   for (const timer of completionTimers.values()) clearTimeout(timer)
   completionTimers.clear()
   taskStore.stop()
   bugStore.stop()
+  window.removeEventListener('keydown', onKeydown)
+  morphCleanup?.()
 })
 </script>
 
 <template>
-  <section class="zt-panel" :class="{ 'is-orbit-view': activeView === 'orbit' }">
+  <section ref="panelEl" class="zt-panel" :class="{ 'is-orbit-view': activeView === 'orbit', 'is-max': maximized }">
     <!-- 头部 -->
     <header class="zt-head">
       <div class="zt-head-main">
@@ -862,6 +984,17 @@ onUnmounted(() => {
             <IconPlus class="w-4 h-4" />
           </span>
           <span class="zt-create-label">新建</span>
+        </button>
+        <button
+          type="button"
+          class="zt-win-btn"
+          :aria-expanded="maximized"
+          :title="maximized ? '还原（Esc）' : '专注模式（最大化）'"
+          :aria-label="maximized ? '退出专注模式' : '进入专注模式'"
+          @click="toggleMaximize($event)"
+        >
+          <IconCollapse v-if="maximized" class="w-4 h-4" />
+          <IconExpand v-else class="w-4 h-4" />
         </button>
       </div>
     </header>
@@ -2325,6 +2458,45 @@ onUnmounted(() => {
 }
 .zt-empty-create:hover,
 .zt-empty-create:focus-visible { border-color: color-mix(in srgb, var(--zt-tone) 44%, transparent); background: color-mix(in srgb, var(--zt-tone) 16%, transparent); color: #99f6e4; outline: 0; }
+/* ===== 专注模式（最大化）窗控按钮 + 最大化态 ===== */
+.zt-win-btn {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
+  color: rgba(226,232,240,0.5);
+  transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.zt-win-btn:hover,
+.zt-win-btn:focus-visible {
+  color: rgba(255,255,255,0.92);
+  border-color: color-mix(in srgb, var(--zt-tone) 36%, transparent);
+  background: color-mix(in srgb, var(--zt-tone) 12%, rgba(255,255,255,0.04));
+  transform: translateY(-1px);
+  outline: 0;
+}
+.zt-win-btn[aria-expanded='true'] {
+  color: color-mix(in srgb, var(--zt-tone) 82%, white);
+  border-color: color-mix(in srgb, var(--zt-tone) 36%, transparent);
+  background: color-mix(in srgb, var(--zt-tone) 14%, transparent);
+}
+/* 最大化态：加深投影 + 强化顶部高亮条，强化「聚焦」质感（FLIP 形变期间同样适用） */
+.zt-panel.is-max {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 0 0 1px rgba(255,255,255,0.03),
+    0 32px 100px rgba(0,0,0,0.42);
+}
+.zt-panel.is-max::after {
+  opacity: 1;
+  box-shadow: 0 0 36px color-mix(in srgb, var(--zt-tone) 26%, transparent);
+}
+
 @media (max-width: 760px) {
   .zt-panel { border-radius: 14px; }
   .zt-head { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
@@ -2377,5 +2549,8 @@ onUnmounted(() => {
   .zt-trust-toggle:hover,
   .zt-ic-ask:hover { transform: none; }
   .zt-mission-card.is-completing { opacity: 0.55; transform: none; }
+  .zt-win-btn,
+  .zt-panel.is-max { transition: none; }
+  .zt-win-btn:hover { transform: none; }
 }
 </style>
