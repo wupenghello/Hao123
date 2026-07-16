@@ -1,26 +1,13 @@
 <script setup lang="ts">
-/**
- * 助手入口（固定在视口左下角的小药丸）
- *
- * AI 是底层「操作系统」而非一个被打开的窗口——所以入口常驻但不抢戏：
- * 一个低视觉权重的小药丸 + ⌘K 提示，点击召唤命令面板。
- * 未读回复时右上角亮红点。Alt+K / Cmd+K 热键不变（见 useChatHotkeys）。
- *
- * 连通性色点：药丸左下角一个小圆点反映 LLM 当前是否可达——
- *  - 绿色（healthy）：正常
- *  - 琥珀脉冲（unreachable）：连不上，正在自动重试（hover tooltip 看原因）
- *  - 不显示（未配置 / 未触达过错误）：保持低视觉权重
- *
- * 视觉对齐项目玻璃面板语言（bg-white/[0.06] + ring-white/10 + backdrop-blur），
- * 与 ZentaoInbox 面板、welcome-chip 同族；由 Layout 挂在根节点（position:fixed 视口定位）。
- * 名称取自公共配置（env 可改）。
- */
+/** 固定在视口左下角的助手入口，保留未读与运行期连通性提示。 */
 import { computed } from 'vue'
 import { useChatStore } from '../store'
 import { useConnectivity } from '../connectivity'
 import { ASSISTANT_NAME } from '../config'
 import { activeModel, activeProvider, configured as modelConfigured, hasUiConfig } from '@/features/model-config'
 import IconRobot from '~icons/mdi/robot-happy-outline'
+import IconCheckNetwork from '~icons/mdi/check-network-outline'
+import IconNetworkOff from '~icons/mdi/network-off-outline'
 
 const store = useChatStore()
 const { status: connectivityStatus, message: connectivityMsg } = useConnectivity()
@@ -30,12 +17,12 @@ const isMac = computed(() =>
 )
 const keyHint = computed(() => (isMac.value ? '⌘K' : 'Alt+K'))
 
-const dotState = computed(() => {
+const statusState = computed(() => {
   if (!store.configured) return 'none'
   return connectivityStatus.value === 'unreachable' ? 'down' : 'ok'
 })
-const dotTitle = computed(() => {
-  if (dotState.value === 'down') return connectivityMsg.value || `${ASSISTANT_NAME} 暂时连不上`
+const statusTitle = computed(() => {
+  if (statusState.value === 'down') return connectivityMsg.value || `${ASSISTANT_NAME} 暂时连不上`
   return `${ASSISTANT_NAME} 在线`
 })
 const modelTitle = computed(() => {
@@ -45,44 +32,152 @@ const modelTitle = computed(() => {
   return `当前模型：${provider} / ${model}${modelConfigured.value ? '' : '（等待配置）'}`
 })
 const launcherTitle = computed(() => {
-  const status = dotState.value === 'down' ? `｜${connectivityMsg.value || '连不上'}` : ''
+  const status = statusState.value === 'down' ? `｜${connectivityMsg.value || '连不上'}` : ''
   return `${ASSISTANT_NAME} · AI 助手（${keyHint.value}）｜${modelTitle.value}${status}`
 })
 </script>
 
 <template>
   <button
-    class="group fixed left-4 bottom-4 z-40 inline-flex items-center gap-[7px] py-[7px] pl-2.5 pr-3 rounded-full bg-white/[0.06] backdrop-blur-md ring-1 ring-white/10 shadow-lg transition-colors hover:bg-white/[0.1] hover:ring-teal-300/40"
+    type="button"
+    class="chat-launcher"
+    :class="{ 'has-unread': store.unread, 'is-unreachable': statusState === 'down' }"
     :title="launcherTitle"
+    :aria-label="launcherTitle"
     @click="store.show()"
   >
-    <span class="relative shrink-0">
-      <IconRobot class="w-[15px] h-[15px] text-teal-300/90" />
-      <span
-        v-if="dotState !== 'none'"
-        class="launcher-dot absolute -left-0.5 -bottom-0.5 w-1.5 h-1.5 rounded-full ring-2 ring-slate-900"
-        :class="dotState === 'down' ? 'bg-amber-400 is-down' : 'bg-emerald-400'"
-        :title="dotTitle"
-      />
+    <span class="launcher-icon" aria-hidden="true">
+      <IconRobot class="w-[18px] h-[18px]" />
     </span>
-    <span class="text-[12.5px] font-medium text-white/80 group-hover:text-white transition-colors">问{{ ASSISTANT_NAME }}</span>
-    <kbd class="font-mono text-[10px] px-1.5 py-0.5 rounded-[5px] text-white/55 bg-white/[0.08] ring-1 ring-white/10">{{ keyHint }}</kbd>
-    <span v-if="store.unread" class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-rose-400 ring-2 ring-slate-900 unread-pulse" />
+    <span class="launcher-label">问{{ ASSISTANT_NAME }}</span>
+    <span
+      v-if="statusState !== 'none'"
+      class="launcher-status"
+      :class="statusState === 'down' ? 'is-down' : 'is-ok'"
+      :title="statusTitle"
+      aria-hidden="true"
+    >
+      <IconNetworkOff v-if="statusState === 'down'" class="w-3 h-3" />
+      <IconCheckNetwork v-else class="w-3 h-3" />
+    </span>
+    <kbd class="launcher-shortcut">{{ keyHint }}</kbd>
+    <span v-if="store.unread" class="launcher-unread" aria-hidden="true">新</span>
   </button>
 </template>
 
 <style scoped>
-.unread-pulse {
-  animation: launcher-pulse 1.5s ease-in-out infinite;
+.chat-launcher {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 5px 7px 5px 5px;
+  color: var(--text-secondary, #a8b5c7);
+  background: var(--surface-raised, #142238);
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  border-radius: 7px;
+  box-shadow: var(--shadow-raised, 0 12px 32px rgba(2, 6, 23, 0.32));
+  cursor: pointer;
+  transition: color var(--dur-fast, 160ms) var(--ease), background var(--dur-fast, 160ms) var(--ease), border-color var(--dur-fast, 160ms) var(--ease), transform var(--dur-fast, 160ms) var(--ease);
 }
-.launcher-dot.is-down {
-  animation: launcher-pulse 1.2s ease-in-out infinite;
+
+.chat-launcher:hover {
+  color: var(--text-primary, #e8eef7);
+  background: color-mix(in srgb, var(--surface-raised, #142238) 88%, var(--accent-primary, #38bdf8));
+  border-color: var(--accent-primary, #38bdf8);
 }
-@keyframes launcher-pulse {
-  50% { opacity: 0.45; }
+
+.chat-launcher:active {
+  transform: translateY(1px);
 }
+
+.chat-launcher.is-unreachable {
+  border-color: color-mix(in srgb, var(--status-warning, #f59e0b) 58%, var(--border-default, rgba(148, 163, 184, 0.2)));
+}
+
+.launcher-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--accent-hover, #7dd3fc);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 4px;
+}
+
+.launcher-label {
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.launcher-status {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 4px;
+}
+
+.launcher-status.is-ok {
+  color: var(--status-success, #34d399);
+  background: var(--status-success-soft, rgba(52, 211, 153, 0.1));
+}
+
+.launcher-status.is-down {
+  color: var(--status-warning, #f59e0b);
+  background: var(--status-warning-soft, rgba(245, 158, 11, 0.1));
+}
+
+.launcher-shortcut,
+.launcher-unread {
+  display: inline-grid;
+  place-items: center;
+  min-height: 22px;
+  border-radius: 4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.launcher-shortcut {
+  min-width: 38px;
+  padding: 0 6px;
+  color: var(--text-muted, #74839a);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  font: 650 9px/1 var(--font-mono, ui-monospace, monospace);
+}
+
+.launcher-unread {
+  min-width: 22px;
+  padding: 0 5px;
+  color: var(--status-danger, #fb7185);
+  background: var(--status-danger-soft, rgba(251, 113, 133, 0.1));
+  border: 1px solid color-mix(in srgb, var(--status-danger, #fb7185) 40%, transparent);
+  font-size: 9px;
+}
+
+@media (max-width: 480px) {
+  .chat-launcher {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .launcher-shortcut {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .unread-pulse,
-  .launcher-dot.is-down { animation: none; }
+  .chat-launcher {
+    transition: none;
+  }
 }
 </style>

@@ -10,6 +10,7 @@ import IconStatus from '~icons/mdi/server-network'
 import IconSource from '~icons/mdi/book-open-page-variant-outline'
 import IconMetric from '~icons/mdi/chart-box-outline'
 import IconCheck from '~icons/mdi/check-circle-outline'
+import IconOpenExternal from '~icons/mdi/open-in-new'
 
 type Rec = Record<string, unknown>
 
@@ -57,7 +58,7 @@ function windLabel(wind: unknown): string {
   const dir = str(wind.dir)
   const scale = str(wind.scale)
   const speed = str(wind.speed)
-  return [dir, scale ? `${scale}级` : '', speed ? `${speed}km/h` : ''].filter(Boolean).join(' · ')
+  return [dir, scale ? `${scale}级` : '', speed ? `${speed}km/h` : ''].filter(Boolean).join('，')
 }
 
 const icon = computed(() => {
@@ -128,7 +129,7 @@ function cell(row: Rec, key: string): string {
         <div class="gui-weather-text">{{ str(data.text, '天气') }}</div>
         <div class="gui-muted">
           {{ str(data.observedAt, '刚刚') }}
-          <template v-if="windLabel(data.wind)"> · {{ windLabel(data.wind) }}</template>
+          <template v-if="windLabel(data.wind)"> / {{ windLabel(data.wind) }}</template>
         </div>
       </div>
       <div v-if="metrics.length" class="gui-metrics">
@@ -227,7 +228,7 @@ function cell(row: Rec, key: string): string {
         <em v-if="src.subtitle">{{ str(src.subtitle) }}</em>
         <p v-if="src.excerpt">{{ str(src.excerpt) }}</p>
         <small v-if="src.confidence || src.score">
-          {{ str(src.confidence, 'score') }}<template v-if="src.score"> · {{ str(src.score) }}</template>
+          {{ str(src.confidence, 'score') }}<template v-if="src.score"> / {{ str(src.score) }}</template>
         </small>
       </a>
     </div>
@@ -253,11 +254,7 @@ function cell(row: Rec, key: string): string {
         rel="noopener noreferrer"
         class="gui-source-link"
       >
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-          <polyline points="15 3 21 3 21 9" />
-          <line x1="10" y1="14" x2="21" y2="3" />
-        </svg>
+        <IconOpenExternal class="w-3.5 h-3.5" aria-hidden="true" />
         {{ str(data.sourceLabel, '打开原文') }}
       </a>
     </div>
@@ -266,69 +263,42 @@ function cell(row: Rec, key: string): string {
 
 <style scoped>
 .gui-card {
-  --gui-tone: #38bdf8;
-  --gui-tone-soft: color-mix(in srgb, var(--gui-tone) 13%, transparent);
-  position: relative;
+  --gui-tone: var(--status-info, #60a5fa);
+  --gui-soft: var(--status-info-soft, rgba(96, 165, 250, 0.1));
+  container-type: inline-size;
   overflow: hidden;
-  border-radius: 10px;
-  padding: 13px;
-  color: rgba(248, 250, 252, 0.9);
-  background:
-    radial-gradient(circle at 18px 18px, var(--gui-tone-soft), transparent 72px),
-    linear-gradient(160deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.7)),
-    rgba(255, 255, 255, 0.035);
-  border: 1px solid color-mix(in srgb, var(--gui-tone) 21%, rgba(148, 163, 184, 0.12));
-  box-shadow:
-    0 12px 34px rgba(0, 0, 0, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  padding: 12px;
+  color: var(--text-primary, #e8eef7);
+  background: var(--surface-secondary, #111f33);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 7px;
+  box-shadow: var(--shadow-raised, 0 12px 32px rgba(2, 6, 23, 0.32));
 }
-.gui-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.042) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
-  background-size: 26px 26px;
-  mask-image: linear-gradient(115deg, rgba(0, 0, 0, 0.46), transparent 64%);
-}
-.gui-card::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: linear-gradient(180deg, transparent, var(--gui-tone), transparent);
-  opacity: 0.72;
-}
-.gui-kind-weather-current,
-.gui-kind-weather-forecast { --gui-tone: #38bdf8; }
-.gui-kind-item-list { --gui-tone: #34d399; }
+.gui-kind-item-list,
+.gui-kind-timeline,
+.gui-card.tone-ok { --gui-tone: var(--status-success, #34d399); --gui-soft: var(--status-success-soft, rgba(52, 211, 153, 0.1)); }
 .gui-kind-data-table,
-.gui-kind-metrics { --gui-tone: #a78bfa; }
-.gui-kind-timeline { --gui-tone: #2dd4bf; }
-.gui-kind-status-grid { --gui-tone: #60a5fa; }
-.gui-kind-source-list { --gui-tone: #fbbf24; }
-.gui-card.tone-ok { --gui-tone: #34d399; }
-.gui-card.tone-warn { --gui-tone: #fbbf24; }
-.gui-card.tone-danger { --gui-tone: #fb7185; }
-.gui-card.tone-muted { --gui-tone: #94a3b8; }
+.gui-kind-metrics { --gui-tone: var(--accent-primary, #38bdf8); --gui-soft: var(--accent-soft, rgba(56, 189, 248, 0.12)); }
+.gui-kind-source-list,
+.gui-card.tone-warn { --gui-tone: var(--status-warning, #f59e0b); --gui-soft: var(--status-warning-soft, rgba(245, 158, 11, 0.1)); }
+.gui-card.tone-danger { --gui-tone: var(--status-danger, #fb7185); --gui-soft: var(--status-danger-soft, rgba(251, 113, 133, 0.1)); }
+.gui-card.tone-muted { --gui-tone: var(--text-muted, #74839a); --gui-soft: rgba(116, 131, 154, 0.1); }
 .gui-head {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 11px;
+  gap: 9px;
   min-width: 0;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
 }
 .gui-head strong {
   display: block;
   overflow: hidden;
-  color: rgba(248, 250, 252, 0.96);
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.25;
+  color: var(--text-primary, #e8eef7);
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -338,34 +308,22 @@ function cell(row: Rec, key: string): string {
 .gui-status em,
 .gui-source em {
   display: block;
-  margin-top: 3px;
-  font-size: 11px;
+  margin-top: 2px;
+  color: var(--text-muted, #74839a);
+  font-size: 10.5px;
   font-style: normal;
-  color: rgba(226, 232, 240, 0.43);
 }
-.gui-icon {
+.gui-icon,
+.gui-step-dot {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
   flex: 0 0 auto;
-  border-radius: 8px;
   color: var(--gui-tone);
-  background: color-mix(in srgb, var(--gui-tone) 13%, rgba(255, 255, 255, 0.035));
-  border: 1px solid color-mix(in srgb, var(--gui-tone) 28%, transparent);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--gui-tone) 16%, transparent);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 4px;
 }
-.gui-weather-now,
-.gui-forecast,
-.gui-list,
-.gui-sources,
-.gui-timeline,
-.gui-status-grid,
-.gui-table-wrap,
-.gui-summary {
-  position: relative;
-  z-index: 1;
-}
+.gui-icon { width: 28px; height: 28px; }
 .gui-weather-now {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -373,57 +331,51 @@ function cell(row: Rec, key: string): string {
   align-items: center;
 }
 .gui-temp {
-  font: 850 46px/0.92 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: color-mix(in srgb, var(--gui-tone) 82%, white 14%);
-  text-shadow: 0 0 24px color-mix(in srgb, var(--gui-tone) 18%, transparent);
+  color: var(--text-primary, #e8eef7);
+  font: 800 42px/0.95 var(--font-mono, ui-monospace, monospace);
 }
-.gui-temp span {
-  font-size: 18px;
-  margin-left: 1px;
-  color: rgba(226, 232, 240, 0.54);
-}
-.gui-weather-text {
-  font-size: 15px;
-  font-weight: 750;
-}
+.gui-temp span { margin-left: 1px; color: var(--text-muted, #74839a); font-size: 17px; }
+.gui-weather-text { color: var(--text-primary, #e8eef7); font-size: 14px; font-weight: 700; }
 .gui-metrics {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
-  gap: 8px;
-}
-.gui-metric,
-.gui-forecast-row,
-.gui-item,
-.gui-status,
-.gui-source {
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.28);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+  border-radius: 5px;
 }
 .gui-metric {
   min-width: 0;
   padding: 8px 9px;
+  background: var(--surface-inset, #0b1524);
+  border-right: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
 }
-.gui-metric small {
-  display: block;
-  font-size: 10.5px;
-  color: rgba(226, 232, 240, 0.42);
-}
+.gui-metric:last-child { border-right: 0; }
+.gui-metric small { display: block; color: var(--text-muted, #74839a); font-size: 10px; }
 .gui-metric b {
   display: block;
   margin-top: 3px;
   overflow: hidden;
-  color: rgba(248, 250, 252, 0.94);
-  font: 800 13px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-primary, #e8eef7);
+  font: 750 12.5px/1.25 var(--font-mono, ui-monospace, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gui-forecast {
-  display: grid;
-  gap: 7px;
+.gui-forecast,
+.gui-list,
+.gui-sources,
+.gui-timeline {
+  overflow: hidden;
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+  border-radius: 5px;
 }
+.gui-forecast-row,
+.gui-item,
+.gui-source { border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12)); }
+.gui-forecast-row:last-child,
+.gui-item:last-child,
+.gui-source:last-child { border-bottom: 0; }
 .gui-forecast-row {
   display: grid;
   grid-template-columns: minmax(58px, 0.9fr) minmax(76px, 1fr) minmax(64px, 1fr) auto;
@@ -437,281 +389,134 @@ function cell(row: Rec, key: string): string {
 .gui-forecast-row small {
   min-width: 0;
   overflow: hidden;
+  font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-style: normal;
 }
 .gui-forecast-row span,
-.gui-forecast-row small {
-  color: rgba(226, 232, 240, 0.48);
-  font-size: 11px;
-}
-.gui-forecast-row strong {
-  font-size: 12.5px;
-  color: rgba(248, 250, 252, 0.94);
-}
-.gui-forecast-row em {
-  font-size: 12px;
-  color: rgba(226, 232, 240, 0.72);
-}
-.gui-list,
-.gui-sources,
-.gui-timeline {
-  display: grid;
-  gap: 8px;
-}
+.gui-forecast-row small { color: var(--text-muted, #74839a); font-size: 10.5px; }
+.gui-forecast-row strong { color: var(--text-primary, #e8eef7); font-size: 12px; }
+.gui-forecast-row em { color: var(--text-secondary, #a8b5c7); font-size: 11.5px; }
 .gui-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 9px;
   padding: 9px 10px;
-  border-color: color-mix(in srgb, var(--gui-tone) 16%, rgba(148, 163, 184, 0.12));
 }
 .gui-item:hover,
 .gui-status:hover,
 .gui-source:hover,
-.gui-forecast-row:hover {
-  background: color-mix(in srgb, var(--gui-tone) 7%, rgba(2, 6, 23, 0.32));
-  border-color: color-mix(in srgb, var(--gui-tone) 27%, transparent);
-}
+.gui-forecast-row:hover { background: var(--surface-raised, #142238); }
 .gui-item strong,
 .gui-item-link strong,
 .gui-step strong,
 .gui-source strong,
 .gui-section strong {
   display: block;
-  font-size: 12.5px;
-  font-weight: 750;
-  color: rgba(248, 250, 252, 0.92);
+  color: var(--text-primary, #e8eef7);
+  font-size: 12px;
+  font-weight: 700;
 }
-.gui-item-link {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-}
-.gui-item-link strong {
-  transition: color 0.15s;
-}
-.gui-item-link:hover strong {
-  color: color-mix(in srgb, var(--gui-tone) 84%, white);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
+.gui-item-link { display: block; color: inherit; text-decoration: none; }
+.gui-item-link:hover strong { color: var(--accent-hover, #7dd3fc); text-decoration: underline; text-underline-offset: 2px; }
 .gui-item p,
 .gui-step p,
 .gui-source p,
-.gui-summary p {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: rgba(226, 232, 240, 0.62);
-}
-.gui-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-  max-width: 150px;
-}
+.gui-summary p { margin: 4px 0 0; color: var(--text-secondary, #a8b5c7); font-size: 11px; line-height: 1.55; }
+.gui-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 150px; }
 .gui-badges span {
-  height: 21px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 750;
-  line-height: 21px;
-  color: color-mix(in srgb, var(--gui-tone) 70%, white 10%);
-  background: color-mix(in srgb, var(--gui-tone) 9%, rgba(255, 255, 255, 0.045));
-  border: 1px solid color-mix(in srgb, var(--gui-tone) 16%, transparent);
+  min-height: 20px;
+  padding: 2px 6px;
+  color: var(--gui-tone);
+  background: var(--gui-soft);
+  border: 1px solid color-mix(in srgb, var(--gui-tone) 28%, transparent);
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
 }
 .gui-status-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 8px;
+  overflow: hidden;
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+  border-radius: 5px;
 }
 .gui-status {
   display: block;
   min-width: 0;
   padding: 10px;
+  color: inherit;
+  border-right: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
   text-decoration: none;
 }
+.gui-status:last-child { border-right: 0; }
 .gui-status strong,
-.gui-status span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gui-status strong {
-  font-size: 12px;
-  color: rgba(248, 250, 252, 0.92);
-}
-.gui-status span {
-  margin-top: 5px;
-  color: color-mix(in srgb, var(--gui-tone) 72%, white 8%);
-  font: 800 12px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
+.gui-status span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gui-status strong { color: var(--text-primary, #e8eef7); font-size: 11.5px; }
+.gui-status span { margin-top: 5px; color: var(--gui-tone); font: 750 11.5px/1.25 var(--font-mono, ui-monospace, monospace); }
 .gui-table-wrap {
   max-width: 100%;
   overflow-x: auto;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.13);
-  background: rgba(2, 6, 23, 0.2);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+  border-radius: 5px;
 }
-.gui-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11.5px;
-}
+.gui-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .gui-table th,
-.gui-table td {
-  padding: 8px 10px;
-  text-align: left;
-  white-space: nowrap;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.11);
-}
-.gui-table th {
-  color: color-mix(in srgb, var(--gui-tone) 70%, white 10%);
-  background: color-mix(in srgb, var(--gui-tone) 10%, rgba(2, 6, 23, 0.36));
-  font: 800 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-transform: uppercase;
-}
-.gui-table td {
-  color: rgba(226, 232, 240, 0.66);
-}
+.gui-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12)); text-align: left; white-space: nowrap; }
+.gui-table tbody tr:last-child td { border-bottom: 0; }
+.gui-table th { color: var(--text-secondary, #a8b5c7); background: var(--surface-raised, #142238); font: 700 10px/1.2 var(--font-mono, ui-monospace, monospace); }
+.gui-table td { color: var(--text-secondary, #a8b5c7); }
 .gui-step {
-  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 9px;
-  padding: 7px 0;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
 }
-.gui-step:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 11px;
-  top: 30px;
-  bottom: -8px;
-  width: 1px;
-  background: rgba(148, 163, 184, 0.16);
-}
-.gui-step-dot {
-  display: inline-grid;
-  align-items: center;
-  justify-content: center;
-  width: 23px;
-  height: 23px;
-  border-radius: 8px;
-  color: rgba(226, 232, 240, 0.38);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.gui-source {
-  display: block;
-  padding: 9px 10px;
-  color: inherit;
-  text-decoration: none;
-}
-.gui-source small {
-  display: inline-flex;
-  margin-top: 7px;
-  color: color-mix(in srgb, var(--gui-tone) 76%, white 8%);
-  font: 800 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.gui-section {
-  margin-top: 11px;
-  padding-top: 11px;
-  border-top: 1px solid rgba(148, 163, 184, 0.12);
-}
-.gui-section ul {
-  margin: 6px 0 0;
-  padding-left: 16px;
-}
-.gui-section li {
-  margin: 3px 0;
-  font-size: 11.5px;
-  color: rgba(226, 232, 240, 0.62);
-}
-.gui-section li::marker {
-  color: var(--gui-tone);
-}
+.gui-step:last-child { border-bottom: 0; }
+.gui-step-dot { width: 22px; height: 22px; color: var(--text-muted, #74839a); background: var(--surface-secondary, #111f33); }
+.gui-source { display: block; padding: 9px 10px; color: inherit; text-decoration: none; }
+.gui-source small { display: inline-flex; margin-top: 7px; color: var(--gui-tone); font: 700 10px/1.2 var(--font-mono, ui-monospace, monospace); }
+.gui-section { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12)); }
+.gui-section ul { margin: 6px 0 0; padding-left: 16px; }
+.gui-section li { margin: 3px 0; color: var(--text-secondary, #a8b5c7); font-size: 11px; }
+.gui-section li::marker { color: var(--gui-tone); }
 .gui-source-link {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   margin-top: 11px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: 11.5px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--accent-hover, #7dd3fc);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 700;
-  color: color-mix(in srgb, var(--gui-tone) 78%, white 10%);
-  background: color-mix(in srgb, var(--gui-tone) 8%, rgba(255, 255, 255, 0.03));
-  border: 1px solid color-mix(in srgb, var(--gui-tone) 18%, transparent);
   text-decoration: none;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.gui-source-link:hover {
-  color: #fff;
-  background: color-mix(in srgb, var(--gui-tone) 18%, rgba(255, 255, 255, 0.06));
-  border-color: color-mix(in srgb, var(--gui-tone) 34%, transparent);
-}
-.gui-empty {
-  margin: 0;
-  padding: 13px;
-  border-radius: 8px;
-  color: rgba(226, 232, 240, 0.45);
-  background: rgba(2, 6, 23, 0.24);
-  border: 1px dashed rgba(148, 163, 184, 0.16);
-  font-size: 12px;
-}
-.tone-ok {
-  border-color: color-mix(in srgb, #34d399 30%, rgba(148, 163, 184, 0.12));
-}
+.gui-source-link:hover { color: var(--text-primary, #e8eef7); background: var(--surface-raised, #142238); border-color: var(--border-strong, rgba(148, 163, 184, 0.3)); }
+.gui-empty { margin: 0; padding: 13px; color: var(--text-muted, #74839a); background: var(--surface-inset, #0b1524); border: 1px dashed var(--border-default, rgba(148, 163, 184, 0.2)); border-radius: 4px; font-size: 11.5px; }
 .tone-ok > span,
-.tone-ok > b {
-  color: rgba(110, 231, 183, 0.96);
-}
-.tone-warn {
-  border-color: color-mix(in srgb, #fbbf24 28%, rgba(148, 163, 184, 0.12));
-}
+.tone-ok > b { color: var(--status-success, #34d399); }
 .tone-warn > span,
-.tone-warn > b {
-  color: rgba(253, 230, 138, 0.94);
-}
-.tone-danger {
-  border-color: color-mix(in srgb, #fb7185 30%, rgba(148, 163, 184, 0.12));
-}
+.tone-warn > b { color: var(--status-warning, #f59e0b); }
 .tone-danger > span,
-.tone-danger > b {
-  color: rgba(253, 164, 175, 0.96);
-}
-.tone-muted {
-  opacity: 0.76;
-  border-color: rgba(148, 163, 184, 0.16);
-}
-.step-done .gui-step-dot {
-  color: rgba(110, 231, 183, 0.94);
-  background: rgba(52, 211, 153, 0.12);
-  border-color: rgba(52, 211, 153, 0.22);
-}
-.step-doing .gui-step-dot {
-  color: rgba(125, 211, 252, 0.96);
-  background: rgba(56, 189, 248, 0.13);
-  border-color: rgba(56, 189, 248, 0.24);
-}
-.step-blocked .gui-step-dot {
-  color: rgba(253, 164, 175, 0.96);
-  background: rgba(244, 63, 94, 0.12);
-  border-color: rgba(244, 63, 94, 0.24);
-}
-@media (max-width: 560px) {
+.tone-danger > b { color: var(--status-danger, #fb7185); }
+.tone-muted { opacity: 0.76; }
+.step-done .gui-step-dot { color: var(--status-success, #34d399); background: var(--status-success-soft, rgba(52, 211, 153, 0.1)); border-color: color-mix(in srgb, var(--status-success, #34d399) 36%, transparent); }
+.step-doing .gui-step-dot { color: var(--status-info, #60a5fa); background: var(--status-info-soft, rgba(96, 165, 250, 0.1)); border-color: color-mix(in srgb, var(--status-info, #60a5fa) 36%, transparent); }
+.step-blocked .gui-step-dot { color: var(--status-danger, #fb7185); background: var(--status-danger-soft, rgba(251, 113, 133, 0.1)); border-color: color-mix(in srgb, var(--status-danger, #fb7185) 36%, transparent); }
+@container (max-width: 420px) {
   .gui-forecast-row,
-  .gui-item {
-    grid-template-columns: 1fr;
-  }
-  .gui-badges {
-    justify-content: flex-start;
-    max-width: none;
-  }
+  .gui-item { grid-template-columns: 1fr; }
+  .gui-badges { justify-content: flex-start; max-width: none; }
+  .gui-status-grid { grid-template-columns: 1fr; }
+  .gui-status { border-right: 0; border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12)); }
+  .gui-status:last-child { border-bottom: 0; }
 }
 </style>

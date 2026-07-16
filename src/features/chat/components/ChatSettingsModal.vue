@@ -1,13 +1,6 @@
 <script setup lang="ts">
-/**
- * 对话参数设置弹窗
- *
- * 在对话中枢 header 中点击齿轮图标唤出，允许用户调整 Agent 循环轮数、
- * 历史 token 预算、单次输出上限、多模态图片上限。
- *
- * 视觉语言对齐 ModelConfigModal：玻璃拟态 + 网格纹理 + 光束 + 预设卡 + 卡片表单。
- */
-import { reactive, watch, computed, ref, onUnmounted } from 'vue'
+/** 对话参数设置弹窗：统一的 header / 可滚动 body / footer 模态结构。 */
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useChatSettings, CHAT_SETTINGS_DEFAULTS } from '../settings'
 import type { ChatSettings } from '../settings'
 import { useChatStore } from '../store'
@@ -26,72 +19,97 @@ import IconRocket from '~icons/mdi/rocket-launch-outline'
 import IconAlert from '~icons/mdi/alert-circle-outline'
 import IconDownload from '~icons/mdi/download-outline'
 import IconTrash from '~icons/mdi/trash-can-outline'
+import IconMinus from '~icons/mdi/minus'
+import IconPlus from '~icons/mdi/plus'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const { settings, update } = useChatSettings()
 const chatStore = useChatStore()
+const dialogRef = ref<HTMLElement | null>(null)
+const closeButtonRef = ref<HTMLButtonElement | null>(null)
 
-// ============ 草稿 — 使用 reactive 保证深层响应式 ============
 const draft = reactive<ChatSettings>({ ...settings.value })
-/** 打开弹窗时的已保存值快照，用于判断"是否修改过" */
 let savedSnapshot: ChatSettings = { ...settings.value }
+let restoreFocusTo: HTMLElement | null = null
+let previousBodyOverflow = ''
+let bodyLocked = false
 
-watch(() => props.open, (now) => {
-  if (now) {
-    savedSnapshot = { ...settings.value }
-    Object.assign(draft, settings.value)
-    // 打开弹窗时锁定 body 滚动（对齐 DetailModal / ModelConfigModal 行为）
-    document.body.style.overflow = 'hidden'
-    // 刷新偏好数据条数（飞轮展示用）
-    void chatStore.refreshPreferenceCount()
-  } else {
-    document.body.style.overflow = ''
-  }
-})
+function lockBody() {
+  if (bodyLocked || typeof document === 'undefined') return
+  previousBodyOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  bodyLocked = true
+}
+
+function unlockBody() {
+  if (!bodyLocked || typeof document === 'undefined') return
+  document.body.style.overflow = previousBodyOverflow
+  bodyLocked = false
+}
+
+watch(
+  () => props.open,
+  async (now) => {
+    if (now) {
+      savedSnapshot = { ...settings.value }
+      Object.assign(draft, settings.value)
+      restoreFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      lockBody()
+      void chatStore.refreshPreferenceCount()
+      await nextTick()
+      closeButtonRef.value?.focus()
+      return
+    }
+
+    unlockBody()
+    await nextTick()
+    restoreFocusTo?.focus()
+    restoreFocusTo = null
+  },
+  { immediate: true, flush: 'post' },
+)
 
 function close() {
   emit('update:open', false)
 }
 
-function apply() {
-  // 保存前钳位所有字段到各自的 bounds，防止用户在输入框直接键入越界值绕过校验
-  const clamped: ChatSettings = { ...draft }
-  for (const def of fieldDefs) {
-    const [lo, hi] = def.bounds
-    clamped[def.key] = Math.max(lo, Math.min(hi, Math.round(draft[def.key])))
+function focusableElements(): HTMLElement[] {
+  if (!dialogRef.value) return []
+  return Array.from(
+    dialogRef.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute('hidden'))
+}
+
+function handleDialogKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    close()
+    return
   }
-  update(clamped)
-  close()
+  if (event.key !== 'Tab') return
+
+  const focusable = focusableElements()
+  if (!focusable.length) {
+    event.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
-function handleReset() {
-  Object.assign(draft, CHAT_SETTINGS_DEFAULTS)
-}
-
-// ============ 偏好数据飞轮（导出 / 清空） ============
-async function exportPreferences() {
-  const json = await chatStore.exportPreferencesData()
-  // 触发浏览器下载（纯本地，不上传）
-  const blob = new Blob([json], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `chat-preferences-${new Date().toISOString().slice(0, 10)}.json`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-async function clearPreferences() {
-  if (!chatStore.preferenceCount) return
-  if (!window.confirm(`确定清空全部 ${chatStore.preferenceCount} 条偏好数据？此操作不可撤销。`)) return
-  await chatStore.clearPreferencesData()
-}
-
-// ============ 预设 ============
 interface Preset {
   id: string
   label: string
@@ -102,64 +120,59 @@ interface Preset {
 
 const presets: Preset[] = [
   {
-    id: 'safe', label: '保守', desc: '稳定低耗',
-    icon: IconShieldCheck,
+    id: 'safe', label: '保守', desc: '稳定低耗', icon: IconShieldCheck,
     values: { maxRounds: 8, maxHistoryTokens: 24_000, maxOutputTokens: 4_096, maxImages: 4, readUrlMaxChars: 6_000 },
   },
   {
-    id: 'balanced', label: '均衡', desc: '日常够用',
-    icon: IconScaleBalance,
+    id: 'balanced', label: '均衡', desc: '日常够用', icon: IconScaleBalance,
     values: { maxRounds: 20, maxHistoryTokens: 64_000, maxOutputTokens: 8_192, maxImages: 6, readUrlMaxChars: 12_000 },
   },
   {
-    id: 'spacious', label: '宽裕', desc: '默认推荐',
-    icon: IconChevronTripleUp,
+    id: 'spacious', label: '宽裕', desc: '默认推荐', icon: IconChevronTripleUp,
     values: { ...CHAT_SETTINGS_DEFAULTS },
   },
   {
-    id: 'extreme', label: '极限', desc: '火力全开',
-    icon: IconRocket,
+    id: 'extreme', label: '极限', desc: '火力全开', icon: IconRocket,
     values: { maxRounds: 100, maxHistoryTokens: 256_000, maxOutputTokens: 81_920, maxImages: 20, readUrlMaxChars: 0 },
   },
 ]
 
-function isPresetActive(p: Preset): boolean {
-  return (Object.keys(p.values) as (keyof ChatSettings)[]).every(
-    (k) => p.values[k] === draft[k],
+function isPresetActive(preset: Preset): boolean {
+  return (Object.keys(preset.values) as (keyof ChatSettings)[]).every(
+    (key) => preset.values[key] === draft[key],
   )
 }
 
-function applyPreset(p: Preset) {
-  Object.assign(draft, p.values)
+function applyPreset(preset: Preset) {
+  Object.assign(draft, preset.values)
 }
 
-// ============ 字段定义 ============
 interface FieldDef {
   key: keyof ChatSettings
   label: string
   desc: string
   icon: typeof IconSync
-  tone: string
   step: number
   bounds: [number, number]
+  tone?: string
 }
 
 const fieldDefs: FieldDef[] = [
   {
     key: 'maxRounds', label: 'Agent 循环轮数', desc: '一次提问中模型最多调用几轮工具。增大可处理更复杂的组合任务。',
-    icon: IconSync, tone: '#f59e0b', step: 5, bounds: [1, 200],
+    icon: IconSync, step: 5, bounds: [1, 200],
   },
   {
     key: 'maxHistoryTokens', label: '历史 Token 预算', desc: '对话历史发给模型时的 token 预算。超出时自动截断早期消息。',
-    icon: IconDatabaseOutline, tone: '#38bdf8', step: 8_000, bounds: [1_000, 1_000_000],
+    icon: IconDatabaseOutline, step: 8_000, bounds: [1_000, 1_000_000],
   },
   {
     key: 'maxOutputTokens', label: '单次输出上限', desc: '模型单次回复的最大输出 token 数。回答轮需较大值，工具调用轮很短。',
-    icon: IconMessageText, tone: '#10b981', step: 2_048, bounds: [256, 131_072],
+    icon: IconMessageText, step: 2_048, bounds: [256, 131_072],
   },
   {
     key: 'maxImages', label: '图片数量上限', desc: '一次最多可发送的图片张数。图片转 base64 随请求发送，过多会显著增加延迟与费用。',
-    icon: IconImageMultiple, tone: '#a78bfa', step: 1, bounds: [0, 50],
+    icon: IconImageMultiple, step: 1, bounds: [0, 50],
   },
   {
     key: 'readUrlMaxChars', label: '网页读取上限', desc: '读取公开网页链接时，正文单字段保留的最大字符数。增大可让小吴看到更完整的原文、分层呈现观点；设为 0 表示不裁剪。占用上下文，过大可能推高成本。',
@@ -167,133 +180,108 @@ const fieldDefs: FieldDef[] = [
   },
 ]
 
-// ============ 格式化 ============
 function formatValue(def: FieldDef): string {
-  const v = draft[def.key]
+  const value = draft[def.key]
   if (def.key === 'maxHistoryTokens' || def.key === 'maxOutputTokens') {
-    if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1000 === 0 ? 0 : 1)}K`
-    return String(v)
+    if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1000 === 0 ? 0 : 1)}K`
+    return String(value)
   }
   if (def.key === 'readUrlMaxChars') {
-    if (v === 0) return '不裁剪'
-    if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1000 === 0 ? 0 : 1)}K 字符`
-    return `${v} 字符`
+    if (value === 0) return '不裁剪'
+    if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1000 === 0 ? 0 : 1)}K 字符`
+    return `${value} 字符`
   }
-  if (def.key === 'maxRounds') return `${v} 轮`
-  return `${v} 张`
+  if (def.key === 'maxRounds') return `${value} 轮`
+  return `${value} 张`
 }
 
 function scalePercent(def: FieldDef): number {
-  const v = draft[def.key]
-  const [lo, hi] = def.bounds
-  return Math.round(((v - lo) / (hi - lo)) * 100)
-}
-
-function scaleColor(def: FieldDef): string {
-  const pct = scalePercent(def)
-  if (pct < 25) return '#10b981'
-  if (pct < 55) return '#38bdf8'
-  if (pct < 80) return '#f59e0b'
-  return '#ef4444'
+  const [low, high] = def.bounds
+  return Math.round(((draft[def.key] - low) / (high - low)) * 100)
 }
 
 function isDirty(key: keyof ChatSettings): boolean {
   return draft[key] !== savedSnapshot[key]
 }
 
-// ============ 步进 ============
-function clamp(def: FieldDef, val: number): number {
-  const [lo, hi] = def.bounds
-  return Math.max(lo, Math.min(hi, Math.round(val)))
+function clamp(def: FieldDef, value: number): number {
+  const [low, high] = def.bounds
+  return Math.max(low, Math.min(high, Math.round(value)))
 }
 
 function stepDown(def: FieldDef) {
   draft[def.key] = clamp(def, draft[def.key] - def.step)
 }
+
 function stepUp(def: FieldDef) {
   draft[def.key] = clamp(def, draft[def.key] + def.step)
 }
 
-// ============ 刻度条拖动 ============
-const draggingDef = ref<FieldDef | null>(null)
-const scaleTrackRefs = ref<Record<string, HTMLElement | null>>({})
-
-function setScaleRef(key: string, el: HTMLElement | null) {
-  scaleTrackRefs.value[key] = el
+function apply() {
+  const clamped: ChatSettings = { ...draft }
+  for (const def of fieldDefs) {
+    const [low, high] = def.bounds
+    clamped[def.key] = Math.max(low, Math.min(high, Math.round(draft[def.key])))
+  }
+  update(clamped)
+  close()
 }
 
-function onScaleMouseDown(def: FieldDef, e: MouseEvent) {
-  e.preventDefault()
-  draggingDef.value = def
-  updateFromScaleEvent(def, e)
-  window.addEventListener('mousemove', onScaleMouseMove)
-  window.addEventListener('mouseup', onScaleMouseUp)
+function handleReset() {
+  Object.assign(draft, CHAT_SETTINGS_DEFAULTS)
 }
 
-function onScaleMouseMove(e: MouseEvent) {
-  if (!draggingDef.value) return
-  updateFromScaleEvent(draggingDef.value, e)
+async function exportPreferences() {
+  const json = await chatStore.exportPreferencesData()
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `chat-preferences-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
-function onScaleMouseUp() {
-  draggingDef.value = null
-  window.removeEventListener('mousemove', onScaleMouseMove)
-  window.removeEventListener('mouseup', onScaleMouseUp)
+async function clearPreferences() {
+  if (!chatStore.preferenceCount) return
+  if (!window.confirm(`确定清空全部 ${chatStore.preferenceCount} 条偏好数据？此操作不可撤销。`)) return
+  await chatStore.clearPreferencesData()
 }
 
-function updateFromScaleEvent(def: FieldDef, e: MouseEvent) {
-  const el = scaleTrackRefs.value[def.key]
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-  const [lo, hi] = def.bounds
-  const raw = lo + ratio * (hi - lo)
-  // snap to step
-  const snapped = Math.round(raw / def.step) * def.step
-  draft[def.key] = clamp(def, snapped)
-}
-
-onUnmounted(() => {
-  window.removeEventListener('mousemove', onScaleMouseMove)
-  window.removeEventListener('mouseup', onScaleMouseUp)
-  // 防御：组件卸载时确保恢复 body 滚动
-  document.body.style.overflow = ''
-})
-
-// ============ 是否有修改 ============
 const hasChanges = computed(() =>
   (Object.keys(CHAT_SETTINGS_DEFAULTS) as (keyof ChatSettings)[]).some(
-    (k) => draft[k] !== savedSnapshot[k],
+    (key) => draft[key] !== savedSnapshot[key],
   ),
 )
+
+onUnmounted(unlockBody)
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="cs-fade">
-      <div v-if="open" class="cs-shell" @click.self="close">
-        <div class="cs-backdrop" />
-        <Transition name="cs-pop" appear>
+      <div v-if="open" class="cs-shell">
+        <div class="cs-backdrop" aria-hidden="true" @click="close" />
+        <Transition name="cs-panel" appear>
           <section
-            class="cs-console"
+            ref="dialogRef"
+            class="cs-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="对话参数设置"
-            @mousedown.stop
-            @keydown.stop
+            aria-labelledby="chat-settings-title"
+            tabindex="-1"
+            @click.stop
+            @keydown.stop="handleDialogKeydown"
           >
-            <div class="cs-beam" aria-hidden="true" />
-            <div class="cs-beam-2" aria-hidden="true" />
-
-            <!-- ====== Header ====== -->
             <header class="cs-header">
-              <div class="cs-brand-mark">
+              <div class="cs-brand-mark" aria-hidden="true">
                 <IconCog class="w-5 h-5" />
               </div>
-              <div class="min-w-0 flex-1">
-                <p class="cs-eyebrow">Chat Settings</p>
-                <h2 class="cs-title">对话参数</h2>
-                <p class="cs-subtitle">Agent 循环 · 上下文窗口 · 输出限制</p>
+              <div class="cs-heading">
+                <h2 id="chat-settings-title" class="cs-title">对话参数</h2>
+                <p class="cs-subtitle">设置 Agent 循环、上下文窗口和输出限制</p>
               </div>
               <div class="cs-header-actions">
                 <button
@@ -304,159 +292,167 @@ const hasChanges = computed(() =>
                   @click="handleReset"
                 >
                   <IconUndo class="w-3.5 h-3.5" />
-                  默认
+                  恢复默认
                 </button>
-                <button type="button" class="cs-icon-btn" title="关闭（Esc）" @click="close">
+                <button
+                  ref="closeButtonRef"
+                  type="button"
+                  class="cs-icon-btn"
+                  title="关闭（Esc）"
+                  aria-label="关闭对话参数设置"
+                  @click="close"
+                >
                   <IconClose class="w-4 h-4" />
                 </button>
               </div>
             </header>
 
-            <!-- ====== Body ====== -->
             <div class="cs-body">
-              <!-- 提示条 -->
               <div class="cs-hint">
-                <IconAlert class="w-4 h-4 shrink-0 cs-hint-icon" />
-                <span>改动在下次发送消息时生效，无需重启或刷新。拖动刻度条、点击 ± 按钮或直接输入均可调整。</span>
+                <IconAlert class="cs-hint-icon w-4 h-4 shrink-0" />
+                <span>改动在下次发送消息时生效。可拖动滑杆、使用加减按钮或直接输入数值。</span>
               </div>
 
-              <!-- 预设卡 -->
-              <div class="cs-preset-strip">
-                <button
-                  v-for="p in presets"
-                  :key="p.id"
-                  type="button"
-                  class="cs-preset-chip"
-                  :class="{ 'is-active': isPresetActive(p) }"
-                  @click="applyPreset(p)"
-                >
-                  <component :is="p.icon" class="w-4 h-4" />
-                  <span class="cs-preset-label">{{ p.label }}</span>
-                  <span class="cs-preset-desc">{{ p.desc }}</span>
-                </button>
-              </div>
-
-              <!-- 参数卡片 -->
-              <div class="cs-cards">
-                <div
-                  v-for="def in fieldDefs"
-                  :key="def.key"
-                  class="cs-card"
-                  :class="{ 'is-dirty': isDirty(def.key) }"
-                  :style="{ '--card-tone': def.tone }"
-                >
-                  <!-- 卡片头部 -->
-                  <div class="cs-card-head">
-                    <div class="cs-card-icon">
-                      <component :is="def.icon" class="w-4 h-4" />
-                    </div>
-                    <div class="cs-card-title">
-                      <span>{{ def.label }}</span>
-                      <span v-if="isDirty(def.key)" class="cs-dirty-dot" title="已修改">●</span>
-                    </div>
-                    <span class="cs-card-value">{{ formatValue(def) }}</span>
-                  </div>
-
-                  <!-- 描述 -->
-                  <p class="cs-card-desc">{{ def.desc }}</p>
-
-                  <!-- 可拖动刻度条 -->
-                  <div
-                    class="cs-scale"
-                    role="slider"
-                    :aria-valuenow="draft[def.key]"
-                    :aria-valuemin="def.bounds[0]"
-                    :aria-valuemax="def.bounds[1]"
-                    :aria-label="def.label"
-                  >
-                    <div
-                      :ref="(el: unknown) => setScaleRef(def.key, el as HTMLElement | null)"
-                      class="cs-scale-track"
-                      @mousedown="onScaleMouseDown(def, $event)"
-                    >
-                      <div
-                        class="cs-scale-fill"
-                        :style="{
-                          width: scalePercent(def) + '%',
-                          background: scaleColor(def),
-                          boxShadow: `0 0 10px ${scaleColor(def)}66`,
-                        }"
-                      />
-                      <div
-                        class="cs-scale-thumb"
-                        :style="{ left: scalePercent(def) + '%', borderColor: scaleColor(def) }"
-                      />
-                    </div>
-                    <span class="cs-scale-label">{{ scalePercent(def) }}%</span>
-                  </div>
-
-                  <!-- 步进器 -->
-                  <div class="cs-stepper">
-                    <button
-                      type="button"
-                      class="cs-step-btn cs-step-down"
-                      :disabled="draft[def.key] <= def.bounds[0]"
-                      @mousedown.prevent="stepDown(def)"
-                    >
-                      <svg width="12" height="2" viewBox="0 0 12 2"><rect width="12" height="2" rx="1" fill="currentColor"/></svg>
-                    </button>
-                    <input
-                      v-model.number="draft[def.key]"
-                      type="number"
-                      class="cs-step-input"
-                      :min="def.bounds[0]"
-                      :max="def.bounds[1]"
-                      :step="def.step"
-                    />
-                    <button
-                      type="button"
-                      class="cs-step-btn cs-step-up"
-                      :disabled="draft[def.key] >= def.bounds[1]"
-                      @mousedown.prevent="stepUp(def)"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-                    </button>
-                  </div>
+              <section class="cs-section" aria-labelledby="chat-settings-presets">
+                <div class="cs-section-heading">
+                  <h3 id="chat-settings-presets">快速预设</h3>
+                  <span>选择后仍可逐项调整</span>
                 </div>
-              </div>
-
-              <!-- 偏好数据飞轮 -->
-              <section class="cs-pref">
-                <div class="cs-pref-head">
-                  <div class="cs-pref-icon"><IconDatabaseOutline class="w-4 h-4" /></div>
-                  <div class="cs-pref-title">
-                    <span>偏好数据飞轮</span>
-                    <span class="cs-pref-count">{{ chatStore.preferenceCount }} 条</span>
-                  </div>
-                </div>
-                <p class="cs-pref-desc">👍 / 👎 / 重新生成 自动记录偏好对 (context, chosen, rejected)，存本地 IndexedDB、不上传；用作 few-shot 召回与微调养料。</p>
-                <div class="cs-pref-actions">
+                <div class="cs-presets">
                   <button
+                    v-for="preset in presets"
+                    :key="preset.id"
                     type="button"
-                    class="cs-pref-btn"
-                    :disabled="!chatStore.preferenceCount"
-                    @click="exportPreferences"
+                    class="cs-preset"
+                    :class="{ 'is-active': isPresetActive(preset) }"
+                    :aria-pressed="isPresetActive(preset)"
+                    @click="applyPreset(preset)"
                   >
-                    <IconDownload class="w-3.5 h-3.5" /> 导出 JSON
-                  </button>
-                  <button
-                    type="button"
-                    class="cs-pref-btn cs-pref-danger"
-                    :disabled="!chatStore.preferenceCount"
-                    @click="clearPreferences"
-                  >
-                    <IconTrash class="w-3.5 h-3.5" /> 清空
+                    <component :is="preset.icon" class="w-4 h-4" />
+                    <span class="cs-preset-copy">
+                      <strong>{{ preset.label }}</strong>
+                      <small>{{ preset.desc }}</small>
+                    </span>
                   </button>
                 </div>
               </section>
 
-              <!-- 操作栏 -->
-              <div class="cs-actions">
-                <button type="button" class="cs-btn cs-btn-ghost" @click="close">取消</button>
-                <div class="flex-1" />
-                <button type="button" class="cs-btn cs-btn-primary" @click="apply">保存配置</button>
-              </div>
+              <section class="cs-section" aria-labelledby="chat-settings-limits">
+                <div class="cs-section-heading">
+                  <h3 id="chat-settings-limits">参数上限</h3>
+                  <span>保存时自动限制在有效范围内</span>
+                </div>
+                <div class="cs-fields">
+                  <div
+                    v-for="def in fieldDefs"
+                    :key="def.key"
+                    class="cs-field"
+                    :class="{ 'is-dirty': isDirty(def.key) }"
+                  >
+                    <div class="cs-field-main">
+                      <div class="cs-field-icon" aria-hidden="true">
+                        <component :is="def.icon" class="w-4 h-4" />
+                      </div>
+                      <div class="cs-field-copy">
+                        <div class="cs-field-title">
+                          <label :for="`chat-setting-${def.key}`">{{ def.label }}</label>
+                          <span v-if="isDirty(def.key)" class="cs-dirty-tag">已修改</span>
+                        </div>
+                        <p>{{ def.desc }}</p>
+                      </div>
+                      <output class="cs-field-value" :for="`chat-setting-${def.key}`">{{ formatValue(def) }}</output>
+                    </div>
+
+                    <div class="cs-field-controls">
+                      <div class="cs-range-wrap">
+                        <input
+                          :id="`chat-setting-${def.key}`"
+                          v-model.number="draft[def.key]"
+                          type="range"
+                          class="cs-range"
+                          :min="def.bounds[0]"
+                          :max="def.bounds[1]"
+                          :step="def.step"
+                          :aria-label="def.label"
+                          :style="{ '--range-progress': `${scalePercent(def)}%` }"
+                        />
+                        <span class="cs-range-label">{{ scalePercent(def) }}%</span>
+                      </div>
+
+                      <div class="cs-stepper">
+                        <button
+                          type="button"
+                          class="cs-step-btn"
+                          :disabled="draft[def.key] <= def.bounds[0]"
+                          :aria-label="`减小${def.label}`"
+                          @click="stepDown(def)"
+                        >
+                          <IconMinus class="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          v-model.number="draft[def.key]"
+                          type="number"
+                          class="cs-step-input"
+                          :aria-label="`${def.label}数值`"
+                          :min="def.bounds[0]"
+                          :max="def.bounds[1]"
+                          :step="def.step"
+                        />
+                        <button
+                          type="button"
+                          class="cs-step-btn"
+                          :disabled="draft[def.key] >= def.bounds[1]"
+                          :aria-label="`增大${def.label}`"
+                          @click="stepUp(def)"
+                        >
+                          <IconPlus class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="cs-section cs-preferences" aria-labelledby="chat-preferences-title">
+                <div class="cs-pref-copy">
+                  <div class="cs-pref-title-row">
+                    <div class="cs-field-icon" aria-hidden="true">
+                      <IconDatabaseOutline class="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 id="chat-preferences-title">偏好数据</h3>
+                      <span>{{ chatStore.preferenceCount }} 条本地记录</span>
+                    </div>
+                  </div>
+                  <p>点赞、点踩和重新生成会在本机 IndexedDB 中保存偏好对，不会上传。</p>
+                </div>
+                <div class="cs-pref-actions">
+                  <button
+                    type="button"
+                    class="cs-secondary-btn"
+                    :disabled="!chatStore.preferenceCount"
+                    @click="exportPreferences"
+                  >
+                    <IconDownload class="w-3.5 h-3.5" />
+                    导出 JSON
+                  </button>
+                  <button
+                    type="button"
+                    class="cs-secondary-btn is-danger"
+                    :disabled="!chatStore.preferenceCount"
+                    @click="clearPreferences"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" />
+                    清空
+                  </button>
+                </div>
+              </section>
             </div>
+
+            <footer class="cs-footer">
+              <button type="button" class="cs-btn cs-btn-secondary" @click="close">取消</button>
+              <button type="button" class="cs-btn cs-btn-primary" @click="apply">保存配置</button>
+            </footer>
           </section>
         </Transition>
       </div>
@@ -465,648 +461,654 @@ const hasChanges = computed(() =>
 </template>
 
 <style scoped>
-/* ================================================
-   Shell & Backdrop
-   ================================================ */
 .cs-shell {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
 }
+
 .cs-backdrop {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--cs-tone, #2dd4bf) 22%, transparent), transparent 34%),
-    radial-gradient(circle at 86% 80%, rgba(45, 212, 191, 0.12), transparent 32%),
-    rgba(2, 6, 23, 0.78);
-  backdrop-filter: blur(16px) saturate(140%);
+  background: var(--surface-overlay, rgba(5, 10, 20, 0.78));
+  backdrop-filter: blur(10px);
 }
 
-/* ================================================
-   Console Panel
-   ================================================ */
-.cs-console {
-  --cs-tone: #2dd4bf;
-  --cs-border: rgba(148, 163, 184, 0.16);
-  --cs-text: rgba(248, 250, 252, 0.9);
-  --cs-muted: rgba(226, 232, 240, 0.52);
+.cs-dialog {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  width: min(680px, 94vw);
-  max-height: min(760px, 88vh);
+  width: min(720px, 100%);
+  max-height: min(780px, calc(100dvh - 32px));
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--cs-tone) 20%, rgba(148, 163, 184, 0.24));
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--cs-tone) 8%, transparent), transparent 28%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98));
-  box-shadow:
-    0 34px 110px rgba(0, 0, 0, 0.66),
-    0 0 0 1px rgba(255, 255, 255, 0.035),
-    0 0 70px color-mix(in srgb, var(--cs-tone) 12%, transparent);
-  color: var(--cs-text);
-}
-.cs-console::before {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  background:
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(135deg, rgba(0,0,0,0.55), transparent 58%);
-}
-.cs-console::after {
-  position: absolute;
-  inset: auto 20px 0;
-  height: 1px;
-  pointer-events: none;
-  content: '';
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cs-tone) 52%, transparent), transparent);
-  opacity: 0.75;
-}
-.cs-beam {
-  position: absolute;
-  inset: -36% auto auto 8%;
-  width: 42%;
-  height: 172%;
-  transform: rotate(24deg);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cs-tone) 18%, transparent), transparent);
-  opacity: 0.72;
-  pointer-events: none;
-}
-.cs-beam-2 {
-  position: absolute;
-  inset: auto 4% -28% auto;
-  width: 36%;
-  height: 140%;
-  transform: rotate(-32deg);
-  background: linear-gradient(270deg, transparent, color-mix(in srgb, var(--cs-tone) 10%, transparent), transparent);
-  opacity: 0.48;
-  pointer-events: none;
+  color: var(--text-primary, #e8eef7);
+  background: var(--surface-canvas, #0f1a2a);
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.28));
+  border-radius: 10px;
+  box-shadow: var(--shadow-modal, 0 24px 72px rgba(2, 6, 23, 0.48));
 }
 
-/* ================================================
-   Header
-   ================================================ */
-.cs-header {
+.cs-header,
+.cs-footer {
   position: relative;
+  flex: 0 0 auto;
+  background: var(--surface-raised, #142238);
+}
+
+.cs-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 22px 24px 18px;
-  border-bottom: 1px solid var(--cs-border);
-  background:
-    radial-gradient(circle at 12% 0, color-mix(in srgb, var(--cs-tone) 15%, transparent), transparent 34%),
-    rgba(15, 23, 42, 0.36);
+  gap: 12px;
+  min-height: 76px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
 }
-.cs-brand-mark {
+
+.cs-brand-mark,
+.cs-field-icon {
   display: grid;
-  width: 46px; height: 46px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--cs-tone) 42%, rgba(255,255,255,0.08));
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 30% 18%, color-mix(in srgb, var(--cs-tone) 42%, transparent), transparent 45%),
-    color-mix(in srgb, var(--cs-tone) 11%, rgba(255,255,255,0.04));
-  color: color-mix(in srgb, var(--cs-tone) 82%, white);
-  box-shadow: 0 0 26px color-mix(in srgb, var(--cs-tone) 18%, transparent), inset 0 1px 0 rgba(255,255,255,0.1);
+  flex: 0 0 auto;
+  color: var(--accent-primary, #38bdf8);
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 5px;
 }
-.cs-eyebrow {
-  margin: 0 0 3px;
-  color: color-mix(in srgb, var(--cs-tone) 72%, white 8%);
-  font: 800 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  user-select: none;
+
+.cs-brand-mark {
+  width: 38px;
+  height: 38px;
 }
-.cs-title {
+
+.cs-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.cs-title,
+.cs-section-heading h3,
+.cs-pref-title-row h3 {
   margin: 0;
-  color: rgba(248, 250, 252, 0.95);
-  font-size: 21px; font-weight: 800;
-  letter-spacing: -0.01em;
-  user-select: text;
-  cursor: text;
+  color: var(--text-primary, #e8eef7);
+  font-weight: 750;
 }
+
+.cs-title {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
 .cs-subtitle {
-  margin: 5px 0 0;
-  color: var(--cs-muted);
+  margin: 3px 0 0;
+  color: var(--text-secondary, #a8b5c7);
   font-size: 12px;
-  user-select: none;
 }
-.cs-header-actions {
-  display: inline-flex;
+
+.cs-header-actions,
+.cs-pref-actions,
+.cs-footer {
+  display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
 }
+
 .cs-header-btn,
-.cs-icon-btn {
+.cs-icon-btn,
+.cs-secondary-btn,
+.cs-btn,
+.cs-preset,
+.cs-step-btn {
+  appearance: none;
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  color: var(--text-secondary, #a8b5c7);
+  background: var(--surface-secondary, #111f33);
+  cursor: pointer;
+  transition: color var(--dur-fast, 160ms) var(--ease), background var(--dur-fast, 160ms) var(--ease), border-color var(--dur-fast, 160ms) var(--ease), transform var(--dur-fast, 160ms) var(--ease);
+}
+
+.cs-header-btn:hover:not(:disabled),
+.cs-icon-btn:hover,
+.cs-secondary-btn:hover:not(:disabled),
+.cs-btn-secondary:hover,
+.cs-step-btn:hover:not(:disabled),
+.cs-preset:hover {
+  color: var(--text-primary, #e8eef7);
+  background: var(--surface-raised, #142238);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.28));
+}
+
+.cs-header-btn:active:not(:disabled),
+.cs-icon-btn:active,
+.cs-secondary-btn:active:not(:disabled),
+.cs-btn:active,
+.cs-preset:active,
+.cs-step-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.cs-header-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255,255,255,0.085);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
-  color: rgba(226, 232, 240, 0.66);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  user-select: none;
-  transition: background 0.18s, color 0.18s, border-color 0.18s;
-}
-.cs-header-btn {
   gap: 5px;
   min-height: 32px;
   padding: 0 10px;
-  font-size: 11px; font-weight: 800;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
 }
+
 .cs-icon-btn {
-  width: 32px; height: 32px;
-}
-.cs-header-btn:hover:not(:disabled),
-.cs-header-btn:focus-visible:not(:disabled),
-.cs-icon-btn:hover,
-.cs-icon-btn:focus-visible {
-  color: white;
-  border-color: color-mix(in srgb, var(--cs-tone) 30%, transparent);
-  background: color-mix(in srgb, var(--cs-tone) 9%, rgba(255,255,255,0.07));
-  outline: 0;
-}
-.cs-header-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 5px;
 }
 
-/* ================================================
-   Body
-   ================================================ */
 .cs-body {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  padding: 24px;
-  overflow-y: auto;
+  min-height: 0;
   flex: 1;
-}
-.cs-body * {
-  user-select: none;
+  overflow-y: auto;
+  padding: 18px;
 }
 
-/* ================================================
-   Hint banner
-   ================================================ */
 .cs-hint {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 11px 14px;
-  border: 1px solid rgba(251, 191, 36, 0.16);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(251, 191, 36, 0.07), rgba(251, 191, 36, 0.02));
-  color: rgba(226, 232, 240, 0.62);
+  padding: 10px 12px;
+  color: var(--text-secondary, #a8b5c7);
+  background: var(--status-warning-soft, rgba(245, 158, 11, 0.1));
+  border-left: 3px solid var(--status-warning, #f59e0b);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.55;
 }
-.cs-hint-icon { color: #fbbf24; }
 
-/* ================================================
-   Preset Strip
-   ================================================ */
-.cs-preset-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+.cs-hint-icon {
+  margin-top: 1px;
+  color: var(--status-warning, #f59e0b);
 }
-.cs-preset-chip {
+
+.cs-section {
+  margin-top: 18px;
+}
+
+.cs-section-heading {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 8px 12px;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
-  color: rgba(226, 232, 240, 0.55);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  user-select: none;
-  transition: all 0.2s ease;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
 }
-.cs-preset-chip:hover {
-  border-color: rgba(255,255,255,0.14);
-  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
-  color: rgba(248, 250, 252, 0.75);
-  transform: translateY(-1px);
-}
-.cs-preset-chip.is-active {
-  border-color: color-mix(in srgb, var(--cs-tone) 44%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--cs-tone) 16%, transparent), color-mix(in srgb, var(--cs-tone) 7%, transparent));
-  color: color-mix(in srgb, var(--cs-tone) 85%, white);
-  box-shadow:
-    0 0 18px color-mix(in srgb, var(--cs-tone) 14%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.08);
-}
-.cs-preset-chip svg { opacity: 0.85; }
-.cs-preset-chip.is-active svg { opacity: 1; }
-.cs-preset-label {
+
+.cs-section-heading h3,
+.cs-pref-title-row h3 {
   font-size: 13px;
-  font-weight: 800;
-}
-.cs-preset-desc {
-  font-size: 10px;
-  opacity: 0.6;
-  font-weight: 600;
 }
 
-/* ================================================
-   Card Grid
-   ================================================ */
-.cs-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.cs-section-heading span,
+.cs-pref-title-row span {
+  color: var(--text-muted, #74839a);
+  font-size: 11px;
 }
 
-/* ================================================
-   Single Card
-   ================================================ */
-.cs-card {
-  position: relative;
+.cs-presets {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px;
-  border: 1px solid rgba(255,255,255,0.065);
-  border-radius: 13px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-}
-.cs-card::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 13px;
-  padding: 1px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--card-tone, #38bdf8) 38%, transparent), transparent 50%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.2s;
-  pointer-events: none;
-}
-.cs-card.is-dirty::before { opacity: 1; }
-.cs-card.is-dirty {
-  border-color: color-mix(in srgb, var(--card-tone, #38bdf8) 16%, rgba(255,255,255,0.04));
-  box-shadow: 0 0 24px color-mix(in srgb, var(--card-tone, #38bdf8) 8%, transparent);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-/* card head */
-.cs-card-head {
+.cs-preset {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-.cs-card-icon {
-  display: grid;
-  width: 34px; height: 34px;
-  place-items: center;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card-tone, #38bdf8) 14%, rgba(255,255,255,0.05));
-  color: color-mix(in srgb, var(--card-tone, #38bdf8) 82%, white);
-  flex-shrink: 0;
-}
-.cs-card-title {
-  flex: 1;
+  justify-content: flex-start;
+  gap: 9px;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  font-weight: 800;
-  color: rgba(226, 232, 240, 0.78);
+  flex: 1 1 0;
+  min-height: 54px;
+  padding: 8px 10px;
+  border-width: 0 1px 0 0;
+  border-radius: 0;
+  text-align: left;
 }
-.cs-dirty-dot {
-  font-size: 8px;
-  color: var(--card-tone);
-  animation: cs-pulse 2s ease-in-out infinite;
+
+.cs-preset:last-child {
+  border-right: 0;
 }
-@keyframes cs-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+
+.cs-preset.is-active {
+  color: var(--accent-primary, #38bdf8);
+  background: var(--accent-soft, rgba(56, 189, 248, 0.12));
+  box-shadow: inset 0 -2px 0 var(--accent-primary, #38bdf8);
 }
-.cs-card-value {
-  font: 850 14px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: rgba(248, 250, 252, 0.92);
+
+.cs-preset-copy {
+  min-width: 0;
+}
+
+.cs-preset-copy strong,
+.cs-preset-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cs-card-desc {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.55;
-  color: rgba(226, 232, 240, 0.38);
+
+.cs-preset-copy strong {
+  color: inherit;
+  font-size: 12px;
 }
 
-/* ================================================
-   Scale bar (draggable)
-   ================================================ */
-.cs-scale {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.cs-preset-copy small {
+  margin-top: 2px;
+  color: var(--text-muted, #74839a);
+  font-size: 10px;
 }
-.cs-scale-track {
+
+.cs-fields {
+  overflow: hidden;
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 6px;
+}
+
+.cs-field {
+  padding: 14px;
+  background: var(--surface-secondary, #111f33);
+  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+}
+
+.cs-field:last-child {
+  border-bottom: 0;
+}
+
+.cs-field.is-dirty {
+  box-shadow: inset 3px 0 0 var(--accent-primary, #38bdf8);
+}
+
+.cs-field-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cs-field-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.cs-field-copy {
+  min-width: 0;
   flex: 1;
-  height: 18px;
+}
+
+.cs-field-title {
   display: flex;
   align-items: center;
-  cursor: ew-resize;
-  position: relative;
-  border-radius: 999px;
-  /* invisible hit area is the full 18px; visible bar is the inner 4px */
+  gap: 7px;
+  min-height: 20px;
 }
-.cs-scale-track::before {
-  content: '';
-  position: absolute;
-  inset: 7px 0;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
+
+.cs-field-title label {
+  color: var(--text-primary, #e8eef7);
+  font-size: 12px;
+  font-weight: 700;
 }
-.cs-scale-fill {
-  position: absolute;
-  inset: 7px 0;
-  border-radius: 999px;
-  transition: width 0.15s ease, background 0.15s ease;
+
+.cs-dirty-tag {
+  padding: 2px 5px;
+  color: var(--accent-primary, #38bdf8);
+  background: var(--accent-soft, rgba(56, 189, 248, 0.12));
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
 }
-.cs-scale-thumb {
-  position: absolute;
-  top: 1px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #0f172a;
-  border: 2px solid;
-  transform: translateX(-50%);
-  box-shadow: 0 0 6px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.4);
-  transition: left 0.15s ease, border-color 0.15s ease;
-  pointer-events: none;
+
+.cs-field-copy p,
+.cs-pref-copy > p {
+  margin: 3px 0 0;
+  color: var(--text-muted, #74839a);
+  font-size: 11px;
+  line-height: 1.5;
 }
-.cs-scale-label {
-  font: 650 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: rgba(226, 232, 240, 0.35);
+
+.cs-field-value {
+  min-width: 64px;
+  padding-top: 2px;
+  color: var(--text-primary, #e8eef7);
+  font: 750 13px/1.4 var(--font-mono, ui-monospace, monospace);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cs-field-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 146px;
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+  padding-left: 40px;
+}
+
+.cs-range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.cs-range {
+  --range-progress: 0%;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--accent-primary, #38bdf8);
+  background: transparent;
+  cursor: pointer;
+}
+
+.cs-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: linear-gradient(to right, var(--accent-primary, #38bdf8) 0 var(--range-progress), var(--surface-inset, #0b1524) var(--range-progress) 100%);
+  border-radius: 2px;
+}
+
+.cs-range::-webkit-slider-thumb {
+  width: 14px;
+  height: 18px;
+  margin-top: -7px;
+  appearance: none;
+  background: var(--text-primary, #e8eef7);
+  border: 3px solid var(--accent-primary, #38bdf8);
+  border-radius: 3px;
+}
+
+.cs-range::-moz-range-track {
+  height: 4px;
+  background: var(--surface-inset, #0b1524);
+  border-radius: 2px;
+}
+
+.cs-range::-moz-range-progress {
+  height: 4px;
+  background: var(--accent-primary, #38bdf8);
+  border-radius: 2px;
+}
+
+.cs-range::-moz-range-thumb {
+  width: 10px;
+  height: 14px;
+  background: var(--text-primary, #e8eef7);
+  border: 3px solid var(--accent-primary, #38bdf8);
+  border-radius: 3px;
+}
+
+.cs-range-label {
   min-width: 28px;
+  color: var(--text-muted, #74839a);
+  font: 650 10px/1 var(--font-mono, ui-monospace, monospace);
   text-align: right;
 }
 
-/* ================================================
-   Stepper
-   ================================================ */
 .cs-stepper {
-  display: flex;
-  align-items: stretch;
-  height: 36px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  height: 34px;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55), rgba(2, 6, 23, 0.42));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
-  transition: border-color 0.18s;
+  background: var(--surface-inset, #0b1524);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 5px;
 }
+
 .cs-stepper:focus-within {
-  border-color: color-mix(in srgb, var(--card-tone, var(--cs-tone)) 46%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-tone, var(--cs-tone)) 12%, transparent);
+  border-color: var(--accent-primary, #38bdf8);
 }
+
 .cs-step-btn {
   display: grid;
   place-items: center;
-  width: 34px;
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
-  color: rgba(226, 232, 240, 0.5);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  user-select: none;
-  transition: background 0.15s, color 0.15s;
+  width: 32px;
+  padding: 0;
+  border-width: 0 1px 0 0;
+  border-radius: 0;
 }
-.cs-step-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.06);
-  color: white;
+
+.cs-step-btn:last-child {
+  border-width: 0 0 0 1px;
 }
-.cs-step-btn:active:not(:disabled) {
-  background: rgba(255,255,255,0.1);
-}
-.cs-step-btn:disabled {
-  opacity: 0.25;
-  cursor: not-allowed;
-}
+
 .cs-step-input {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   border: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.12);
-  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  outline: 0;
+  color: var(--text-primary, #e8eef7);
   background: transparent;
-  color: rgba(248, 250, 252, 0.92);
+  font: 650 11px/1 var(--font-mono, ui-monospace, monospace);
   text-align: center;
-  font: 650 13px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  outline: none;
-  user-select: text;
-  -moz-appearance: textfield;
   appearance: textfield;
 }
+
 .cs-step-input::-webkit-outer-spin-button,
 .cs-step-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
   margin: 0;
-}
-
-/* ================================================
-   Action bar
-   ================================================ */
-.cs-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(148, 163, 184, 0.08);
-}
-.cs-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 36px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 10px;
-  font-size: 12px; font-weight: 800;
-  cursor: pointer;
   appearance: none;
-  -webkit-appearance: none;
-  user-select: none;
-  transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
-}
-.cs-btn-ghost {
-  border: 1px solid rgba(255,255,255,0.085);
-  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
-  color: rgba(226, 232, 240, 0.6);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
-}
-.cs-btn-ghost:hover,
-.cs-btn-ghost:focus-visible {
-  color: white;
-  border-color: color-mix(in srgb, var(--cs-tone) 30%, transparent);
-  background: color-mix(in srgb, var(--cs-tone) 9%, rgba(255,255,255,0.07));
-  outline: 0;
-}
-.cs-btn-primary {
-  border: 1px solid color-mix(in srgb, var(--cs-tone) 38%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cs-tone) 22%, transparent), color-mix(in srgb, var(--cs-tone) 12%, transparent));
-  color: color-mix(in srgb, var(--cs-tone) 88%, white);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.09),
-    0 0 14px color-mix(in srgb, var(--cs-tone) 10%, transparent);
-}
-.cs-btn-primary:hover,
-.cs-btn-primary:focus-visible {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cs-tone) 34%, transparent), color-mix(in srgb, var(--cs-tone) 20%, transparent));
-  color: white;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.12),
-    0 0 22px color-mix(in srgb, var(--cs-tone) 18%, transparent);
-  outline: 0;
 }
 
-/* ================================================
-   Preference data flywheel
-   ================================================ */
-.cs-pref {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
-  border: 1px solid rgba(255,255,255,0.065);
-  border-radius: 13px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-}
-.cs-pref-head {
+.cs-preferences {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  background: var(--surface-secondary, #111f33);
+  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-radius: 6px;
 }
-.cs-pref-icon {
-  display: grid;
-  width: 34px; height: 34px;
-  place-items: center;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--cs-tone) 14%, rgba(255,255,255,0.05));
-  color: color-mix(in srgb, var(--cs-tone) 82%, white);
+
+.cs-pref-copy {
+  min-width: 0;
 }
-.cs-pref-title {
-  flex: 1;
+
+.cs-pref-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.cs-pref-title-row > div:last-child {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 800;
-  color: rgba(226, 232, 240, 0.78);
+  gap: 7px;
+  flex-wrap: wrap;
 }
-.cs-pref-count {
-  font: 850 14px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: color-mix(in srgb, var(--cs-tone) 88%, white);
-}
-.cs-pref-desc {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.55;
-  color: rgba(226, 232, 240, 0.42);
-}
-.cs-pref-actions {
-  display: flex;
-  gap: 8px;
-}
-.cs-pref-btn {
+
+.cs-secondary-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid rgba(255,255,255,0.085);
-  border-radius: 9px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
-  color: rgba(226, 232, 240, 0.66);
-  font-size: 11px; font-weight: 800;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  user-select: none;
-  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
-.cs-pref-btn:hover:not(:disabled),
-.cs-pref-btn:focus-visible:not(:disabled) {
-  color: white;
-  border-color: color-mix(in srgb, var(--cs-tone) 30%, transparent);
-  background: color-mix(in srgb, var(--cs-tone) 9%, rgba(255,255,255,0.07));
-  outline: 0;
+
+.cs-secondary-btn.is-danger:hover:not(:disabled) {
+  color: var(--status-danger, #fb7185);
+  background: var(--status-danger-soft, rgba(251, 113, 133, 0.1));
+  border-color: var(--status-danger, #fb7185);
 }
-.cs-pref-btn:disabled {
-  opacity: 0.35;
+
+.cs-footer {
+  justify-content: flex-end;
+  min-height: 62px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+}
+
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.cs-btn-primary {
+  color: var(--accent-contrast, #07111f);
+  background: var(--accent-primary, #38bdf8);
+  border-color: var(--accent-primary, #38bdf8);
+}
+
+.cs-btn-primary:hover {
+  color: var(--accent-contrast, #07111f);
+  background: var(--accent-hover, #7dd3fc);
+  border-color: var(--accent-hover, #7dd3fc);
+}
+
+button:disabled {
   cursor: not-allowed;
-}
-.cs-pref-danger:hover:not(:disabled) {
-  border-color: rgba(244, 63, 94, 0.4);
-  background: rgba(244, 63, 94, 0.12);
-  color: #fecaca;
+  opacity: 0.38;
 }
 
-/* ================================================
-   Transitions
-   ================================================ */
 .cs-fade-enter-active,
-.cs-fade-leave-active { transition: opacity 0.18s ease; }
+.cs-fade-leave-active,
+.cs-panel-enter-active,
+.cs-panel-leave-active {
+  transition: opacity var(--dur-fast, 160ms) var(--ease);
+}
+
+.cs-panel-enter-active,
+.cs-panel-leave-active {
+  transition-property: opacity, transform;
+}
+
 .cs-fade-enter-from,
-.cs-fade-leave-to { opacity: 0; }
-.cs-pop-enter-active,
-.cs-pop-leave-active { transition: opacity 0.22s ease, transform 0.22s ease; }
-.cs-pop-enter-from,
-.cs-pop-leave-to { opacity: 0; transform: translateY(10px) scale(0.985); }
+.cs-fade-leave-to,
+.cs-panel-enter-from,
+.cs-panel-leave-to {
+  opacity: 0;
+}
 
-/* reduced motion */
+.cs-panel-enter-from,
+.cs-panel-leave-to {
+  transform: translateY(8px);
+}
+
+@media (max-width: 680px) {
+  .cs-shell {
+    padding: 8px;
+  }
+
+  .cs-dialog {
+    max-height: calc(100dvh - 16px);
+  }
+
+  .cs-header {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .cs-header-actions {
+    margin-left: auto;
+  }
+
+  .cs-header-btn {
+    width: 32px;
+    padding: 0;
+    overflow: hidden;
+    color: transparent;
+    gap: 0;
+  }
+
+  .cs-header-btn svg {
+    color: var(--text-secondary, #a8b5c7);
+  }
+
+  .cs-body {
+    padding: 12px;
+  }
+
+  .cs-presets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cs-preset:nth-child(2) {
+    border-right: 0;
+  }
+
+  .cs-preset:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  }
+
+  .cs-field-controls {
+    grid-template-columns: 1fr;
+    padding-left: 0;
+  }
+
+  .cs-preferences {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cs-section-heading span {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .cs-brand-mark {
+    display: none;
+  }
+
+  .cs-subtitle {
+    max-width: 210px;
+  }
+
+  .cs-field-main {
+    flex-wrap: wrap;
+  }
+
+  .cs-field-copy {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .cs-field-value {
+    margin-left: 40px;
+    text-align: left;
+  }
+
+  .cs-pref-actions {
+    width: 100%;
+  }
+
+  .cs-secondary-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .cs-dirty-dot { animation: none; }
-  .cs-scale-fill,
-  .cs-scale-thumb { transition: none; }
-}
-
-/* ================================================
-   Responsive
-   ================================================ */
-@media (max-width: 720px) {
-  .cs-cards { grid-template-columns: 1fr; }
-  .cs-preset-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 640px) {
-  .cs-shell { padding: 10px; }
-  .cs-console { width: 100%; max-height: 94vh; border-radius: 12px; }
-  .cs-header { padding: 16px; flex-wrap: wrap; }
-  .cs-header-actions { width: 100%; justify-content: flex-end; }
-  .cs-body { padding: 16px; gap: 16px; }
-  .cs-preset-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cs-cards { grid-template-columns: 1fr; }
+  .cs-fade-enter-active,
+  .cs-fade-leave-active,
+  .cs-panel-enter-active,
+  .cs-panel-leave-active,
+  .cs-header-btn,
+  .cs-icon-btn,
+  .cs-secondary-btn,
+  .cs-btn,
+  .cs-preset,
+  .cs-step-btn {
+    transition: none;
+  }
 }
 </style>
