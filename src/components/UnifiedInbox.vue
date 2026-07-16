@@ -22,6 +22,10 @@ import {
   taskStatusBadge,
   bugStatusBadge,
   severityBadge,
+  taskTypeLabel,
+  bugTypeLabel,
+  resolutionLabel,
+  cleanText,
 } from '@/features/zentao'
 import type { ZentaoTask, ZentaoBug } from '@/features/zentao'
 import { useLocalTaskStore, priBadge, deadlineLabel, isUrgentLocalTask } from '@/features/local-tasks'
@@ -388,6 +392,50 @@ const countdowns = computed<Record<string, Countdown | null>>(() => {
   return map
 })
 
+/** 任务工时摘要（伪值过滤；预估/剩余都空则 null，不渲染 chip） */
+function taskEffort(t: ZentaoTask): string | null {
+  const est = cleanText(t.estimate)
+  const left = cleanText(t.left)
+  if (!est && !left) return null
+  const parts: string[] = []
+  if (est) parts.push(`预估 ${est}h`)
+  if (left) parts.push(`剩余 ${left}h`)
+  return parts.join(' · ')
+}
+
+interface MetaChip {
+  label: string
+  tone: 'plain' | 'warn'
+  title: string
+}
+
+/**
+ * 行内元信息 chip（标题后）：任务显工时；Bug 在 active 且未确认时显「待确认」。
+ * 已解决 / 已确认不显--克制，只在该提醒时出现。按 key 查表，与 countdowns 同模式。
+ */
+const metaChips = computed<Record<string, MetaChip | null>>(() => {
+  const map: Record<string, MetaChip | null> = {}
+  for (const it of items.value) {
+    if (it.kind === 'task') {
+      const e = taskEffort(it.ref as ZentaoTask)
+      if (e) map[it.key] = { label: e, tone: 'plain', title: `工时：${e}` }
+    } else if (it.kind === 'bug') {
+      const b = it.ref as ZentaoBug
+      if (b.status === 'active' && String(b.confirmed) !== '1') {
+        map[it.key] = { label: '待确认', tone: 'warn', title: '该 Bug 尚未被确认' }
+      }
+    }
+  }
+  return map
+})
+
+/** 禅道来源的真实类型：任务/bug 取自身；由禅道导入的本地待办取 source.kind（决定来源徽标配色） */
+function zentaoKindOf(it: InboxItem): 'task' | 'bug' | null {
+  if (it.kind === 'task') return 'task'
+  if (it.kind === 'bug') return 'bug'
+  return (it.ref as LocalTask).source?.kind ?? null
+}
+
 /** 状态灯 tooltip 文案：复用各来源的状态 badge 标签，本地按完成态 */
 function statusText(it: InboxItem): string {
   if (it.kind === 'task') return taskStatusBadge((it.ref as ZentaoTask).status).label
@@ -416,7 +464,7 @@ function actionItem(it: InboxItem): ActionFlowItem {
       status: taskStatusBadge(t.status).label,
       deadline: cleanDeadline(t.deadline),
       thread,
-      meta: [t.projectName && `项目 ${t.projectName}`, t.executionName && `执行 ${t.executionName}`, t.assignedTo && `指派给 ${t.assignedTo}`]
+      meta: [taskTypeLabel(t.type) && `类型 ${taskTypeLabel(t.type)}`, t.projectName && `项目 ${t.projectName}`, t.executionName && `执行 ${t.executionName}`, t.assignedTo && `指派给 ${t.assignedTo}`, taskEffort(t)]
         .filter(Boolean)
         .join('；') || undefined,
       riskLabel: it.risk?.label,
@@ -435,7 +483,7 @@ function actionItem(it: InboxItem): ActionFlowItem {
       status: bugStatusBadge(b.status).label,
       deadline: cleanDeadline(b.deadline),
       thread,
-      meta: [b.productName && `产品 ${b.productName}`, b.projectName && `项目 ${b.projectName}`, b.type && `类型 ${b.type}`]
+      meta: [bugTypeLabel(b.type) && `类型 ${bugTypeLabel(b.type)}`, b.productName && `产品 ${b.productName}`, b.projectName && `项目 ${b.projectName}`, String(b.confirmed) === '1' ? '已确认' : '待确认', b.status === 'resolved' && resolutionLabel(b.resolution) ? `解决方案 ${resolutionLabel(b.resolution)}` : '']
         .filter(Boolean)
         .join('；') || undefined,
       riskLabel: it.risk?.label,
@@ -1068,6 +1116,7 @@ onUnmounted(() => {
         <div class="zt-trust-block">
           <p class="zt-trust-label">判断规则</p>
           <ul class="zt-trust-rules">
+            <li><strong>类型</strong><span>左轨与图标颜色区分来源：青=禅道任务，玫红=禅道 Bug，紫=本地待办。</span></li>
             <li><strong>逾期</strong><span>截止日早于今天，优先级最高。</span></li>
             <li><strong>临期</strong><span>今天或明天到期，排在普通项前。</span></li>
             <li><strong>停滞</strong><span>未推进状态、至少 5 天未变动，且值得提醒。</span></li>
@@ -1197,6 +1246,7 @@ onUnmounted(() => {
             'is-clickable': it.kind !== 'local' || isImportedLocal(it),
             'in-thread': g.isCluster,
             'is-completing': it.kind === 'local' && hasCompleting((it.ref as LocalTask).id),
+            [`is-kind-${it.kind}`]: true,
             [`is-status-${it.kind === 'task' ? (it.ref as ZentaoTask).status : it.kind === 'bug' ? (it.ref as ZentaoBug).status : 'local'}`]: true,
             [`is-pri-${priTier(it)}`]: true,
           }"
@@ -1232,17 +1282,26 @@ onUnmounted(() => {
 
           <!-- 主体：单行占满剩余宽度，标题撑开把右侧元素顶到最右 -->
           <div class="zt-main">
+            <span class="zt-kind" :class="`is-kind-${it.kind}`" :aria-label="it.kind === 'task' ? '禅道任务' : it.kind === 'bug' ? '禅道 Bug' : '本地待办'">
+              <IconCheckboxOutline v-if="it.kind === 'task'" class="w-3 h-3" aria-hidden="true" />
+              <IconBug v-else-if="it.kind === 'bug'" class="w-3 h-3" aria-hidden="true" />
+              <IconCircle v-else class="w-3 h-3" aria-hidden="true" />
+              {{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}
+            </span>
             <span
-              class="zt-kind"
-              :class="{
-                'is-task': it.kind === 'task',
-                'is-bug': it.kind === 'bug',
-                'is-local': it.kind === 'local',
-              }"
-            >{{ it.kind === 'task' ? '任务' : it.kind === 'bug' ? 'Bug' : '本地' }}</span>
+              v-if="it.kind === 'task' && taskTypeLabel((it.ref as ZentaoTask).type)"
+              class="zt-type-chip"
+              :title="`任务类型：${taskTypeLabel((it.ref as ZentaoTask).type)}`"
+            >{{ taskTypeLabel((it.ref as ZentaoTask).type) }}</span>
+            <span
+              v-else-if="it.kind === 'bug' && bugTypeLabel((it.ref as ZentaoBug).type)"
+              class="zt-type-chip"
+              :title="`Bug 类型：${bugTypeLabel((it.ref as ZentaoBug).type)}`"
+            >{{ bugTypeLabel((it.ref as ZentaoBug).type) }}</span>
             <span
               v-if="zentaoIdOf(it)"
               class="zt-from-zentao"
+              :class="zentaoKindOf(it) ? `is-kind-${zentaoKindOf(it)}` : ''"
               :title="zentaoBadgeTitle(it)"
             >
               <IconLinkVariant class="w-3 h-3" />
@@ -1265,6 +1324,12 @@ onUnmounted(() => {
             </span>
             <span v-if="it.kind === 'local' && (it.ref as LocalTask).note" class="zt-note">
               {{ (it.ref as LocalTask).note }}</span>
+            <span
+              v-if="metaChips[it.key]"
+              class="zt-meta-chip"
+              :class="`is-${metaChips[it.key]!.tone}`"
+              :title="metaChips[it.key]!.title"
+            >{{ metaChips[it.key]!.label }}</span>
             <template v-if="it.kind === 'task'">
               <span
                 v-if="ztPri((it.ref as ZentaoTask).pri)"
@@ -1713,6 +1778,8 @@ onUnmounted(() => {
   white-space: nowrap;
   tab-size: 4;
 }
+.zt-from-zentao.is-kind-task { border-color: color-mix(in srgb, var(--zt-tone) 34%, transparent); background: color-mix(in srgb, var(--zt-tone) 14%, transparent); color: color-mix(in srgb, var(--zt-tone) 78%, white); }
+.zt-from-zentao.is-kind-bug { border-color: color-mix(in srgb, var(--zt-danger) 34%, transparent); background: color-mix(in srgb, var(--zt-danger) 14%, transparent); color: color-mix(in srgb, var(--zt-danger) 78%, white); }
 .zt-create-core {
   display: grid;
   width: 22px;
@@ -2057,8 +2124,8 @@ onUnmounted(() => {
   width: 2px;
   border-radius: 999px;
   content: '';
-  background: linear-gradient(180deg, transparent, var(--zt-tone), transparent);
-  opacity: 0.48;
+  background: linear-gradient(180deg, transparent, var(--zt-type, var(--zt-tone)), transparent);
+  opacity: 0.9;
 }
 .zt-mission-card::after {
   position: absolute;
@@ -2143,8 +2210,11 @@ onUnmounted(() => {
 .zt-mission-card.is-status-pause { --zt-status: #fbbf24; --zt-status-bg: rgba(251,191,36,0.12); } /* 已暂停 — 琥珀 */
 .zt-mission-card.is-status-cancel, .zt-mission-card.is-status-closed { --zt-status: #71717a; --zt-status-bg: rgba(113,113,122,0.1); } /* 已取消 / 已关闭 — 暗灰 */
 .zt-mission-card.is-status-local { --zt-status: #22d3ee; --zt-status-bg: rgba(34,211,238,0.12); } /* 本地 — 青 */
-/* 状态色覆盖：左侧描边加深、卡片背景染色、边框染色 */
-.zt-mission-card[class*='is-status-']::before { background: linear-gradient(180deg, transparent, var(--zt-status), transparent); opacity: 0.9; }
+/* 类型主色：驱动左轨 / 图标盒 / kind 徽标（青=任务 · 玫红=Bug · 紫=本地） */
+.zt-mission-card.is-kind-task { --zt-type: var(--zt-tone); }
+.zt-mission-card.is-kind-bug { --zt-type: var(--zt-danger); }
+.zt-mission-card.is-kind-local { --zt-type: var(--zt-tone-2); }
+/* 状态色不再覆盖左轨（左轨交给类型色）；仅染卡片边框/底色 + 顶部高光条 */
 .zt-mission-card[class*='is-status-']::after { background: linear-gradient(90deg, color-mix(in srgb, var(--zt-status) 40%, transparent), transparent 60%); opacity: 0.6; }
 .zt-mission-card[class*='is-status-'] {
   border-color: color-mix(in srgb, var(--zt-status) 22%, transparent);
@@ -2156,15 +2226,13 @@ onUnmounted(() => {
 .zt-mission-card.is-pri-2 { --zt-pri: #fbbf24; }  /* P2 — 琥珀 */
 .zt-mission-card.is-pri-3 { --zt-pri: #38bdf8; }  /* P3 — 天蓝 */
 .zt-mission-card.is-pri-4 { --zt-pri: #64748b; }  /* P4 — 冷灰 */
-.zt-mission-card[class*='is-pri-']::before {
-  background: linear-gradient(180deg, transparent, var(--zt-pri), transparent);
-  opacity: 0.92;
-}
+/* 左轨底色已由类型 is-kind-* 驱动（青/玫红/紫）；优先级仅调辉光，见下方 P1/P2 块 */
 /* 高优（P1/P2）左轨加辉光，让优先级一眼可辨 */
 .zt-mission-card.is-pri-1::before,
 .zt-mission-card.is-pri-2::before {
   width: 3px;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--zt-pri) 60%, transparent);
+  opacity: 1;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--zt-type, var(--zt-tone)) 60%, transparent);
 }
 /* ===== 模块 2：状态呼吸灯（lead 区）===== */
 .zt-status-led {
@@ -2220,14 +2288,15 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--zt-type, var(--zt-tone)) 34%, transparent);
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015)),
-    color-mix(in srgb, var(--zt-tone) 9%, rgba(2,6,23,0.28));
+    color-mix(in srgb, var(--zt-type, var(--zt-tone)) 12%, rgba(2,6,23,0.28));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.06),
-    0 0 14px color-mix(in srgb, var(--zt-tone) 10%, transparent);
+    0 0 14px color-mix(in srgb, var(--zt-type, var(--zt-tone)) 14%, transparent);
+  color: color-mix(in srgb, var(--zt-type, var(--zt-tone)) 80%, white 8%);
 }
 .zt-idx {
   padding: 1px 4px;
@@ -2315,9 +2384,15 @@ onUnmounted(() => {
   line-height: 1.35;
 }
 .zt-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   border-radius: 7px;
   letter-spacing: 0.02em;
 }
+.zt-kind.is-kind-task { color: color-mix(in srgb, var(--zt-tone) 82%, white); border-color: color-mix(in srgb, var(--zt-tone) 34%, transparent); background: color-mix(in srgb, var(--zt-tone) 14%, transparent); }
+.zt-kind.is-kind-bug { color: color-mix(in srgb, var(--zt-danger) 82%, white); border-color: color-mix(in srgb, var(--zt-danger) 34%, transparent); background: color-mix(in srgb, var(--zt-danger) 14%, transparent); }
+.zt-kind.is-kind-local { color: color-mix(in srgb, var(--zt-tone-2) 82%, white); border-color: color-mix(in srgb, var(--zt-tone-2) 34%, transparent); background: color-mix(in srgb, var(--zt-tone-2) 14%, transparent); }
 .zt-risk {
   display: inline-flex;
   flex-shrink: 0;
@@ -2341,6 +2416,30 @@ onUnmounted(() => {
 .zt-dl { flex-shrink: 0; padding: 2px 7px; border-radius: 7px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.48); font-size: 11px; }
 .zt-dl.is-overdue { color: #fda4af; }
 .zt-att { flex-shrink: 0; align-items: center; }
+.zt-type-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(226,232,240,0.6);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.zt-meta-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.035);
+  color: rgba(226,232,240,0.5);
+  font: 700 10.5px/1.4 var(--hud-font-data, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.zt-meta-chip.is-warn { color: #fcd34d; border-color: rgba(251,191,36,0.26); background: rgba(251,191,36,0.1); }
 .zt-check {
   display: flex;
   width: 27px;

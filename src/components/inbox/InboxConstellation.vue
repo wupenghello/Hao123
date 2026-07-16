@@ -240,7 +240,7 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
 const SOURCE_TINTS: Record<ConstellationKind, THREE.Color> = {
   task: new THREE.Color('#58c7f4'),
   bug: new THREE.Color('#ff7f99'),
-  local: new THREE.Color('#4ee1cf'),
+  local: new THREE.Color('#a78bfa'),
 }
 
 const RISK_TINTS: Partial<Record<ConstellationRisk, THREE.Color>> = {
