@@ -17,6 +17,7 @@ import { ASSISTANT_NAME } from '../config'
 import { renderMarkdown } from '../markdown'
 import { useStorage } from '@/composables/useStorage'
 import { useChatSettings } from '../settings'
+import { COMPOSER_MODES } from '../composer-modes'
 import { activeModel, activeProvider, configured as modelConfigured, hasUiConfig } from '@/features/model-config'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import ToolActivityRow from './ToolActivityRow.vue'
@@ -46,6 +47,7 @@ import IconThumbDown from '~icons/mdi/thumb-down-outline'
 import IconThumbUpFill from '~icons/mdi/thumb-up'
 import IconThumbDownFill from '~icons/mdi/thumb-down'
 import IconQuote from '~icons/mdi/format-quote-close'
+import IconPencil from '~icons/mdi/pencil-outline'
 import IconCloseCircle from '~icons/mdi/close-circle'
 import IconCog from '~icons/mdi/cog-outline'
 import IconArrowDown from '~icons/mdi/arrow-down'
@@ -99,7 +101,7 @@ function onDocClick(e: MouseEvent) {
 }
 const isImmersive = useStorage<boolean>('hao123-chat-immersive', false)
 const immersiveSidebarOpen = useStorage<boolean>('hao123-chat-immersive-sidebar', true)
-const activeComposerMode = ref<'ask' | 'plan' | 'write' | 'debug'>('ask')
+const activeComposerMode = ref<'ask' | 'plan' | 'write' | 'debug' | 'research'>('ask')
 const isAwayFromLatest = ref(false)
 const hasNewContentWhileAway = ref(false)
 
@@ -160,12 +162,8 @@ const contextSuggestions = computed<ContextSuggestion[]>(() => {
   return items.slice(0, 4)
 })
 
-const composerModes = [
-  { key: 'ask', label: '问答', placeholder: '直接跟我说就好…' },
-  { key: 'plan', label: '规划', placeholder: '说目标，我来拆步骤和优先级…' },
-  { key: 'write', label: '写作', placeholder: '给我材料，我来整理成可用文本…' },
-  { key: 'debug', label: '排查', placeholder: '描述现象、报错或代码位置…' },
-] as const
+// 合成器模式直接复用 composer-modes 模块的单源定义，避免本地数组与模块定义漂移
+const composerModes = COMPOSER_MODES
 
 const contextChips = computed(() => [
   { key: 'dashboard', label: '工作台', prompt: '结合当前工作台上下文，帮我判断现在最该先处理什么。' },
@@ -295,6 +293,87 @@ function formatMessageTime(ts: number | undefined): string {
     return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// ============ 消息就地编辑（P0 可控性）============
+const editingMsgIdx = ref<number | null>(null)
+const editingText = ref('')
+/** 编辑非末位 user 消息会截断后续对话，需二次确认 */
+const confirmEditTruncate = ref(false)
+
+function startEdit(idx: number) {
+  const m = store.messages[idx]
+  if (!m || m.role !== 'user') return
+  editingMsgIdx.value = idx
+  editingText.value = m.content
+  confirmEditTruncate.value = false
+  nextTick(() => {
+    const ta = document.querySelector<HTMLTextAreaElement>('.cmd-edit-textarea')
+    if (ta) {
+      ta.focus()
+      ta.setSelectionRange(editingText.value.length, editingText.value.length)
+      ta.style.height = 'auto'
+      ta.style.height = Math.min(ta.scrollHeight, maxInputHeight.value) + 'px'
+    }
+  })
+}
+function cancelEdit() {
+  editingMsgIdx.value = null
+  editingText.value = ''
+  confirmEditTruncate.value = false
+}
+function hasLaterUserMsg(idx: number): boolean {
+  for (let i = idx + 1; i < store.messages.length; i++) {
+    if (store.messages[i].role === 'user') return true
+  }
+  return false
+}
+async function saveEdit(idx: number) {
+  const text = editingText.value.trim()
+  if (!text) return
+  // 编辑中间 user 消息会丢弃其后整段对话，先就地确认
+  if (hasLaterUserMsg(idx) && !confirmEditTruncate.value) {
+    confirmEditTruncate.value = true
+    return
+  }
+  const i = editingMsgIdx.value
+  editingMsgIdx.value = null
+  editingText.value = ''
+  confirmEditTruncate.value = false
+  if (i != null) await store.editMessage(i, text)
+}
+function onEditKeydown(idx: number, e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    saveEdit(idx)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEdit()
+  }
+}
+function autoGrowEdit(e: Event) {
+  const el = e.target as HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, maxInputHeight.value) + 'px'
+}
+
+// ============ 重答版本切换器（P0 可控性）============
+/** 给一条 final-assistant 消息，返回其所属末位 user turn 的版本信息（total/active/uid）；无可切换版本返回 null */
+function turnVersionsOf(msgIndex: number): { total: number; active: number; uid: string } | null {
+  let uidIdx = -1
+  for (let i = msgIndex; i >= 0; i--) {
+    if (store.messages[i].role === 'user') { uidIdx = i; break }
+  }
+  if (uidIdx < 0) return null
+  // 仅末位 user turn 挂切换器：切非末轮会让后续对话失去上下文一致性
+  for (let i = uidIdx + 1; i < store.messages.length; i++) {
+    if (store.messages[i].role === 'user') return null
+  }
+  const uid = store.messages[uidIdx].id
+  if (!uid) return null
+  const tv = store.versions[uid]
+  if (!tv || tv.blocks.length < 2) return null
+  return { total: tv.blocks.length, active: tv.activeIdx + 1, uid }
 }
 
 // ============ 图片输入（多模态）============
@@ -1006,7 +1085,7 @@ function autoGrow() {
 
 function onSend() {
   const text = input.value
-  if ((!text.trim() && !pendingImages.value.length) || store.streaming) return
+  if (!text.trim() && !pendingImages.value.length) return
   input.value = ''
   nextTick(autoGrow)
   commitSend(text)
@@ -1323,9 +1402,40 @@ onUnmounted(() => {
                                 @click="previewImage = img"
                               >
                             </div>
-                            <p v-if="m.content" class="cmd-msg-text">{{ m.content }}</p>
+                            <template v-if="editingMsgIdx === i">
+                              <div class="cmd-edit-box">
+                                <textarea
+                                  v-model="editingText"
+                                  class="cmd-edit-textarea cmd-scroll"
+                                  rows="1"
+                                  placeholder="编辑后保存会重新生成回答…"
+                                  @keydown="onEditKeydown(i, $event)"
+                                  @input="autoGrowEdit"
+                                />
+                                <div v-if="confirmEditTruncate && hasLaterUserMsg(i)" class="cmd-edit-confirm">
+                                  <span>编辑会清除这条之后的全部对话</span>
+                                  <button class="cmd-edit-btn is-cancel" @click="cancelEdit">取消</button>
+                                  <button class="cmd-edit-btn is-ok" @click="saveEdit(i)">确认编辑</button>
+                                </div>
+                                <div v-else class="cmd-edit-actions">
+                                  <button class="cmd-edit-btn is-cancel" @click="cancelEdit">取消</button>
+                                  <button class="cmd-edit-btn is-ok" :disabled="!editingText.trim() || store.streaming" @click="saveEdit(i)">保存并重发</button>
+                                </div>
+                              </div>
+                            </template>
+                            <p v-else-if="m.content" class="cmd-msg-text">{{ m.content }}</p>
                           </div>
-                          <span class="cmd-msg-time">{{ formatMessageTime(m.ts) }}</span>
+                          <span class="cmd-msg-time">
+                            {{ formatMessageTime(m.ts) }}
+                            <button
+                              v-if="editingMsgIdx !== i && !store.streaming"
+                              class="cmd-edit-trigger"
+                              title="编辑消息"
+                              @click="startEdit(i)"
+                            >
+                              <IconPencil class="w-3 h-3" />
+                            </button>
+                          </span>
                         </div>
 
                         <!-- 助手 · 中间步骤（折叠） -->
@@ -1368,7 +1478,11 @@ onUnmounted(() => {
                                 </svg>
                               </div>
                             </div>
-                            <div v-if="m.content" class="mt-1 text-[11px] text-white/25 leading-relaxed line-clamp-2 px-1">
+                            <div
+                              v-if="m.content"
+                              class="mt-1 text-[11px] text-white/25 leading-relaxed px-1"
+                              :class="isLoopStepExpanded(m, loopMeta.get(i)!.round) ? 'max-h-[200px] overflow-y-auto' : 'line-clamp-2'"
+                            >
                               {{ m.content }}
                             </div>
                             <div
@@ -1507,6 +1621,21 @@ onUnmounted(() => {
                               <span v-if="isStreamingAt(i)" class="cmd-caret" />
 
                               <div v-if="!isStreamingAt(i)" class="cmd-action-bar">
+                                <div v-if="turnVersionsOf(i)" class="cmd-version-switch" :title="`重答版本 ${turnVersionsOf(i)?.active} / ${turnVersionsOf(i)?.total}`" @click.stop>
+                                  <button
+                                    class="cmd-version-btn"
+                                    :disabled="(turnVersionsOf(i)?.active ?? 1) <= 1"
+                                    title="上一版"
+                                    @click="store.switchVersion(turnVersionsOf(i)?.uid ?? '', -1)"
+                                  >‹</button>
+                                  <span class="cmd-version-label">{{ turnVersionsOf(i)?.active }} / {{ turnVersionsOf(i)?.total }}</span>
+                                  <button
+                                    class="cmd-version-btn"
+                                    :disabled="(turnVersionsOf(i)?.active ?? 1) >= (turnVersionsOf(i)?.total ?? 1)"
+                                    title="下一版"
+                                    @click="store.switchVersion(turnVersionsOf(i)?.uid ?? '', 1)"
+                                  >›</button>
+                                </div>
                                 <span class="cmd-quality-tag" :title="`反馈归因：${store.categoryLabel(m.qualityCategory)}`">
                                   {{ store.categoryLabel(m.qualityCategory) }}
                                 </span>
@@ -1791,7 +1920,10 @@ onUnmounted(() => {
                     </button>
                   </div>
                   <div class="cmd-footer relative z-10">
-                    <span class="cmd-footer-hint">
+                    <span v-if="store.streaming" class="cmd-footer-hint">
+                      <kbd>Enter</kbd> 打断并追问 <span class="cmd-footer-sep">·</span> 点停止仅中止
+                    </span>
+                    <span v-else class="cmd-footer-hint">
                       <kbd>Enter</kbd> 发送 <span class="cmd-footer-sep">·</span> <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
                     </span>
                     <span v-if="store.hasMessages" class="cmd-footer-stats">{{ conversationStats.total }} 轮 · {{ conversationStats.activities }} 工具</span>
@@ -2208,7 +2340,103 @@ onUnmounted(() => {
   color: rgba(190, 230, 252, 0.22);
   font-size: 10px;
 }
-.cmd-msg-user .cmd-msg-time { text-align: right; }
+.cmd-msg-user .cmd-msg-time { text-align: right; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+/* 编辑触发钮（hover 用户消息显形） */
+.cmd-edit-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 20px; height: 20px;
+  border: 0; border-radius: 6px;
+  background: transparent;
+  color: rgba(190, 230, 252, 0.35);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.cmd-msg-user:hover .cmd-edit-trigger { opacity: 1; }
+.cmd-edit-trigger:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+/* 就地编辑盒 */
+.cmd-edit-box {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+.cmd-edit-textarea {
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(0, 217, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(7, 10, 16, 0.6);
+  color: rgba(255,255,255,0.95);
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 8px 10px;
+  outline: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.cmd-edit-textarea:focus { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.cmd-edit-actions, .cmd-edit-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  font-size: 11px;
+}
+.cmd-edit-confirm { color: rgba(252, 165, 165, 0.85); }
+.cmd-edit-btn {
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(226,232,240,0.7);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmd-edit-btn.is-ok {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 90%, white);
+}
+.cmd-edit-btn:hover:not(:disabled) { color: #fff; }
+.cmd-edit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 重答版本切换器 ‹ 2/3 › */
+.cmd-version-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+}
+.cmd-version-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 18px; height: 18px;
+  border: 0; border-radius: 999px;
+  background: transparent;
+  color: rgba(226,232,240,0.6);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmd-version-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
+.cmd-version-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.cmd-version-label {
+  font: 600 10px/1 var(--hud-font-data, ui-monospace, monospace);
+  color: rgba(190, 230, 252, 0.6);
+  min-width: 30px;
+  text-align: center;
+  user-select: none;
+}
 
 /* 用户消息：右对齐，轻染色，无重边框 */
 .cmd-msg-user {

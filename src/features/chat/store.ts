@@ -43,7 +43,7 @@ import {
   truncateHistory,
   cleanupEmptyAssistant,
 } from './utils'
-import type { ChatMessage, ChatSession, ChatUiBlock, ToolActivity, ToolApproval } from './types'
+import type { ChatMessage, ChatSession, ChatUiBlock, ToolActivity, ToolApproval, TurnVersions } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
 import { getActiveConfig } from '@/features/model-config'
 import { logPreference, countPreferences, clearPreferences, exportPreferences } from './preference-log'
@@ -125,16 +125,28 @@ function trimLongStrings(value: unknown, max: number): unknown {
  * 再整体校验；极端情况（字段极多）整体仍超限时返回合法 JSON 的提示对象，
  * 而非切断字符串产出非法 JSON。
  *
- * 例外：git.show / git.diff 的 diff 已在工具侧（llm-tools.ts 的 clipDiff）按行边界
- * 裁剪并标注 truncated，用户要求 diff 不截断、让小吴看到准确代码改动，故此处不再
- * 二次裁剪，完整 diff（上限 ~100KB）直达模型。
+ * 例外（按工具给不同单字段上限）：
+ * - git.show / git.diff：diff 已在工具侧按行边界裁剪，跳过二次裁剪，完整直达模型。
+ * - reach.read_url：用户明确要"读全文"，单字段上限走可配置 readUrlMaxChars（默认 20000，
+ *   远大于通用 4000），让模型拿到接近完整正文以分层呈现观点；0 = 不裁剪。整体体积仍受
+ *   TOOL_RESULT_MAX_CHARS 兜底，避免极端长网页撑爆上下文。
+ * - 其他工具：统一 TOOL_RESULT_FIELD_MAX。
  */
+function fieldMaxFor(toolName?: string): number {
+  if (toolName === 'reach__read_url') {
+    const cfg = getChatSettings().readUrlMaxChars
+    // 0 表示不裁剪：用 MAX_SAFE_INTEGER 让 trimLongStrings 的 length > max 永远不成立
+    return cfg > 0 ? cfg : Number.MAX_SAFE_INTEGER
+  }
+  return TOOL_RESULT_FIELD_MAX
+}
+
 function clipForModel(result: unknown, toolName?: string): string {
   // git diff 工具已在工具侧按行边界处理，跳过二次裁剪，保证 diff 完整直达模型
   if (toolName === 'git__show' || toolName === 'git__diff') {
     return JSON.stringify(result)
   }
-  const trimmed = trimLongStrings(result, TOOL_RESULT_FIELD_MAX)
+  const trimmed = trimLongStrings(result, fieldMaxFor(toolName))
   const json = JSON.stringify(trimmed)
   if (json.length <= TOOL_RESULT_MAX_CHARS) return json
   return JSON.stringify({
@@ -644,7 +656,7 @@ function buildStaticSystemPrompt(): string {
   if (reachEnabled) {
     lines.push(
       '- 「帮我调研 X / 这个 GitHub 仓库能不能引进 / 总结这个视频」→ reach.search / reach.read_url / reach.github_repo / reach.video_summary 收集外部证据，再给结论、关键发现、对本项目的影响和来源。',
-      '- 「对比 X 和 Y / 选哪个库 / 选型」→ 并行多个 reach.github_repo（或 reach.search）收集证据，再用 ui.render 的 data-table 卡输出对比矩阵（维度 × 候选），文字只给最终推荐和取舍理由。',
+      '- 「对比 X 和 Y / 选哪个库 / 选型」→ 并行多个 reach.github_repo（或 reach.search）收集证据，再用 ui.render 的 data-table 卡输出对比矩阵（维度 × 候选），文字给出推荐、关键依据和取舍理由，不要只留一句结论。',
     )
   }
   if (kbEnabled) {
@@ -656,7 +668,7 @@ function buildStaticSystemPrompt(): string {
     '# 回答风格',
     '- 简体中文，口吻自然亲切、简洁不啰嗦，像一位靠谱的同事。',
     '- 遇到需要用户确认的操作时，工具会返回 approvalRequired。此时只能说明“我已准备好，等你确认”，不要说动作已经完成；用户确认或取消后，会收到新的工具结果，再继续给结论。',
-    '- 善用生成式 UI 与 Markdown：已有 UI 卡片时，文字只补结论、取舍理由和下一步，避免重复罗列卡片内容。',
+    '- 善用生成式 UI 与 Markdown：卡片是速览，正文要能让用户不点开卡片也读懂论据。涉及外部调研、网页读取、知识库检索等带来源的回答，正文应分层呈现：先给结论，再用自己的话复述查到的关键观点和依据（可引用原文要点，不要只丢一句结论），最后给出处。不要因为信息已进卡片就把过程省成干瘪总结。',
     '- 数据型回答先给结论/概览，再列细节；天气可适当加一句贴心提示（如带伞、添衣）。',
     '- 不要暴露工具名、接口、字段等技术细节，用户只关心结果。',
   )
@@ -756,7 +768,7 @@ function slimMessage(m: ChatMessage): ChatMessage {
   return rest as ChatMessage
 }
 
-/** sessions 写盘前对每条消息做 slim，避免 localStorage 撑爆 */
+/** sessions 写盘前对每条消息做 slim，避免 localStorage 撑爆；版本块同样 slim */
 function slimSessions(list: ChatSession[]): ChatSession[] {
   return list.map((s) => ({
     id: s.id,
@@ -764,6 +776,14 @@ function slimSessions(list: ChatSession[]): ChatSession[] {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     messages: s.messages.map(slimMessage),
+    versions: s.versions
+      ? Object.fromEntries(
+          Object.entries(s.versions).map(([uid, tv]) => [
+            uid,
+            { activeIdx: tv.activeIdx, blocks: tv.blocks.map((b) => b.map(slimMessage)) },
+          ]),
+        )
+      : undefined,
   }))
 }
 
@@ -822,6 +842,17 @@ export const useChatStore = defineStore('chat', () => {
   }
   const activeSession = computed(() => sessions.value.find((s) => s.id === activeSessionId.value) ?? null)
   const messages = ref<ChatMessage[]>(ensureActiveSession().messages.map((m) => ({ ...m })))
+  // 当前活动会话的重答版本镜像（与 messages 同口径：切换会话时载入，变更时同步回 activeSession）。
+  // key = user 消息 id；blocks 按生成顺序存所有版本（含当前激活版），activeIdx 为当前渲染版下标。
+  const versions = ref<Record<string, TurnVersions>>({ ...(activeSession.value?.versions ?? {}) })
+
+  /** 把 versions 镜像同步回活动会话并触发持久化；调用前应已对 versions.value 赋新对象 */
+  function syncVersions(next: Record<string, TurnVersions>) {
+    versions.value = next
+    const sess = activeSession.value
+    if (sess) sess.versions = next
+    schedulePersist()
+  }
 
   // sessions 写盘防抖：流式时每 token 触发 deep watch，整 sessions stringify 会卡顿，故合并写盘
   let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -914,6 +945,8 @@ export const useChatStore = defineStore('chat', () => {
   )
 
   let abortController: AbortController | null = null
+  /** 当前进行中的 agent 循环 Promise；stop() await 它以等旧循环 wind down，避免与新循环抢改 messages */
+  let currentLoop: Promise<void> | null = null
 
   // 连通性状态（组件可通过 store 读取；store 自身在 send() 里据此短路）
   const connectivity = useConnectivity()
@@ -923,7 +956,7 @@ export const useChatStore = defineStore('chat', () => {
   onRecover(() => {
     if (streaming.value) return
     const tail = messages.value[messages.value.length - 1]
-    if (tail?.role === 'user') void runAgentLoop([], lastMode.value)
+    if (tail?.role === 'user') void runAgentLoop([], lastMode.value, tail.id)
   })
 
   function toggle() {
@@ -947,10 +980,13 @@ export const useChatStore = defineStore('chat', () => {
     open.value = false
   }
 
-  /** 把当前 messages 镜像同步回活动会话（切换/新建前保险） */
+  /** 把当前 messages / versions 镜像同步回活动会话（切换/新建前保险） */
   function flushCurrentSession() {
     const sess = activeSession.value
-    if (sess) sess.messages = messages.value
+    if (sess) {
+      sess.messages = messages.value
+      sess.versions = versions.value
+    }
   }
 
   /** 新建空会话并切换过去；生成中不打断 */
@@ -967,10 +1003,11 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value.unshift(sess)
     activeSessionId.value = sess.id
     messages.value = []
+    versions.value = {}
     return sess.id
   }
 
-  /** 切换到指定会话；载入其消息到 messages 镜像 */
+  /** 切换到指定会话；载入其消息与版本到镜像 */
   function switchSession(id: string) {
     if (streaming.value) return
     const sess = sessions.value.find((s) => s.id === id)
@@ -978,6 +1015,7 @@ export const useChatStore = defineStore('chat', () => {
     flushCurrentSession()
     activeSessionId.value = id
     messages.value = sess.messages.map((m) => ({ ...m }))
+    versions.value = { ...(sess.versions ?? {}) }
   }
 
   /** 删除会话；删的是当前则切到首个或新建空 */
@@ -991,11 +1029,13 @@ export const useChatStore = defineStore('chat', () => {
       if (next) {
         activeSessionId.value = next.id
         messages.value = next.messages.map((m) => ({ ...m }))
+        versions.value = { ...(next.versions ?? {}) }
       } else {
         const sess: ChatSession = { id: genId('s'), title: '新的协作会话', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
         sessions.value.push(sess)
         activeSessionId.value = sess.id
         messages.value = []
+        versions.value = {}
       }
     }
     schedulePersist()
@@ -1022,10 +1062,41 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function stop() {
+  async function stop() {
     abortController?.abort()
     abortController = null
     streaming.value = false
+    // 等旧循环退出（abort 后经 catch(AbortError) 收尾），再让新 send 接手，避免双循环抢改 messages
+    if (currentLoop) {
+      await currentLoop.catch(() => {})
+      currentLoop = null
+    }
+  }
+
+  /**
+   * runAgentLoop 入口：转发到 impl 并把 in-flight Promise 记到 currentLoop，
+   * 供 stop() await（打断重发时等旧循环 wind down）。
+   */
+  function runAgentLoop(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask', versionUid?: string): Promise<void> {
+    const p = runAgentLoopImpl(extraHiddenContexts, mode, versionUid)
+    currentLoop = p
+    return p
+  }
+
+  /**
+   * 把刚完成的 turn 块（user 消息之后到末尾的所有 assistant/tool 消息）压入版本表。
+   * cap 3：超出丢最旧；activeIdx 指向最新版（regenerate 产生的新回答）。
+   */
+  function pushTurnVersion(uid: string) {
+    const uidIdx = messages.value.findIndex((m) => m.id === uid)
+    if (uidIdx < 0) return
+    const block = JSON.parse(JSON.stringify(messages.value.slice(uidIdx + 1))) as ChatMessage[]
+    if (!block.length) return
+    const cur = versions.value[uid] ?? { blocks: [], activeIdx: 0 }
+    const blocks = [...cur.blocks, block]
+    let activeIdx = blocks.length - 1
+    while (blocks.length > 3) { blocks.shift(); activeIdx-- }
+    syncVersions({ ...versions.value, [uid]: { blocks, activeIdx } })
   }
 
   /**
@@ -1080,8 +1151,10 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 跑一轮 agent 循环（基于当前 messages 末尾的上下文）。
    * 调用前应已 push 好用户消息（或已截断到要重答的位置）。
+   * versionUid：若为"新轮"（send / regenerate / editMessage），传对应 user 消息 id，
+   *   循环干净完成时把该 turn 块压入 versions[uid]（cap 3）；续轮（approve/retry/reject）传 undefined 不入栈。
    */
-  async function runAgentLoop(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask') {
+  async function runAgentLoopImpl(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask', versionUid?: string) {
     abortController?.abort()
     const controller = new AbortController()
     abortController = controller
@@ -1268,6 +1341,8 @@ export const useChatStore = defineStore('chat', () => {
         })
       }
       // 整轮顺利完成 → 通知连通性层「现在可达」，触发 ambient 模块恢复续生成
+      // 新轮干净完成 -> 把该 turn 块压入版本表（cap 3），供重答版本切换器回溯
+      if (versionUid) pushTurnVersion(versionUid)
       markSuccess()
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') {
@@ -1317,8 +1392,9 @@ export const useChatStore = defineStore('chat', () => {
    */
   async function send(text: string, images: string[] = [], mode: ComposerMode = 'ask') {
     const content = text.trim()
-    if (streaming.value) return
     if (!content && !images.length) return
+    // 生成中发送 = 打断重发：abort 当前未完成回答，等其 wind down，再开新一轮
+    if (streaming.value) await stop()
 
     // 轻量意图分类：仅纯文字、且命中明确句式时本地直答，省一次 LLM 调用（带图不走）
     const localIntent = images.length ? null : detectLocalIntent(content)
@@ -1329,8 +1405,9 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     lastMode.value = mode
+    const uid = genId('msg')
     messages.value.push({
-      id: genId('msg'),
+      id: uid,
       role: 'user',
       content,
       images: images.length ? images : undefined,
@@ -1343,7 +1420,7 @@ export const useChatStore = defineStore('chat', () => {
       const ok = await probeConnectivity()
       if (!ok) return
     }
-    await runAgentLoop([], mode)
+    await runAgentLoop([], mode, uid)
   }
 
   /**
@@ -1370,10 +1447,11 @@ export const useChatStore = defineStore('chat', () => {
     const oldContent = lastAssistant?.content || ''
     const pairContext = buildPreferenceContext(messages.value, lastUser + 1)
     const cfg = getActiveConfig()
+    const regenUid = messages.value[lastUser]?.id
     messages.value = messages.value.slice(0, lastUser + 1)
     feedbackStats.value.regenerations++
     incCategory(feedbackStats.value, regenCategory, 'regenerations', 1)
-    await runAgentLoop([], lastMode.value)
+    await runAgentLoop([], lastMode.value, regenUid)
     // 飞轮：配对写入（新/老任一为空则跳过——如生成失败/未配置模型）
     if (oldContent) {
       const newAssistant = [...messages.value].reverse().find((m) => m.role === 'assistant' && m.content)
@@ -1389,6 +1467,51 @@ export const useChatStore = defineStore('chat', () => {
         })
       }
     }
+  }
+
+  /**
+   * 切换某 user 问题的重答版本（< 2/3 >）。仅非 streaming 时可切。
+   * 用目标版本块的副本替换 messages 中当前 turn 块（user 消息后到下一条 user 消息前），更新 activeIdx。
+   */
+  function switchVersion(uid: string, dir: -1 | 1) {
+    if (streaming.value) return
+    const tv = versions.value[uid]
+    if (!tv || tv.blocks.length < 2) return
+    const newIdx = Math.max(0, Math.min(tv.blocks.length - 1, tv.activeIdx + dir))
+    if (newIdx === tv.activeIdx) return
+    const uidIdx = messages.value.findIndex((m) => m.id === uid)
+    if (uidIdx < 0) return
+    let endIdx = messages.value.length
+    for (let i = uidIdx + 1; i < messages.value.length; i++) {
+      if (messages.value[i].role === 'user') { endIdx = i; break }
+    }
+    const newBlock = JSON.parse(JSON.stringify(tv.blocks[newIdx])) as ChatMessage[]
+    messages.value = [...messages.value.slice(0, uidIdx + 1), ...newBlock, ...messages.value.slice(endIdx)]
+    syncVersions({ ...versions.value, [uid]: { ...tv, activeIdx: newIdx } })
+  }
+
+  /**
+   * 就地编辑已发送的用户消息并重发：更新文本 -> 清空该问题版本（问题变了，旧版本作废）
+   * -> 截断其后所有消息 -> 重跑 agent 循环。
+   * 调用方（UI）应在存在更晚 user 消息时先做截断二次确认。
+   */
+  async function editMessage(index: number, newText: string) {
+    if (streaming.value) return
+    const msg = messages.value[index]
+    if (!msg || msg.role !== 'user') return
+    const content = newText.trim()
+    if (!content) return
+    const uid = msg.id
+    if (!uid) return
+    // 问题改变 -> 旧重答版本作废
+    if (versions.value[uid]) {
+      const next = { ...versions.value }
+      delete next[uid]
+      syncVersions(next)
+    }
+    msg.content = content
+    messages.value = messages.value.slice(0, index + 1)
+    await runAgentLoop([], lastMode.value, uid)
   }
 
   /**
@@ -1612,7 +1735,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!ok) return
     if (streaming.value) return
     const tail = messages.value[messages.value.length - 1]
-    if (tail?.role === 'user') await runAgentLoop([], lastMode.value)
+    if (tail?.role === 'user') await runAgentLoop([], lastMode.value, tail.id)
   }
 
   /** 刷新偏好数据条数（UI 挂载时调用） */
@@ -1664,6 +1787,9 @@ export const useChatStore = defineStore('chat', () => {
     rejectTool,
     toggleActivityExpand,
     retryConnection,
+    versions,
+    switchVersion,
+    editMessage,
     preferenceCount,
     refreshPreferenceCount,
     exportPreferencesData,

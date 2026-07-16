@@ -21,6 +21,8 @@ export interface ChatSettings {
   maxOutputTokens: number
   /** 用户一次最多可粘贴 / 拖入的图片张数 */
   maxImages: number
+  /** reach.read_url 工具结果单字段最大字符数。用户明确要读全文，默认比通用 4000 宽松；0 = 不裁剪 */
+  readUrlMaxChars: number
 }
 
 // ============ 默认值 ============
@@ -34,6 +36,9 @@ export const CHAT_SETTINGS_DEFAULTS: ChatSettings = {
   maxHistoryTokens: 120_000,
   maxOutputTokens: 8_192,
   maxImages: 9,
+  // read_url 是用户明确要"读全文"的场景，默认比通用字段上限（4000）宽松得多。
+  // 让模型拿到接近完整的网页正文，才能分层呈现观点而非压缩成总结；0 表示不裁剪。
+  readUrlMaxChars: 20_000,
 }
 
 // ============ 持久化 key ============

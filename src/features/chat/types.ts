@@ -132,6 +132,14 @@ export interface ChatMessage {
   _loopFinal?: boolean
 }
 
+/** 一个用户问题的多版本回答（重答产生）：blocks 按生成顺序，activeIdx 为当前渲染版 */
+export interface TurnVersions {
+  /** 每个元素是一个完整 turn 块（assistant + tool 消息，含中间步骤），按生成顺序 */
+  blocks: ChatMessage[][]
+  /** 当前渲染在 messages 里的版本下标（0..blocks.length-1） */
+  activeIdx: number
+}
+
 /** 多会话：一个独立对话单元 */
 export interface ChatSession {
   id: string
@@ -139,6 +147,8 @@ export interface ChatSession {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /** 按 user 消息 id 索引的重答版本；未重答的 user 消息无条目 */
+  versions?: Record<string, TurnVersions>
 }
 
 /** 一轮流式响应的累积结果 */

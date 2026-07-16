@@ -18,6 +18,7 @@ import IconSync from '~icons/mdi/sync'
 import IconDatabaseOutline from '~icons/mdi/database-outline'
 import IconMessageText from '~icons/mdi/message-text-outline'
 import IconImageMultiple from '~icons/mdi/image-multiple-outline'
+import IconFileDocument from '~icons/mdi/file-document-outline'
 import IconShieldCheck from '~icons/mdi/shield-check-outline'
 import IconScaleBalance from '~icons/mdi/scale-balance'
 import IconChevronTripleUp from '~icons/mdi/chevron-triple-up'
@@ -103,12 +104,12 @@ const presets: Preset[] = [
   {
     id: 'safe', label: '保守', desc: '稳定低耗',
     icon: IconShieldCheck,
-    values: { maxRounds: 8, maxHistoryTokens: 24_000, maxOutputTokens: 4_096, maxImages: 4 },
+    values: { maxRounds: 8, maxHistoryTokens: 24_000, maxOutputTokens: 4_096, maxImages: 4, readUrlMaxChars: 6_000 },
   },
   {
     id: 'balanced', label: '均衡', desc: '日常够用',
     icon: IconScaleBalance,
-    values: { maxRounds: 20, maxHistoryTokens: 64_000, maxOutputTokens: 8_192, maxImages: 6 },
+    values: { maxRounds: 20, maxHistoryTokens: 64_000, maxOutputTokens: 8_192, maxImages: 6, readUrlMaxChars: 12_000 },
   },
   {
     id: 'spacious', label: '宽裕', desc: '默认推荐',
@@ -118,7 +119,7 @@ const presets: Preset[] = [
   {
     id: 'extreme', label: '极限', desc: '火力全开',
     icon: IconRocket,
-    values: { maxRounds: 100, maxHistoryTokens: 256_000, maxOutputTokens: 81_920, maxImages: 20 },
+    values: { maxRounds: 100, maxHistoryTokens: 256_000, maxOutputTokens: 81_920, maxImages: 20, readUrlMaxChars: 0 },
   },
 ]
 
@@ -160,6 +161,10 @@ const fieldDefs: FieldDef[] = [
     key: 'maxImages', label: '图片数量上限', desc: '一次最多可发送的图片张数。图片转 base64 随请求发送，过多会显著增加延迟与费用。',
     icon: IconImageMultiple, tone: '#a78bfa', step: 1, bounds: [0, 50],
   },
+  {
+    key: 'readUrlMaxChars', label: '网页读取上限', desc: '读取公开网页链接时，正文单字段保留的最大字符数。增大可让小吴看到更完整的原文、分层呈现观点；设为 0 表示不裁剪。占用上下文，过大可能推高成本。',
+    icon: IconFileDocument, tone: '#22d3ee', step: 2_000, bounds: [0, 100_000],
+  },
 ]
 
 // ============ 格式化 ============
@@ -168,6 +173,11 @@ function formatValue(def: FieldDef): string {
   if (def.key === 'maxHistoryTokens' || def.key === 'maxOutputTokens') {
     if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1000 === 0 ? 0 : 1)}K`
     return String(v)
+  }
+  if (def.key === 'readUrlMaxChars') {
+    if (v === 0) return '不裁剪'
+    if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1000 === 0 ? 0 : 1)}K 字符`
+    return `${v} 字符`
   }
   if (def.key === 'maxRounds') return `${v} 轮`
   return `${v} 张`

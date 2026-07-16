@@ -312,7 +312,11 @@ const moreItems = computed(() => moreNavItems)
 .nav-rail-flyout {
   position: absolute;
   top: -6px;
-  left: calc(100% + 8px);
+  left: 100%;
+  /* 8px 透明左内边距当"桥"：消除触发器右缘与飞出菜单之间的悬停死区。
+     横穿这 8px 时指针仍在 .nav-rail-flyout（.nav-rail-item 子节点）内，
+     :hover 不丢、菜单不闪退；卡片视觉上仍保持 8px 间距。 */
+  padding-left: 8px;
   min-width: 168px;
   opacity: 0;
   pointer-events: none;
