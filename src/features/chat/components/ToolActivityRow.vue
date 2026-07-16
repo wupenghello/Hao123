@@ -1,68 +1,123 @@
 <script setup lang="ts">
-/**
- * 工具活动卡片行：抽取中间步骤和正常助手泡泡共用的 activity 行渲染。
- * compact 模式下缩小图标、降低不透明度，且不渲染交互元素（展开箭头/重试/审批/结果预览）。
- */
+/** 工具活动行。compact 模式不渲染额外交互。 */
 import type { ToolActivity } from '../types'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
 import IconAlert from '~icons/mdi/alert-circle-outline'
 
-defineProps<{
+withDefaults(defineProps<{
   activity: ToolActivity
   compact?: boolean
-}>()
+}>(), {
+  compact: false,
+})
 
-const activityIcon = (s: ToolActivity['status']) =>
-  s === 'running' ? IconLoading : s === 'pending' ? IconAlert : s === 'error' ? IconAlert : IconCheck
+const activityIcon = (status: ToolActivity['status']) =>
+  status === 'running' ? IconLoading : status === 'pending' ? IconAlert : status === 'error' ? IconAlert : IconCheck
 </script>
 
 <template>
-  <div class="flex items-center w-full">
+  <div
+    class="activity-row"
+    :class="[`is-${activity.status}`, { 'is-compact': compact }]"
+  >
     <component
       :is="activityIcon(activity.status)"
-      class="shrink-0"
-      :class="[
-        compact ? 'w-3 h-3' : 'w-3.5 h-3.5',
-        {
-          'animate-spin': activity.status === 'running',
-          'text-teal-300/50': activity.status === 'running' && compact,
-          'text-teal-300/80': activity.status === 'running' && !compact,
-          'text-amber-300/90': activity.status === 'pending',
-          'text-emerald-300/50': activity.status === 'done' && compact,
-          'text-emerald-300/80': activity.status === 'done' && !compact,
-          'text-rose-300/50': activity.status === 'error' && compact,
-          'text-rose-300/80': activity.status === 'error' && !compact,
-        },
-      ]"
+      class="activity-icon"
+      :class="{ 'animate-spin': activity.status === 'running' }"
+      aria-hidden="true"
     />
-    <span :class="compact ? 'text-white/55 text-[11px]' : 'text-white/70'">
-      {{ activity.label }}
-    </span>
-    <span
-      v-if="activity.detail"
-      class="truncate"
-      :class="compact ? 'text-white/25 text-[11px]' : 'text-white/35'"
-    >· {{ activity.detail }}</span>
-    <span
-      class="ml-auto shrink-0 flex items-center gap-1"
-      :class="compact ? 'text-[10px] text-white/20' : 'text-[10px] text-white/30'"
-    >
+    <span class="activity-label">{{ activity.label }}</span>
+    <span v-if="activity.detail" class="activity-detail">{{ activity.detail }}</span>
+    <span class="activity-meta">
       <template v-if="activity.status === 'done'">
-        <span :class="compact ? 'text-emerald-300/40' : 'text-emerald-300/60'">✓</span>
-        <span v-if="activity.duration">{{ activity.duration < 1000 ? `${activity.duration}ms` : `${(activity.duration / 1000).toFixed(1)}s` }}</span>
+        <span v-if="activity.duration">
+          {{ activity.duration < 1000 ? `${activity.duration}ms` : `${(activity.duration / 1000).toFixed(1)}s` }}
+        </span>
       </template>
       <template v-else-if="activity.status === 'running'">
         <span v-if="!compact">查询中</span>
       </template>
       <template v-else-if="activity.status === 'pending'">
-        <span v-if="!compact" class="text-amber-300/80">待确认</span>
+        <span v-if="!compact">待确认</span>
       </template>
       <template v-else-if="activity.status === 'error'">
-        <span :class="compact ? 'text-rose-300/50' : ''">
-          {{ activity.approval?.decision === 'rejected' ? '已取消' : '失败' }}
-        </span>
+        <span>{{ activity.approval?.decision === 'rejected' ? '已取消' : '失败' }}</span>
       </template>
     </span>
   </div>
 </template>
+
+<style scoped>
+.activity-row {
+  --activity-color: var(--text-muted, #74839a);
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  color: var(--text-secondary, #a8b5c7);
+}
+
+.activity-row.is-running { --activity-color: var(--status-info, #60a5fa); }
+.activity-row.is-pending { --activity-color: var(--status-warning, #f59e0b); }
+.activity-row.is-done { --activity-color: var(--status-success, #34d399); }
+.activity-row.is-error { --activity-color: var(--status-danger, #fb7185); }
+
+.activity-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--activity-color);
+}
+
+.activity-label {
+  color: var(--text-secondary, #a8b5c7);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.activity-detail {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 7px;
+  color: var(--text-muted, #74839a);
+  border-left: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-meta {
+  color: var(--activity-color);
+  font: 650 10px/1 var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+
+.activity-row.is-compact {
+  gap: 6px;
+  opacity: 0.72;
+}
+
+.is-compact .activity-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.is-compact .activity-label,
+.is-compact .activity-detail {
+  font-size: 11px;
+}
+
+.is-compact .activity-meta {
+  color: var(--text-muted, #74839a);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-icon {
+    animation: none !important;
+  }
+}
+</style>
