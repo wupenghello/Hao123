@@ -111,9 +111,6 @@ export const navItems: NavItem[] = [
   { label: 'apifox', icon: 'api', url: 'https://app.apifox.com/project/7718065' },
 ]
 
-/** 收进「更多」的尾部条目（与原 StatusNav 口径一致：第 8 项起） */
-export const moreNavItems = navItems.slice(7)
-
 /** 把 NavItem 的环境配置归一为分组数组（envGroups 优先，否则把 envs 包成单组） */
 export function envGroupsOf(item: NavItem): EnvGroup[] {
   if (item.envGroups?.length) return item.envGroups

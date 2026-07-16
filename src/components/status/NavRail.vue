@@ -8,11 +8,10 @@
  *
  * 运行期逻辑（wbscf 本地启动探测）复用 useWbscfServices，与 StatusNav 同源。
  */
-import { computed, type Component } from 'vue'
+import { type Component } from 'vue'
 import { useWbscfServices, wbscfServices } from '@/features/wbscf'
 import {
   navItems,
-  moreNavItems,
   envGroupsOf,
   envEntries,
   type NavItem,
@@ -85,9 +84,6 @@ function entriesOf(envs: EnvLinks) {
 function hasMenu(item: NavItem): boolean {
   return !!(item.envs || item.envGroups)
 }
-
-/** 给「更多」飞出项补一个图标占位（外部链接无 icon 时回退） */
-const moreItems = computed(() => moreNavItems)
 </script>
 
 <template>
@@ -167,28 +163,6 @@ const moreItems = computed(() => moreNavItems)
                 role="menuitem"
               >{{ env.key }}</a>
             </template>
-          </div>
-        </div>
-      </li>
-
-      <!-- 更多（尾部外部链接） -->
-      <li class="nav-rail-item">
-        <button type="button" class="nav-rail-trigger" title="更多">
-          <IconDots class="nav-rail-icon" />
-          <span class="nav-rail-label">更多</span>
-          <IconChevron class="nav-rail-chev" aria-hidden="true" />
-        </button>
-        <div class="nav-rail-flyout">
-          <div class="nav-rail-card" role="menu">
-            <a
-              v-for="item in moreItems"
-              :key="item.label"
-              class="nav-rail-env nav-rail-env-link"
-              :href="item.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              role="menuitem"
-            >{{ item.label }}</a>
           </div>
         </div>
       </li>

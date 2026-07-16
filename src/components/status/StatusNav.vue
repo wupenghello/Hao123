@@ -10,7 +10,6 @@
 import { useWbscfServices, wbscfServices } from '@/features/wbscf'
 import {
   navItems,
-  moreNavItems,
   envGroupsOf,
   envEntries,
 } from './nav-items'
@@ -51,13 +50,9 @@ function onLocalClick(app?: string): void {
     <!-- 导航列表：宽屏隐藏（交给 NavRail），窄屏回退 -->
     <ul class="status-nav-list status-nav-links">
       <li
-        v-for="(item, index) in navItems"
+        v-for="item in navItems"
         :key="item.label"
         class="status-nav-item"
-        :class="{
-          'status-nav-tail-item': index >= 7,
-          'status-nav-compact-tail-item': index >= 7,
-        }"
       >
         <template v-if="item.envs || item.envGroups">
           <span class="status-nav-label" :class="{ 'is-local-running': isRunning(item.local) }">
@@ -108,23 +103,6 @@ function onLocalClick(app?: string): void {
           target="_blank"
           rel="noopener noreferrer"
         >{{ item.label }}</a>
-      </li>
-
-      <li class="status-nav-item status-nav-more-item">
-        <button type="button" class="status-nav-label status-nav-more-button">更多</button>
-        <div class="status-nav-menu status-nav-more-menu">
-          <div class="status-nav-menu-card" role="menu">
-            <a
-              v-for="item in moreNavItems"
-              :key="item.label"
-              class="status-nav-env status-nav-env-link"
-              :href="item.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              role="menuitem"
-            >{{ item.label }}</a>
-          </div>
-        </div>
       </li>
     </ul>
 
@@ -208,13 +186,6 @@ button.status-nav-label {
   margin: 0 6px;
   background: rgba(125, 211, 252, 0.18);
   flex-shrink: 0;
-}
-.status-nav-more-item {
-  display: none;
-}
-.status-nav-more-menu {
-  left: auto;
-  right: 0;
 }
 
 .status-nav-menu {
@@ -331,27 +302,6 @@ button.status-nav-label {
   /* 宽屏无导航列表时，分隔线贴着 widget 区起始，收紧左边距 */
   .status-nav-divider {
     margin-left: 0;
-  }
-}
-@media (max-width: 1380px) {
-  .status-nav-tail-item {
-    display: none;
-  }
-  .status-nav-more-item {
-    display: flex;
-  }
-}
-@media (max-width: 1180px) {
-  .status-nav-compact-tail-item {
-    display: none;
-  }
-}
-@media (max-width: 900px) {
-  .status-nav-item:nth-child(n + 5):not(.status-nav-more-item) {
-    display: none;
-  }
-  .status-nav-more-item {
-    display: flex;
   }
 }
 </style>
