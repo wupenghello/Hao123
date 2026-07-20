@@ -19,6 +19,7 @@ import IconSpark from '~icons/mdi/star-four-points'
 import IconRefresh from '~icons/mdi/refresh'
 import IconAlert from '~icons/mdi/alert-circle-outline'
 import IconClock from '~icons/mdi/clock-outline'
+import IconWeather from '~icons/mdi/weather-partly-cloudy'
 import IconOpen from '~icons/mdi/open-in-new'
 import IconCheck from '~icons/mdi/check'
 import IconClose from '~icons/mdi/close'
@@ -248,7 +249,10 @@ function startFallbackChat() {
                 :class="isRiskLabel(plan.topPriority.riskLabel) ? 'mb-top-risk' : 'mb-top-risk-normal'"
               >{{ plan.topPriority.riskLabel }}</span>
               <span v-if="plan.topPriority.deadline" class="mb-top-deadline">截止 {{ plan.topPriority.deadline }}</span>
-              <span v-if="weatherDisplayText" class="mb-top-weather">{{ weatherDisplayText }}</span>
+              <span v-if="weatherDisplayText" class="mb-top-weather">
+                <IconWeather class="w-3 h-3" />
+                <span>{{ weatherDisplayText }}</span>
+              </span>
             </div>
             <div class="mb-top-title-row">
               <strong class="mb-top-title" :title="plan.topPriority.title">{{ plan.topPriority.title }}</strong>
@@ -453,7 +457,7 @@ function startFallbackChat() {
 .mb-top-risk { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-danger, #fb7185) 40%, transparent); background: color-mix(in srgb, var(--mb-danger, #fb7185) 12%, transparent); color: #fda4af; font-size: 9.5px; font-weight: 800; }
 .mb-top-risk-normal { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-tone-2) 30%, transparent); background: color-mix(in srgb, var(--mb-tone-2) 10%, transparent); color: rgba(226,232,240,0.6); font-size: 9.5px; font-weight: 600; }
 .mb-top-deadline { color: rgba(226,232,240,0.5); font-size: 10px; font-weight: 600; }
-.mb-top-weather { margin-left: auto; color: rgba(226,232,240,0.55); font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.mb-top-weather { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-tone-2) 28%, transparent); background: color-mix(in srgb, var(--mb-tone-2) 12%, transparent); color: color-mix(in srgb, var(--mb-tone-2) 88%, white); font-size: 11px; font-weight: 600; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
 .mb-top-title-row { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
 .mb-top-title { flex: 1 1 auto; min-width: 0; color: rgba(255,255,255,0.96); font-size: 16px; font-weight: 800; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mb-top-pri { flex-shrink: 0; padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: rgba(226,232,240,0.7); font: 800 10px/1 var(--font-mono); }
