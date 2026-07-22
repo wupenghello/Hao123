@@ -10,7 +10,7 @@
  * 数据显著变化（新增逾期 / 紧急 Bug / 今日截止项状态变更 / 天气预警）时主动重排。
  * LLM 未配置时不渲染；首次生成显示骨架，失败可重试；刷新时保留旧内容可见。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useBriefing, ASSISTANT_NAME, renderMarkdown } from '@/features/chat'
 import { useChatStore } from '../store'
 import { useWeatherStore } from '@/features/weather'
@@ -75,6 +75,79 @@ const weatherDisplayText = computed(() => {
   }
   return text
 })
+
+/** 天气信息条 DOM ref（用于溢出检测） */
+const weatherEl = ref<HTMLElement | null>(null)
+/** 当前是否处于溢出滚动态 */
+const weatherScrolling = ref(false)
+/** hover 时暂停滚动 */
+const weatherHover = ref(false)
+/** 用户是否禁用动画（prefers-reduced-motion） */
+const weatherReducedMotion = ref(false)
+/** 滚动动画时长（秒）：按内容宽度动态计算，clamp[4,16] */
+const weatherDuration = ref(8)
+let weatherResizeObserver: ResizeObserver | null = null
+let weatherMeasureTimer: ReturnType<typeof setTimeout> | null = null
+let weatherMotionQuery: MediaQueryList | null = null
+
+/** 测量天气文本是否溢出，溢出则启用滚动 */
+function measureWeather() {
+  const el = weatherEl.value
+  if (!el) return
+  const track = el.querySelector('.mb-top-weather-track') as HTMLElement | null
+  if (!track) return
+  // 首条内容的真实宽度 vs 容器可用宽度
+  const contentW = track.scrollWidth
+  // 未溢出时 track 只有一份内容；溢出后有两份，每份宽度 = contentW / 2
+  const singleW = weatherScrolling.value ? contentW / 2 : contentW
+  const avail = el.clientWidth - 2 // 左右各 1px 边框
+  if (singleW > avail) {
+    weatherScrolling.value = true
+    weatherDuration.value = Math.min(Math.max((singleW + 24) / 30, 4), 16)
+  } else {
+    weatherScrolling.value = false
+  }
+}
+
+function setupWeatherObserver() {
+  teardownWeatherObserver()
+  if (typeof window === 'undefined') return
+  // 监听 prefers-reduced-motion
+  weatherMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  weatherReducedMotion.value = weatherMotionQuery.matches
+  weatherMotionQuery.addEventListener('change', onWeatherMotionChange)
+  // 监听容器宽度变化（kicker 行宽随布局变化）
+  weatherResizeObserver = new ResizeObserver(() => {
+    if (weatherMeasureTimer) clearTimeout(weatherMeasureTimer)
+    weatherMeasureTimer = setTimeout(measureWeather, 80)
+  })
+  if (weatherEl.value) weatherResizeObserver.observe(weatherEl.value)
+}
+
+function onWeatherMotionChange(e: MediaQueryListEvent) {
+  weatherReducedMotion.value = e.matches
+  if (e.matches) weatherScrolling.value = false
+  else void nextTick(measureWeather)
+}
+
+function teardownWeatherObserver() {
+  if (weatherResizeObserver) { weatherResizeObserver.disconnect(); weatherResizeObserver = null }
+  if (weatherMotionQuery) { weatherMotionQuery.removeEventListener('change', onWeatherMotionChange); weatherMotionQuery = null }
+  if (weatherMeasureTimer) { clearTimeout(weatherMeasureTimer); weatherMeasureTimer = null }
+}
+
+// 文案变化时重新测量
+watch(() => weatherDisplayText.value, () => {
+  weatherScrolling.value = false
+  void nextTick(measureWeather)
+})
+
+onMounted(() => {
+  void nextTick(measureWeather)
+  setupWeatherObserver()
+})
+
+onUnmounted(teardownWeatherObserver)
 
 /** 分组折叠状态（默认「先处理」展开，其余折叠） */
 const expandedGroups = ref<Record<string, boolean>>({})
@@ -249,9 +322,25 @@ function startFallbackChat() {
                 :class="isRiskLabel(plan.topPriority.riskLabel) ? 'mb-top-risk' : 'mb-top-risk-normal'"
               >{{ plan.topPriority.riskLabel }}</span>
               <span v-if="plan.topPriority.deadline" class="mb-top-deadline">截止 {{ plan.topPriority.deadline }}</span>
-              <span v-if="weatherDisplayText" class="mb-top-weather">
-                <IconWeather class="w-3 h-3" />
-                <span>{{ weatherDisplayText }}</span>
+              <span
+                v-if="weatherDisplayText"
+                ref="weatherEl"
+                class="mb-top-weather"
+                :class="{ 'is-scrolling': weatherScrolling && !weatherReducedMotion }"
+                :title="weatherDisplayText"
+                @pointerenter="weatherHover = true"
+                @pointerleave="weatherHover = false"
+              >
+                <span class="mb-top-weather-rail" aria-hidden="true" />
+                <span
+                  class="mb-top-weather-track"
+                  :style="weatherScrolling && !weatherReducedMotion
+                    ? { animationDuration: weatherDuration + 's', animationPlayState: weatherHover ? 'paused' : 'running' }
+                    : undefined"
+                >
+                  <span class="mb-top-weather-item"><IconWeather class="w-3 h-3 shrink-0" />{{ weatherDisplayText }}</span>
+                  <span v-if="weatherScrolling" class="mb-top-weather-item" aria-hidden="true"><IconWeather class="w-3 h-3 shrink-0" />{{ weatherDisplayText }}</span>
+                </span>
               </span>
             </div>
             <div class="mb-top-title-row">
@@ -457,7 +546,12 @@ function startFallbackChat() {
 .mb-top-risk { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-danger, #fb7185) 40%, transparent); background: color-mix(in srgb, var(--mb-danger, #fb7185) 12%, transparent); color: #fda4af; font-size: 9.5px; font-weight: 800; }
 .mb-top-risk-normal { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-tone-2) 30%, transparent); background: color-mix(in srgb, var(--mb-tone-2) 10%, transparent); color: rgba(226,232,240,0.6); font-size: 9.5px; font-weight: 600; }
 .mb-top-deadline { color: rgba(226,232,240,0.5); font-size: 10px; font-weight: 600; }
-.mb-top-weather { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 3px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-tone-2) 28%, transparent); background: color-mix(in srgb, var(--mb-tone-2) 12%, transparent); color: color-mix(in srgb, var(--mb-tone-2) 92%, white); font-size: 12.5px; font-weight: 700; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
+.mb-top-weather { position: relative; display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 3px 10px; border-radius: 0; border: 1px solid color-mix(in srgb, var(--mb-tone) 20%, transparent); background: color-mix(in srgb, var(--mb-tone) 6%, transparent); color: var(--mb-tone); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.4; white-space: nowrap; overflow: hidden; max-width: 50%; }
+.mb-top-weather-rail { position: absolute; inset: 0 auto 0 0; width: 3px; background: linear-gradient(180deg, transparent, var(--mb-tone), transparent); opacity: 0.72; }
+.mb-top-weather-track { display: inline-flex; align-items: center; white-space: nowrap; will-change: transform; }
+.mb-top-weather.is-scrolling .mb-top-weather-track { animation-name: mb-weather-marquee; animation-timing-function: linear; animation-iteration-count: infinite; }
+.mb-top-weather-item { display: inline-flex; align-items: center; gap: 5px; padding-right: 24px; }
+.mb-top-weather-item svg { flex-shrink: 0; }
 .mb-top-title-row { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
 .mb-top-title { flex: 1 1 auto; min-width: 0; color: rgba(255,255,255,0.96); font-size: 16px; font-weight: 800; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mb-top-pri { flex-shrink: 0; padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: rgba(226,232,240,0.7); font: 800 10px/1 var(--font-mono); }
@@ -532,9 +626,10 @@ function startFallbackChat() {
 @keyframes mb-spin { to { transform: rotate(360deg); } }
 @keyframes mb-pulse { 0%, 100% { opacity: 0.45; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 @keyframes mb-bounce { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@keyframes mb-weather-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .mb-refresh.is-spinning svg, .mb-dot, .mb-refreshing-pulse, .mb-thinking-core, .mb-thinking-ring, .mb-thinking-text, .mb-thinking-dots i, .mb-thinking-scan, .mb-step-pulse, .mb-fade-enter-active, .mb-fade-leave-active, .mb-expand-enter-active, .mb-expand-leave-active { animation: none; transition: none; }
+  .mb-refresh.is-spinning svg, .mb-dot, .mb-refreshing-pulse, .mb-thinking-core, .mb-thinking-ring, .mb-thinking-text, .mb-thinking-dots i, .mb-thinking-scan, .mb-step-pulse, .mb-fade-enter-active, .mb-fade-leave-active, .mb-expand-enter-active, .mb-expand-leave-active, .mb-top-weather.is-scrolling .mb-top-weather-track { animation: none; transition: none; }
   .mb-plan:hover { transform: none; }
 }
 </style>

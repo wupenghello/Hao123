@@ -518,6 +518,37 @@ async function copyCheckoutCmd(name: string) {
   }, 1500)
 }
 
+// ─── 复制标签名 ─────────────────────────────────────
+
+/** 当前复制的标签名（驱动列表行 icon → check 切换） */
+const copiedName = ref('')
+
+async function copyTagName(name: string) {
+  try {
+    await navigator.clipboard.writeText(name)
+  } catch {
+    // 非安全上下文降级：临时 textarea + execCommand
+    const ta = document.createElement('textarea')
+    ta.value = name
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } catch {
+      feedback.danger({ title: '复制失败', message: '请手动选中标签名复制' })
+      return
+    }
+    document.body.removeChild(ta)
+  }
+  feedback.success({ title: '已复制标签', message: name })
+  copiedName.value = name
+  setTimeout(() => {
+    if (copiedName.value === name) copiedName.value = ''
+  }, 1200)
+}
+
 // ─── 删远端 tag（危险）──────────────────────────────
 
 function confirmDeleteRemoteTag(name: string) {
@@ -2476,7 +2507,13 @@ function onBackdropClick() {
                           v-if="!isTagRowHidden(t.name)"
                           class="gd-list-row group"
                           :class="t.localMissing ? '' : 'cursor-pointer'"
+                          :role="t.localMissing ? undefined : 'button'"
+                          :tabindex="t.localMissing ? undefined : 0"
+                          :aria-label="t.localMissing ? undefined : `展开标签 ${t.name} 详情`"
+                          :aria-expanded="t.localMissing ? undefined : (expandedTag === t.name ? 'true' : 'false')"
                           @click="t.localMissing ? null : toggleTagDetail(t)"
+                          @keydown.enter="t.localMissing ? null : toggleTagDetail(t)"
+                          @keydown.space.prevent="t.localMissing ? null : toggleTagDetail(t)"
                         >
                           <IconTag class="w-3.5 h-3.5 flex-shrink-0 text-violet-400/60" />
                           <span
@@ -2485,7 +2522,16 @@ function onBackdropClick() {
                             style="background: rgba(45,212,191,0.14); color: rgb(94,234,212); border-color: rgba(45,212,191,0.24)"
                             title="最新版本标签"
                           >latest</span>
-                        <span class="gd-mono text-violet-300/80 flex-shrink-0">{{ t.name }}</span>
+                          <button
+                            type="button"
+                            class="gd-tag-name-btn"
+                            :title="`复制标签名 ${t.name}`"
+                            :aria-label="`复制标签名 ${t.name}`"
+                            @click.stop="copyTagName(t.name)"
+                          >
+                            <span class="gd-mono text-violet-300/80">{{ t.name }}</span>
+                            <IconCopy class="w-3 h-3 gd-tag-name-copy" :class="{ 'is-copied': copiedName === t.name }" />
+                          </button>
                         <span
                           v-if="t.localMissing"
                           class="gd-badge-sm"
@@ -2668,6 +2714,16 @@ function onBackdropClick() {
                         <template v-else>
                           <div class="gd-tag-meta">
                             <div class="flex items-center gap-2 flex-wrap text-[11px] text-white/40">
+                              <button
+                                type="button"
+                                class="gd-tag-name-btn gd-tag-name-btn--detail"
+                                :title="`复制标签名 ${t.name}`"
+                                :aria-label="`复制标签名 ${t.name}`"
+                                @click.stop="copyTagName(t.name)"
+                              >
+                                <span class="gd-mono text-violet-300/80">{{ t.name }}</span>
+                                <IconCopy class="w-3 h-3 gd-tag-name-copy" :class="{ 'is-copied': copiedName === t.name }" />
+                              </button>
                               <span class="gd-hash">{{ t.hash }}</span>
                               <span class="text-white/20">·</span>
                               <span>{{ fmtDate(t.date) }}</span>
@@ -3208,6 +3264,30 @@ function onBackdropClick() {
 .gd-blame-row:hover { background: rgba(255, 255, 255, 0.03); }
 
 /* ═══ 标签详情面板 ═══ */
+/* ═══ 标签名一键复制 ═══ */
+.gd-tag-name-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0; margin: 0; flex-shrink: 0;
+  background: none; border: 0; cursor: pointer;
+  text-align: left; color: inherit; font: inherit;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.gd-tag-name-btn:hover { background: rgba(167,139,250,0.1); }
+.gd-tag-name-btn:focus-visible { outline: 2px solid var(--accent, #00d9ff); outline-offset: 2px; }
+.gd-tag-name-copy {
+  opacity: 0; flex-shrink: 0; transition: opacity 0.12s, color 0.12s;
+  color: rgba(255,255,255,0.35);
+}
+.gd-list-row:hover .gd-tag-name-copy,
+.gd-tag-name-btn:focus-visible .gd-tag-name-copy,
+.gd-tag-name-btn--detail .gd-tag-name-copy { opacity: 1; }
+.gd-tag-name-btn:hover .gd-tag-name-copy { color: rgb(94,234,212); }
+.gd-tag-name-copy.is-copied { color: rgb(94,234,212); opacity: 1; }
+@media (hover: none) {
+  .gd-tag-name-copy { opacity: 0.6; } /* 触屏始终可见 */
+}
+
 .gd-tag-detail {
   padding: 12px 14px;
   background: rgba(0, 0, 0, 0.18);
