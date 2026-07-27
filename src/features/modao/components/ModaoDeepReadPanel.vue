@@ -42,6 +42,12 @@ const screen = computed(() => result.value?.targetScreen)
 const projectName = computed(() => result.value?.title || result.value?.project?.name || '墨刀原型')
 const screenPath = computed(() => screen.value?.path?.join(' / ') || '')
 const visibleText = computed(() => rendered.value?.currentCanvasText || rendered.value?.visibleText || '')
+/** 可见文案按行拆段：后端抓取已保留块级换行，这里逐行 trim、去空行，每行渲染为一段。 */
+const visibleTextParas = computed(() => {
+  const raw = visibleText.value
+  if (!raw) return []
+  return raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+})
 const buttonTexts = computed(() => rendered.value?.buttonTexts?.filter(Boolean) || [])
 const screenshot = computed(() => rendered.value?.screenshotDataUrl || '')
 const outline = computed<ModaoOutlineGroup[]>(() => result.value?.outline || [])
@@ -166,7 +172,9 @@ onUnmounted(() => abortCtrl?.abort())
       <div class="mdr-grid">
         <section class="mdr-card mdr-text-card">
           <h5><IconTextBox /> 原型可见文案</h5>
-          <p v-if="visibleText" class="mdr-text">{{ visibleText }}</p>
+          <div v-if="visibleTextParas.length" class="mdr-text">
+            <p v-for="(line, i) in visibleTextParas" :key="i">{{ line }}</p>
+          </div>
           <p v-else class="mdr-muted">没有读取到当前页面可见文案。</p>
         </section>
 
@@ -406,6 +414,7 @@ onUnmounted(() => abortCtrl?.abort())
 .mdr-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
 }
 .mdr-card {
@@ -435,13 +444,19 @@ onUnmounted(() => abortCtrl?.abort())
 }
 
 .mdr-text {
-  max-height: 280px;
+  max-height: 340px;
   overflow: auto;
   margin: 0;
   color: rgba(255, 255, 255, 0.82);
   font-size: 13px;
   line-height: 1.75;
-  white-space: pre-wrap;
+}
+.mdr-text p {
+  margin: 0 0 8px;
+  word-break: break-word;
+}
+.mdr-text p:last-child {
+  margin-bottom: 0;
 }
 
 .mdr-outline {

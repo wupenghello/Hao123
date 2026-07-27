@@ -652,7 +652,7 @@ async function renderPublicPageText(url: string, signal?: AbortSignal): Promise<
     throwIfAborted(signal)
     const evaluated = await cdp.call('Runtime.evaluate', {
       expression: `(() => {
-        const text = (el) => String(el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim();
+        const text = (el) => String(el?.innerText || el?.textContent || '').replace(/[^\\S\\n]+/g, ' ').split('\\n').map((l) => l.trim()).filter(Boolean).join('\\n').trim();
         const all = (sel) => Array.from(document.querySelectorAll(sel)).map(text).filter(Boolean);
         return {
           title: document.title || '',
