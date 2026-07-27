@@ -1,25 +1,138 @@
 @import "tailwindcss";
 
-/* TodayOps 工作台主题 v2：off-black 玻璃 + 电光蓝/青柠绿（禁止紫色渐变） */
-:root {
-  /* ====== 规范令牌（spec 通用规范）====== */
-  --accent: #00d9ff;            /* 电光蓝：交互态（hover/focus/active/选中） */
-  --accent-hover: #4fe7ff;
-  --accent-soft: rgba(0, 217, 255, 0.16);
-  --run: #00ff94;               /* 青柠绿：成功 / 运行中 */
-  --run-soft: rgba(0, 255, 148, 0.14);
-  --bg-base: #0a0b0e;           /* off-black，不用纯黑 */
+/* ============================================================
+ * TodayOps Design Tokens · 唯一事实源（Tailwind 4 @theme）
+ * v3 · 深色玻璃拟态收敛版（Phase 0 地基）
+ * ------------------------------------------------------------
+ * 纪律：
+ *  - 本层是唯一事实源：生成 TW 工具类（bg-accent / text-ink-2 /
+ *    rounded-card / shadow-card / ease-out-expo / duration-base …），
+ *    并向 :root 输出 CSS 变量，供组件样式直接 var(--color-*) 引用。
+ *  - 下方 :root 仅为兼容旧代码的「语义别名层」（旧名保留旧值，
+ *    零破坏迁移），消费方随后几期迁移，Phase 4 整体收割。
+ *  - 玻璃只给悬浮物（状态栏 / 命令面板 / 详情弹窗 / hover 卡 /
+ *    GitDashboard overlay）；数据密集卡片用 .surface-solid /
+ *    .surface-raised 实底（锐利 + 性能）。
+ *  - 海拔表达 = 亮度阶梯（每层 +4-8%）+ 阴影，不靠 blur 强度。
+ *  - 动效三档：ambient ≥20s ease-loop / 微交互 120-200ms /
+ *    结构切换 320-480ms；禁止 linear 循环。
+ * ============================================================ */
+@theme {
+  /* —— 背景亮度阶梯（近黑非纯黑）—— */
+  --color-base: #0a0c10;
+  --color-raised: #0e1116;
+  --color-overlay: #12151c;
 
-  --color-primary: var(--accent);
-  --color-primary-hover: var(--accent-hover);
-  --color-success: var(--run);
+  /* —— 表面（white α 亮度台阶）—— */
+  --color-surface: rgba(255, 255, 255, 0.05);
+  --color-surface-hover: rgba(255, 255, 255, 0.07);
+  --color-surface-strong: rgba(255, 255, 255, 0.09);
+
+  /* —— 主 / 辅色（电光蓝为唯一交互主色；teal 为数据第二序列 / Git 领域色）—— */
+  --color-accent: #00d9ff;
+  --color-accent-strong: #4fe7ff;
+  --color-accent-soft: rgba(0, 217, 255, 0.14);
+  --color-teal: #2dd4bf;
+  --color-teal-soft: rgba(45, 212, 191, 0.14);
+
+  /* —— 状态色（徽标化，从不整卡染色）—— */
+  --color-success: #3ecf8e;
+  --color-success-soft: rgba(62, 207, 142, 0.14);
+  --color-warning: #f5a524;
+  --color-warning-soft: rgba(245, 165, 36, 0.14);
+  --color-danger: #f4587a;
+  --color-danger-soft: rgba(244, 88, 122, 0.14);
+
+  /* —— 文字阶梯（α 白）—— */
+  --color-ink: rgba(255, 255, 255, 0.92);
+  --color-ink-2: rgba(255, 255, 255, 0.64);
+  --color-ink-3: rgba(255, 255, 255, 0.44);
+  --color-ink-4: rgba(255, 255, 255, 0.3);
+
+  /* —— 边框阶梯 —— */
+  --color-line-hair: rgba(255, 255, 255, 0.06);
+  --color-line: rgba(255, 255, 255, 0.09);
+  --color-line-hover: rgba(255, 255, 255, 0.16);
+  --color-line-glass: rgba(255, 255, 255, 0.18);
+  --color-line-focus: rgba(0, 217, 255, 0.55);
+
+  /* —— 圆角（不覆盖 TW 默认刻度，只注册新名）—— */
+  --radius-tag: 4px;
+  --radius-btn: 8px;
+  --radius-card: 16px;
+  --radius-panel: 20px;
+
+  /* —— 阴影（深色上阴影要「够黑」的双层）—— */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px -12px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.45), 0 18px 44px -12px rgba(0, 0, 0, 0.65);
+  --shadow-floating: 0 4px 8px rgba(0, 0, 0, 0.45), 0 24px 64px -16px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-glow: 0 0 0 1px rgba(0, 217, 255, 0.35), 0 0 24px -6px rgba(0, 217, 255, 0.4);
+
+  /* —— 动效 —— */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-loop: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-medium: 320ms;
+  --duration-slow: 480ms;
+  --animate-enter: enter 320ms var(--ease-out-expo) both;
+  --animate-aurora: aurora-drift 44s var(--ease-loop) infinite alternate;
+
+  /* —— 字体（Inter 走拉丁正文 / JetBrains Mono 走数据；CJK 回退系统字体）—— */
+  --font-sans: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular",
+    monospace;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes aurora-drift {
+    from {
+      transform: translate3d(-2%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(2%, 1.5%, 0) scale(1.06);
+    }
+  }
+}
+
+/* ============================================================
+ * 语义别名层（兼容旧代码；新代码禁止引用本层名字）
+ * ------------------------------------------------------------
+ * Phase 0 零视觉变化红线：旧名一律保留「旧值」；
+ * 唯一例外是 --accent-hover / --accent-soft 的双重定义裁决
+ * （style.css 曾二代覆盖一代，现统一到电光蓝族）。
+ * 其余旧名待后续期次迁移消费方后，Phase 4 整体删除。
+ * ============================================================ */
+:root {
+  /* —— 一代规范令牌（双重定义已裁决）—— */
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-strong);   /* 裁决：删二代重复定义 #7dd3fc */
+  --accent-soft: var(--color-accent-soft);      /* 裁决：删二代重复定义 rgba(56,189,248,.12) */
+  --run: #00ff94;
+  --run-soft: rgba(0, 255, 148, 0.14);
+  --bg-base: #0a0b0e;
+
+  --color-primary: var(--color-accent);
+  --color-primary-hover: var(--color-accent-strong);
   --color-bg: var(--bg-base);
-  --color-surface: rgba(18, 20, 26, 0.62);
   --color-text: #e6f6ff;
   --color-text-secondary: rgba(190, 230, 252, 0.62);
   --color-border: rgba(0, 217, 255, 0.16);
 
-  /* ====== 语义表面令牌（新增，供逐模块迁移；不覆盖旧模块颜色）====== */
+  /* —— 二代语义令牌（保留旧值；Phase 1 重映射到白色 α 阶梯 / 新主色）—— */
   --surface-overlay: rgba(5, 10, 20, 0.78);
   --surface-canvas: #0f1a2a;
   --surface-raised: #142238;
@@ -31,10 +144,8 @@
   --text-primary: #e8eef7;
   --text-secondary: #a8b5c7;
   --text-muted: #74839a;
-  --accent-primary: #38bdf8;
-  --accent-hover: #7dd3fc;
+  --accent-primary: #38bdf8;      /* 保留旧值；Phase 1 → var(--color-accent) */
   --accent-contrast: #07111f;
-  --accent-soft: rgba(56, 189, 248, 0.12);
   --status-success: #34d399;
   --status-success-soft: rgba(52, 211, 153, 0.1);
   --status-warning: #f59e0b;
@@ -46,36 +157,20 @@
   --shadow-raised: 0 12px 32px rgba(2, 6, 23, 0.32);
   --shadow-modal: 0 24px 72px rgba(2, 6, 23, 0.48);
 
-  /* 兼容旧令牌（逐模块迁移到规范令牌期间保留，避免大面积破损） */
+  /* —— 遗留 HUD 令牌（保留旧值；hud-panel 套件与其消费者 Phase 1 起逐步换契约）—— */
   --hud-bg: rgba(10, 11, 14, 0.58);
   --hud-bg-strong: rgba(10, 11, 14, 0.8);
   --hud-line: rgba(0, 217, 255, 0.18);
   --hud-line-soft: rgba(0, 217, 255, 0.1);
-  --hud-cyan: var(--accent);
-  --hud-teal: #2dd4bf;
-  --hud-violet: var(--accent);   /* 紫色退役：旧引用回退到电光蓝，逐模块清理 */
+  --hud-cyan: var(--color-accent);
+  --hud-teal: var(--color-teal);
+  --hud-violet: var(--color-accent);   /* 紫色退役：旧引用回退到电光蓝 */
   --hud-warn: #fbbf24;
   --hud-danger: #fb7185;
   --hud-glow: 0 0 36px rgba(0, 217, 255, 0.2);
-  --hud-font-data: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+  --hud-font-data: var(--font-mono);
 
-  /* ====== 设计基座 token ======
-   * 字体：Inter 走拉丁正文 / JetBrains Mono 走数据；CJK 自动回退到系统字体。
-   * 圆角：spec 规定 卡片16 / 按钮8 / 标签4，刻意不统一。
-   * 间距：4px 基线。
-   * 海拔：贴地→悬浮三档 + glow，统一毛玻璃层级感。
-   * 动效：统一 200–300ms cubic-bezier，禁止 linear。
-   */
-  --font-sans: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    "Hiragino Sans GB", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-  --font-mono: var(--hud-font-data);
-
-  /* 规范圆角（spec） */
-  --radius-card: 16px;
-  --radius-btn: 8px;
-  --radius-tag: 4px;
-  /* 通用圆角阶梯（兼容旧引用 + 细粒度控制） */
+  /* —— 设计基座兼容名（tag/btn/card 已由 @theme 提供，此处只留阶梯别名）—— */
   --radius-xs: var(--radius-tag);
   --radius-sm: var(--radius-btn);
   --radius-md: 12px;
@@ -94,20 +189,26 @@
   --elev-3: 0 24px 72px rgba(0, 0, 0, 0.38);                     /* 悬浮面板 / 弹窗 */
   --elev-glow: 0 0 0 1px var(--accent-soft), 0 0 28px rgba(0, 217, 255, 0.18); /* 聚焦 glow */
 
-  /* 动效（spec：200–300ms cubic-bezier，禁 linear） */
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: var(--ease-out-quint);
+  --ease-out: var(--ease-out-expo);
   --dur-fast: 160ms;
   --dur: 240ms;
   --dur-slow: 320ms;
 
-  /* 文本尺度阶梯（克制信息密度，但保留层次） */
+  /* —— 文本尺度（刻意保留在 :root：覆盖 TW 默认刻度属 Phase 4 有意为之，届时配截图走查）—— */
   --text-xs: 11px;
   --text-sm: 12.5px;
   --text-base: 14px;
   --text-lg: 17px;
   --text-xl: 21px;
   --text-2xl: 28px;
+
+  /* —— 玻璃配方复合变量（供 class 契约引用）—— */
+  --glass-blur-subtle: blur(8px) saturate(140%);
+  --glass-blur: blur(16px) saturate(160%);
+  --glass-blur-strong: blur(24px) saturate(180%);
+  --highlight-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+  --highlight-inset-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
 }
 
 html,
@@ -195,12 +296,155 @@ select:focus-visible {
   background: rgba(0, 217, 255, 0.28);
 }
 
+/* ============================================================
+ * 全局 class 契约（Phase 0 立约；消费方自 Phase 1 起逐步套用）
+ * 纪律：
+ *  - 玻璃只给悬浮物；数据密集卡片用 .surface-solid / .surface-raised。
+ *  - 海拔 = .elev-0..3（声明在表面类之后，可覆盖阴影）。
+ *  - 所有 transition 走 token 时长 / 曲线，禁止裸写秒数。
+ * ============================================================ */
+
+/* —— 表面契约 —— */
+.glass-subtle,
+.glass,
+.glass-strong {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+}
+.glass-subtle {                       /* sticky / 状态栏档：越便宜越好 */
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: var(--glass-blur-subtle);
+  backdrop-filter: var(--glass-blur-subtle);
+  box-shadow: var(--highlight-inset-glass), var(--shadow-card);
+}
+.glass {                              /* 常规玻璃卡 */
+  background: rgba(255, 255, 255, 0.06);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--highlight-inset-glass), var(--shadow-card);
+}
+.glass-strong {                       /* 命令面板 / 模态档 */
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--color-line-glass);
+  border-radius: var(--radius-panel);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  backdrop-filter: var(--glass-blur-strong);
+  box-shadow: var(--highlight-inset-glass), var(--shadow-floating);
+}
+.surface-solid {                      /* 实底卡：white 5% 亮度阶（数据密集区默认） */
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--highlight-inset), var(--shadow-card);
+}
+.surface-raised {                     /* 实底第二阶，嵌套容器 */
+  background: var(--color-raised);
+  border: 1px solid var(--color-line-hair);
+  border-radius: var(--radius-card);
+}
+
+/* —— 海拔契约 —— */
+.elev-0 { box-shadow: none; }
+.elev-1 { box-shadow: var(--highlight-inset), 0 1px 2px rgba(0, 0, 0, 0.45); }  /* 行项 / chip */
+.elev-2 { box-shadow: var(--highlight-inset), var(--shadow-card); }             /* 卡片 */
+.elev-3 { box-shadow: var(--highlight-inset-glass), var(--shadow-floating); }   /* 浮层 */
+.elev-glow { box-shadow: var(--shadow-glow); }                                  /* 选中 / 关键态 */
+
+/* —— 交互契约 —— */
+.card-lift {
+  transition:
+    transform var(--duration-base) var(--ease-out-expo),
+    box-shadow var(--duration-base) var(--ease-out-expo),
+    border-color var(--duration-fast) var(--ease-out-quint);
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-line-hover);
+  box-shadow: var(--highlight-inset-glass), var(--shadow-card-hover);
+}
+.tnum { font-variant-numeric: tabular-nums; }
+.kpi-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* —— 进场契约（stagger 经 --i 错峰，天然封顶前 6 项）—— */
+.enter { animation: var(--animate-enter); }
+.stagger > * {
+  animation: var(--animate-enter);
+  animation-delay: calc(min(var(--i, 0), 5) * 50ms);
+}
+
+/* —— overlay 转场：<Transition name="t-fade-rise"> / "t-fade-scale" —— */
+.t-fade-rise-enter-active {
+  transition:
+    opacity var(--duration-medium) var(--ease-out-expo),
+    transform var(--duration-medium) var(--ease-out-expo);
+}
+.t-fade-rise-leave-active {
+  transition:
+    opacity var(--duration-base) var(--ease-exit),
+    transform var(--duration-base) var(--ease-exit);
+}
+.t-fade-rise-enter-from,
+.t-fade-rise-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+}
+
+.t-fade-scale-enter-active {
+  transition:
+    opacity var(--duration-medium) var(--ease-out-expo),
+    transform var(--duration-medium) var(--ease-out-expo);
+}
+.t-fade-scale-leave-active {
+  transition:
+    opacity var(--duration-base) var(--ease-exit),
+    transform var(--duration-base) var(--ease-exit);
+}
+.t-fade-scale-enter-from,
+.t-fade-scale-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+/* —— 静态 tilt（列表小卡备选，零 JS；仅精确指针设备）—— */
+@media (hover: hover) and (pointer: fine) {
+  .tilt-static {
+    transform-style: preserve-3d;
+    transition: transform var(--duration-medium) cubic-bezier(0.03, 0.98, 0.52, 0.99);
+  }
+  .tilt-static:hover {
+    transform: perspective(1000px) rotateX(1.5deg) rotateY(-1.5deg) translateY(-2px);
+  }
+}
+
+/* —— 兜底：不支持模糊 / 系统要求降低透明度 —— */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-subtle,
+  .glass,
+  .glass-strong {
+    background: rgba(18, 21, 28, 0.92);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-subtle,
+  .glass,
+  .glass-strong {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgb(18, 21, 28);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
 }
@@ -209,6 +453,8 @@ select:focus-visible {
  * HUD 全息玻璃面板 —— 悬浮面板 / 弹窗的统一视觉基座
  * 与 DetailModal 的卡片同源，数值保持一致；任何「详情弹窗 / 浮层卡片」
  * 都应套用本基座，避免各模块自造玻璃质感（禁止再用单色半透明 .glass-dark）。
+ * 融合路线：角框 / 流光 / sheen 是 GitDashboard 与详情弹窗的保留个性，
+ * 常规卡片不套用（走上方 .glass / .surface-* 契约）。
  * 用法：
  *   <div class="hud-panel hud-sheen relative rounded-[20px] ...">
  *     <div class="hud-accent-bar hud-accent-bar--cyan" />
