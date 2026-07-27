@@ -25,6 +25,7 @@ import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { ProgressRing, Sparkline } from '@/components/viz'
 import { getWeatherIcon } from '@/features/weather'
 import WbscfServicesCard from '@/components/wbscf/WbscfServicesCard.vue'
+import { useTilt } from '@/composables/useTilt'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
@@ -35,6 +36,16 @@ const localStore = useLocalTaskStore()
 const wbscfCardEnabled = import.meta.env.DEV && !!import.meta.env.VITE_WBSCF_WEB_ROOT?.trim()
 /** 风险预测汇总（纯启发式，始终可用）——驱动「风险雷达」环 */
 const { summary } = useInboxInsights()
+
+// ============ 3D tilt：顶行四小卡跟手（仅精确指针 + 非减动效，守卫见 useTilt）============
+const heroRef = ref<HTMLElement | null>(null)
+const signalsRef = ref<HTMLElement | null>(null)
+const radarRef = ref<HTMLElement | null>(null)
+const weatherRef = ref<HTMLElement | null>(null)
+useTilt(heroRef, { max: 6, maxGlare: 0.2 })
+useTilt(signalsRef, { max: 6, maxGlare: 0.2 })
+useTilt(radarRef, { max: 6, maxGlare: 0.2 })
+useTilt(weatherRef, { max: 6, maxGlare: 0.2 })
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -182,13 +193,13 @@ function finishOnboarding() {
   <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
   <div class="welcome-shell" :class="{ 'is-inbox-max': inboxMax }">
     <!-- 本地 dev 服务状态卡（仅 dev + wbscf-web 配置后、且探测到服务时出现） -->
-    <WbscfServicesCard v-if="wbscfCardEnabled" class="welcome-services" />
+    <WbscfServicesCard v-if="wbscfCardEnabled" class="welcome-services enter" />
 
     <!-- 平铺 bento：顶部一行小卡（hero/信号/风险/温度），底部一行两张高卡（晨报/收件箱）。
          收件箱不再是唯一主角，降级成一张普通 bento 卡。 -->
-    <div class="welcome-bento">
+    <div class="welcome-bento stagger">
       <!-- bento 单元 A：问候 hero —— 今日信号总览 -->
-      <header class="bento-cell bento-hero">
+      <header ref="heroRef" class="bento-cell bento-hero" style="--i: 0">
         <p class="bento-kicker">today signal</p>
         <h1 class="bento-title">{{ greeting }} · {{ dateStr }}</h1>
         <Transition name="guide-fade">
@@ -201,7 +212,7 @@ function finishOnboarding() {
       </header>
 
       <!-- bento 单元 B：今日信号迷你瓦片（任务 / Bug / 本地，纯计数） -->
-      <div class="bento-cell bento-signals" aria-label="工作项计数">
+      <div ref="signalsRef" class="bento-cell bento-signals" aria-label="工作项计数" style="--i: 1">
         <button
           v-for="s in signals"
           :key="s.key"
@@ -217,7 +228,7 @@ function finishOnboarding() {
       </div>
 
       <!-- bento 单元 C：风险雷达（分段环，insights summary，始终可用） -->
-      <div class="bento-cell bento-radar" aria-label="风险雷达">
+      <div ref="radarRef" class="bento-cell bento-radar" aria-label="风险雷达" style="--i: 2">
         <div class="bento-section-label">
           <span class="bento-kicker">risk radar</span>
         </div>
@@ -258,9 +269,11 @@ function finishOnboarding() {
       <!-- bento 单元 D：沉浸式天气卡（大号等宽温度 + 天气图标 + 氛围背景 + 降水 sparkline） -->
       <div
         v-if="weather.now"
+        ref="weatherRef"
         class="bento-cell bento-weather"
         :data-ambient="weatherAmbient"
         aria-label="天气"
+        style="--i: 3"
       >
         <!-- 顶部：城市 + 天气文字 -->
         <div class="weather-card-head">
@@ -307,10 +320,10 @@ function finishOnboarding() {
       </div>
 
       <!-- bento 单元 E：每日晨报（高卡，左侧） -->
-      <MorningBriefing class="bento-cell bento-briefing" />
+      <MorningBriefing class="bento-cell bento-briefing" style="--i: 4" />
 
       <!-- bento 单元 F：统一收件箱（高卡，右侧，不再是唯一主角） -->
-      <section class="bento-cell bento-inbox" aria-label="统一收件箱">
+      <section class="bento-cell bento-inbox" aria-label="统一收件箱" style="--i: 5">
         <UnifiedInbox @maximize="inboxMax = $event" />
       </section>
     </div>
@@ -850,18 +863,8 @@ function finishOnboarding() {
 .guide-fade-enter-from { opacity: 0; transform: translateY(-6px); }
 .guide-fade-leave-to { opacity: 0; }
 
-/* ===== bento 进场：错峰淡入上浮，呼吸感 ===== */
-.welcome-services { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; flex-shrink: 0; }
-.bento-hero { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.bento-signals { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
-.bento-radar { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
-.bento-weather { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
-.bento-briefing { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both; }
-.bento-inbox { animation: bento-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both; }
-@keyframes bento-rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* ===== bento 进场：全局契约 .stagger（enter 320ms expo + 50ms 错峰，--i 行内注入，前 6 项封顶） ===== */
+.welcome-services { flex-shrink: 0; }
 /* 窄屏：bento 退回单列堆叠，整页可滚 */
 @media (max-width: 980px) {
   .welcome-shell {
@@ -905,13 +908,6 @@ function finishOnboarding() {
 
 @media (prefers-reduced-motion: reduce) {
   .welcome-urgent-dot { animation: none; }
-  .bento-hero,
-  .bento-signals,
-  .bento-radar,
-  .bento-weather,
-  .bento-briefing,
-  .bento-inbox,
-  .welcome-services { animation: none; }
   .signal-tile { transition: none; }
   .signal-tile:hover { transform: none; box-shadow: none; }
   .welcome-onboard-btn,

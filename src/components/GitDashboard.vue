@@ -17,6 +17,7 @@ import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useGitDashboard } from '@/features/git'
 import { useChatStore } from '@/features/chat'
 import { useFeedback } from '@/features/feedback'
+import { useTilt } from '@/composables/useTilt'
 import type { GitBlameLine, GitReflogEntry, GitCommit, GitTag } from '@/features/git'
 import GitDiffBox from '@/components/GitDiffBox.vue'
 import GitBranchesPanel from '@/components/git-dashboard/GitBranchesPanel.vue'
@@ -79,6 +80,16 @@ const actionBannerClass = computed(() => {
 
 type TabKey = 'overview' | 'branches' | 'commits' | 'changes' | 'stash' | 'tags'
 const activeTab = ref<TabKey>('overview')
+
+// ============ 3D tilt：概览健康卡 + 四张统计 tile（仅精确指针 + 非减动效，守卫见 useTilt）============
+const healthRef = ref<HTMLElement | null>(null)
+const statStagedRef = ref<HTMLElement | null>(null)
+const statModifiedRef = ref<HTMLElement | null>(null)
+const statUntrackedRef = ref<HTMLElement | null>(null)
+const statSyncRef = ref<HTMLElement | null>(null)
+for (const tiltRef of [healthRef, statStagedRef, statModifiedRef, statUntrackedRef, statSyncRef]) {
+  useTilt(tiltRef, { max: 8, maxGlare: 0.3 })
+}
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'branches', label: '分支' },
@@ -1563,13 +1574,7 @@ function onBackdropClick() {
       >
         <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
 
-        <Transition
-          appear
-          enter-active-class="transition-all duration-300 ease-out"
-          leave-active-class="transition-all duration-200 ease-in"
-          enter-from-class="opacity-0 translate-y-3 scale-[0.97]"
-          leave-to-class="opacity-0 translate-y-2 scale-[0.98]"
-        >
+        <Transition name="t-fade-scale" appear>
           <div
             class="hud-panel hud-sheen relative z-10 w-[94vw] max-w-[960px] h-[90vh] flex flex-col overflow-hidden rounded-[20px]"
             @click.stop
@@ -1791,7 +1796,7 @@ function onBackdropClick() {
               <div v-else-if="activeTab === 'overview'" class="space-y-5 p-5">
                 <!-- 仓库健康判断（可点交给小吴） -->
                 <div class="gd-health-wrap">
-                  <div class="gd-health" :class="`tone-${healthCue.tone}`" :title="aiReady ? '点击让小吴排出处理顺序' : ''">
+                  <div ref="healthRef" class="gd-health" :class="`tone-${healthCue.tone}`" :title="aiReady ? '点击让小吴排出处理顺序' : ''">
                     <div class="gd-health-icon">
                       <IconCheck v-if="healthCue.tone === 'ok'" class="w-4 h-4" />
                       <IconAlert v-else class="w-4 h-4" />
@@ -1842,19 +1847,19 @@ function onBackdropClick() {
 
                 <!-- 统计卡片 -->
                 <div class="grid grid-cols-4 gap-3">
-                  <div class="gd-stat">
+                  <div ref="statStagedRef" class="gd-stat">
                     <div class="gd-stat-label">已暂存</div>
                     <div class="gd-stat-value text-emerald-400">{{ dash.status.value.staged.length }}</div>
                   </div>
-                  <div class="gd-stat">
+                  <div ref="statModifiedRef" class="gd-stat">
                     <div class="gd-stat-label">已修改</div>
                     <div class="gd-stat-value text-amber-400">{{ dash.status.value.modified.length }}</div>
                   </div>
-                  <div class="gd-stat">
+                  <div ref="statUntrackedRef" class="gd-stat">
                     <div class="gd-stat-label">未跟踪</div>
                     <div class="gd-stat-value text-sky-400">{{ dash.status.value.untracked.length }}</div>
                   </div>
-                  <div class="gd-stat">
+                  <div ref="statSyncRef" class="gd-stat">
                     <div class="gd-stat-label">同步</div>
                     <div class="gd-stat-value">
                       <template v-if="dash.sync.value.hasUpstream">
@@ -3053,6 +3058,7 @@ function onBackdropClick() {
 /* ═══ 仓库健康判断 ═══ */
 .gd-health-wrap { position: relative; }
 .gd-health {
+  overflow: hidden; /* tilt glare 裁切 */
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border-radius: 14px;
   background: rgba(255, 255, 255, 0.035);
@@ -3089,6 +3095,7 @@ function onBackdropClick() {
 
 /* ═══ 统计卡片 ═══ */
 .gd-stat {
+  overflow: hidden; /* tilt glare 裁切 */
   padding: 12px 14px; border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);

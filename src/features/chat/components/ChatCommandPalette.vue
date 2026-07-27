@@ -1239,7 +1239,7 @@ onUnmounted(() => {
         <div class="cmd-backdrop" @click="store.close()" />
 
         <!-- 面板 -->
-        <Transition name="cmd-pop" appear>
+        <Transition name="t-fade-rise" appear>
           <section
             v-if="store.open"
             ref="panelEl"
@@ -3085,10 +3085,6 @@ onUnmounted(() => {
 .activity-expand-enter-to, .activity-expand-leave-from { max-height: 220px; }
 .cmd-fade-enter-active, .cmd-fade-leave-active { transition: opacity var(--dur) var(--ease); }
 .cmd-fade-enter-from, .cmd-fade-leave-to { opacity: 0; }
-.cmd-pop-enter-active { transition: opacity var(--dur) var(--ease), transform var(--dur) cubic-bezier(0.22, 1, 0.36, 1); }
-.cmd-pop-leave-active { transition: opacity 0.16s var(--ease), transform 0.16s var(--ease); }
-.cmd-pop-enter-from { opacity: 0; transform: translateY(-12px) scale(0.96); }
-.cmd-pop-leave-to { opacity: 0; transform: translateY(-8px) scale(0.98); }
 .cmd-jump-enter-active, .cmd-jump-leave-active { transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
 .cmd-jump-enter-from, .cmd-jump-leave-to { opacity: 0; transform: translateY(6px); }
 
@@ -3363,8 +3359,8 @@ onUnmounted(() => {
     0 0 0 1px rgba(45,212,191,.12),
     0 0 28px -6px rgba(45,212,191,.16),
     inset 0 1px 0 rgba(255,255,255,.07);
-  backdrop-filter: blur(20px) saturate(132%);
-  -webkit-backdrop-filter: blur(20px) saturate(132%);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 .cmd-card.is-immersive {
   border-radius: 0;
