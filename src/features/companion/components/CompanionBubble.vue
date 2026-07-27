@@ -168,7 +168,7 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, #34d399 30%, rgba(148, 163, 184, 0.18));
 }
 .cp-bubble.is-insight {
-  border-color: color-mix(in srgb, #a78bfa 34%, rgba(148, 163, 184, 0.18));
+  border-color: color-mix(in srgb, #2dd4bf 34%, rgba(148, 163, 184, 0.18));
 }
 @media (max-width: 480px) {
   .cp-bubble {

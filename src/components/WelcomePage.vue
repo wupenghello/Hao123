@@ -334,15 +334,16 @@ function finishOnboarding() {
 
 <style scoped>
 .welcome-shell {
-  --home-tone: var(--accent);
-  --home-tone-2: #2dd4bf;
-  --home-success: var(--run);
-  --home-warning: #fbbf24;
-  --home-danger: #fb7185;
-  --home-border: rgba(148, 163, 184, 0.16);
-  --home-text: rgba(248, 250, 252, 0.92);
-  --home-muted: rgba(226, 232, 240, 0.62);
-  --home-warm: #fbbf24;
+  /* 局部调色板收敛到全局 token（Phase 1） */
+  --home-tone: var(--color-accent);
+  --home-tone-2: var(--color-teal);
+  --home-success: var(--color-success);
+  --home-warning: var(--color-warning);
+  --home-danger: var(--color-danger);
+  --home-border: var(--color-line);
+  --home-text: var(--color-ink);
+  --home-muted: var(--color-ink-2);
+  --home-warm: var(--color-warning);
   position: relative;
   width: 100%;
   height: 100%;
@@ -420,12 +421,9 @@ function finishOnboarding() {
   overflow: hidden;
   border: 1px solid var(--home-border);
   border-radius: var(--radius-card);
-  background: rgba(16, 24, 40, 0.52);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    var(--elev-2);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  /* 实底亮度阶：数据密集卡不上 backdrop-filter（锐利 + 性能），aurora 自卡间隙透出 */
+  background: var(--color-surface);
+  box-shadow: var(--highlight-inset), var(--shadow-card);
 }
 /* bento 单元 B（信号瓦片）横向铺开，自身是瓦片容器而非卡片 */
 .bento-signals {
@@ -683,7 +681,7 @@ function finishOnboarding() {
     radial-gradient(circle at 16% 88%, rgba(14, 165, 233, 0.16), transparent 58%);
 }
 .bento-weather[data-ambient='storm']::before {
-  background: radial-gradient(circle at 76% 14%, rgba(167, 139, 250, 0.2), transparent 58%),
+  background: radial-gradient(circle at 76% 14%, rgba(0, 217, 255, 0.2), transparent 58%),
     radial-gradient(circle at 18% 88%, rgba(56, 189, 248, 0.18), transparent 60%);
 }
 .bento-weather[data-ambient='snow']::before {

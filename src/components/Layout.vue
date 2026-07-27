@@ -60,9 +60,6 @@ onUnmounted(() => stopStorageHealthMonitor())
 <style scoped>
 .layout-shell {
   position: relative;
-  background:
-    radial-gradient(circle at 72% 10%, rgba(125, 211, 252, 0.12), transparent 28%),
-    radial-gradient(circle at 10% 92%, rgba(45, 212, 191, 0.1), transparent 26%);
 }
 .layout-shell::before {
   content: '';
@@ -70,26 +67,6 @@ onUnmounted(() => stopStorageHealthMonitor())
   inset: 36px 0 0;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.24));
-}
-.layout-shell::after {
-  content: '';
-  position: absolute;
-  inset: -25%;
-  z-index: 0;
-  pointer-events: none;
-  background: conic-gradient(from 200deg at 50% 50%,
-    transparent 0deg,
-    rgba(0, 217, 255, 0.06) 50deg,
-    transparent 130deg,
-    rgba(45, 212, 191, 0.05) 210deg,
-    transparent 300deg);
-  filter: blur(50px);
-  mix-blend-mode: screen;
-  opacity: 0.7;
-  animation: layout-aurora 28s linear infinite;
-}
-@keyframes layout-aurora {
-  to { transform: rotate(360deg); }
 }
 
 .status-brand {
@@ -103,15 +80,15 @@ onUnmounted(() => stopStorageHealthMonitor())
   color: rgba(224, 242, 254, 0.96);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  text-shadow: 0 0 16px rgba(125, 211, 252, 0.38);
+  text-shadow: 0 0 16px rgba(0, 217, 255, 0.3);
 }
 .status-brand::before {
   content: '';
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--hud-teal);
-  box-shadow: 0 0 12px rgba(94, 234, 212, 0.82);
+  background: var(--color-accent);
+  box-shadow: 0 0 12px rgba(0, 217, 255, 0.6);
 }
 /* 宽屏：悬浮 NavRail（收起 50px + 左 14px + 间距）占住左侧，主内容右移避免被遮 */
 @media (min-width: 1080px) {

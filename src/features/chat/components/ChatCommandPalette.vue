@@ -2078,8 +2078,8 @@ onUnmounted(() => {
   background: linear-gradient(180deg, rgba(13, 17, 24, 0.92), rgba(7, 10, 16, 0.96));
   color: var(--cmd-text);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 .cmd-card.is-immersive {
   border-width: 0;

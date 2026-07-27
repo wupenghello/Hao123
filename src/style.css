@@ -226,11 +226,8 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
   color: var(--color-text);
-  background:
-    radial-gradient(circle at 16% 14%, rgba(0, 217, 255, 0.16), transparent 30%),
-    radial-gradient(circle at 86% 22%, rgba(0, 217, 255, 0.08), transparent 34%),
-    radial-gradient(circle at 60% 88%, rgba(45, 212, 191, 0.1), transparent 30%),
-    linear-gradient(150deg, #0a0b0e 0%, #0b0d12 45%, #0a0b0e 100%);
+  /* 三层背景封顶：单色底（此处）→ aurora 光斑（::before）→ 点阵+网格（::after） */
+  background: var(--color-base);
   min-height: 100vh;
 }
 
@@ -244,22 +241,22 @@ body::after {
 
 body::before {
   z-index: -2;
-  opacity: 0.52;
-  background-image:
-    radial-gradient(circle, rgba(255,255,255,0.62) 0 1px, transparent 1.4px),
-    radial-gradient(circle, rgba(125,211,252,0.32) 0 1px, transparent 1.6px);
-  background-size: 96px 96px, 154px 154px;
-  background-position: 12px 18px, 60px 40px;
+  background:
+    radial-gradient(620px 440px at 12% -10%, rgba(0, 217, 255, 0.13), transparent 62%),
+    radial-gradient(540px 420px at 88% -4%, rgba(45, 212, 191, 0.09), transparent 58%),
+    radial-gradient(780px 560px at 50% 112%, rgba(0, 217, 255, 0.05), transparent 64%);
+  animation: var(--animate-aurora); /* 44s ease-in-out 漂移；reduced-motion 由全局块兜底 */
 }
 
 body::after {
   z-index: -1;
-  opacity: 0.2;
-  background:
-    linear-gradient(rgba(125, 211, 252, 0.14) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(125, 211, 252, 0.12) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(circle at 55% 48%, black, transparent 72%);
+  opacity: 0.3;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.4px),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 96px 96px, 48px 48px, 48px 48px;
+  mask-image: radial-gradient(circle at 55% 48%, black, transparent 78%);
 }
 
 button,
@@ -540,7 +537,7 @@ select:focus-visible {
   flex-shrink: 0;
   background-size: 200% 100%;
   box-shadow: 0 0 12px rgba(45, 212, 191, 0.5);
-  animation: hud-accent-flow 3.5s linear infinite;
+  animation: hud-accent-flow 3.5s ease-in-out infinite;
 }
 .hud-accent-bar--cyan {
   background: linear-gradient(90deg, #38bdf8, #2dd4bf, #38bdf8);

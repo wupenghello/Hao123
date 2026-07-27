@@ -497,13 +497,13 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
   inset: 0;
   background:
     radial-gradient(circle at 22% 16%, rgba(34, 211, 238, 0.18), transparent 34%),
-    radial-gradient(circle at 84% 80%, rgba(167, 139, 250, 0.14), transparent 32%),
+    radial-gradient(circle at 84% 80%, rgba(45, 212, 191, 0.14), transparent 32%),
     rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(16px) saturate(140%);
 }
 .lt-form-card {
   --lt-tone: #22d3ee;
-  --lt-tone-2: #a78bfa;
+  --lt-tone-2: var(--color-teal);
   --lt-success: #34d399;
   --lt-warning: #fbbf24;
   --lt-danger: #fb7185;

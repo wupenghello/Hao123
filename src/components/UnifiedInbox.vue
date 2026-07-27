@@ -613,7 +613,7 @@ function groupOpen(key: string) {
 }
 
 /** 需求线配色：按线索名 hash 取一个稳定颜色，让同一线一眼可辨 */
-const THREAD_COLORS = ['#818cf8', '#38bdf8', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#2dd4bf', '#fb7185']
+const THREAD_COLORS = ['#818cf8', '#38bdf8', '#34d399', '#fbbf24', '#f472b6', '#5eead4', '#2dd4bf', '#fb7185']
 function threadColor(label: string): string {
   let h = 0
   for (const c of label) h = (h * 31 + c.charCodeAt(0)) >>> 0
@@ -1469,30 +1469,24 @@ onUnmounted(() => {
 
 <style scoped>
 .zt-panel {
-  --zt-tone: #22d3ee;
-  --zt-tone-2: #a78bfa;
-  --zt-success: #34d399;
-  --zt-warning: #fbbf24;
-  --zt-danger: #fb7185;
-  --zt-border: rgba(148, 163, 184, 0.16);
+  /* 局部调色板收敛到全局 token（Phase 1；紫退役 → teal） */
+  --zt-tone: var(--color-accent);
+  --zt-tone-2: var(--color-teal);
+  --zt-success: var(--color-success);
+  --zt-warning: var(--color-warning);
+  --zt-danger: var(--color-danger);
+  --zt-border: var(--color-line);
   position: relative;
   display: flex;
   width: 100%;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--zt-tone) 24%, var(--zt-border));
+  border: 1px solid color-mix(in srgb, var(--zt-tone) 18%, var(--zt-border));
   border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(2, 6, 23, 0.38)),
-    linear-gradient(115deg, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 38%),
-    linear-gradient(245deg, color-mix(in srgb, var(--zt-tone-2) 7%, transparent), transparent 42%),
-    rgba(2, 6, 23, 0.36);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    inset 0 0 0 1px rgba(255,255,255,0.03),
-    0 24px 82px rgba(0,0,0,0.32);
-  backdrop-filter: blur(20px) saturate(135%);
+  /* 实底亮度阶：列表主角不上 backdrop-filter */
+  background: var(--color-surface);
+  box-shadow: var(--highlight-inset), var(--shadow-card);
 }
 .zt-panel::before {
   position: absolute;
@@ -1500,9 +1494,9 @@ onUnmounted(() => {
   pointer-events: none;
   content: '';
   background:
-    linear-gradient(90deg, rgba(255,255,255,0.038) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px),
-    repeating-linear-gradient(135deg, transparent 0 34px, rgba(255,255,255,0.018) 34px 35px, transparent 35px 70px);
+    linear-gradient(90deg, rgba(255,255,255,0.019) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255,255,255,0.013) 1px, transparent 1px),
+    repeating-linear-gradient(135deg, transparent 0 34px, rgba(255,255,255,0.009) 34px 35px, transparent 35px 70px);
   background-size: 30px 30px, 30px 30px, auto;
   mask-image: linear-gradient(135deg, rgba(0,0,0,0.4), transparent 66%);
 }
@@ -1511,15 +1505,9 @@ onUnmounted(() => {
   inset: 0 18px auto;
   height: 2px;
   content: '';
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 64%, transparent), color-mix(in srgb, var(--zt-tone-2) 38%, transparent), transparent);
-  opacity: 0.88;
-  box-shadow: 0 0 28px color-mix(in srgb, var(--zt-tone) 18%, transparent);
-  background-size: 220% 100%;
-  animation: zt-top-flow 8s ease-in-out infinite alternate;
-}
-@keyframes zt-top-flow {
-  0% { background-position: 24% 0; }
-  100% { background-position: 76% 0; }
+  /* 常驻流光改为静态渐变线：动效预算留给深度交互 */
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 52%, transparent), color-mix(in srgb, var(--zt-tone-2) 30%, transparent), transparent);
+  opacity: 0.5;
 }
 @keyframes zt-spark-breath {
   0%, 100% { transform: scale(1); filter: brightness(0.92); }
@@ -1553,7 +1541,6 @@ onUnmounted(() => {
   background:
     linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.26)),
     linear-gradient(90deg, color-mix(in srgb, var(--zt-tone) 7%, transparent), transparent 38%);
-  backdrop-filter: blur(16px) saturate(125%);
 }
 .zt-head::after {
   position: absolute;
@@ -1778,10 +1765,10 @@ onUnmounted(() => {
   gap: 3px;
   height: 18px;
   padding: 0 6px;
-  border: 1px solid color-mix(in srgb, #a78bfa 34%, transparent);
+  border: 1px solid color-mix(in srgb, var(--zt-tone-2) 34%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, #a78bfa 14%, transparent);
-  color: color-mix(in srgb, #a78bfa 78%, white);
+  background: color-mix(in srgb, var(--zt-tone-2) 14%, transparent);
+  color: color-mix(in srgb, var(--zt-tone-2) 78%, white);
   font-size: 10.5px;
   font-weight: 850;
   letter-spacing: 0.02em;

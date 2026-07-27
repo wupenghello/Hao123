@@ -44,15 +44,12 @@
   flex-shrink: 0;
   align-items: stretch;
   user-select: none;
-  background:
-    linear-gradient(180deg, rgba(2, 6, 23, 0.88), rgba(2, 6, 23, 0.56)),
-    linear-gradient(90deg, rgba(125, 211, 252, 0.08), transparent 34%, transparent 68%, rgba(94, 234, 212, 0.06));
-  border-bottom: 1px solid rgba(125, 211, 252, 0.12);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 10px 30px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  /* glass-subtle 配方：悬浮栏越便宜越好（blur 8） */
+  background: rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-line);
+  box-shadow: var(--highlight-inset-glass);
+  backdrop-filter: var(--glass-blur-subtle);
+  -webkit-backdrop-filter: var(--glass-blur-subtle);
   overflow: visible;
 }
 .status-bar::after {
@@ -61,9 +58,9 @@
   right: 14px;
   bottom: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.32), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
   content: '';
-  opacity: 0.55;
+  opacity: 0.4;
 }
 .status-bar-zone {
   position: relative;

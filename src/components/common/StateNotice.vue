@@ -127,7 +127,7 @@ const isLoading = computed(() => props.tone === 'loading')
 .state-notice.is-success { --state-tone: #34d399; }
 .state-notice.is-warning { --state-tone: #fbbf24; }
 .state-notice.is-danger { --state-tone: #fb7185; }
-.state-notice.is-empty { --state-tone: #a78bfa; }
+.state-notice.is-empty { --state-tone: #2dd4bf; }
 .state-notice.is-loading { --state-tone: #2dd4bf; }
 .state-notice.is-compact {
   width: min(480px, calc(100% - 24px));

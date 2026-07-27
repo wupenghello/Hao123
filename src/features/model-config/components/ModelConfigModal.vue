@@ -329,7 +329,7 @@ const {
   inset: 0;
   background:
     radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--mm-tone, #38bdf8) 22%, transparent), transparent 34%),
-    radial-gradient(circle at 86% 80%, rgba(167, 139, 250, 0.16), transparent 32%),
+    radial-gradient(circle at 86% 80%, rgba(45, 212, 191, 0.16), transparent 32%),
     rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(16px) saturate(140%);
 }

@@ -240,7 +240,7 @@ function makeNebulaTexture(w = 1024, h = 1024): THREE.CanvasTexture {
 const SOURCE_TINTS: Record<ConstellationKind, THREE.Color> = {
   task: new THREE.Color('#58c7f4'),
   bug: new THREE.Color('#ff7f99'),
-  local: new THREE.Color('#a78bfa'),
+  local: new THREE.Color('#2dd4bf'),
 }
 
 const RISK_TINTS: Partial<Record<ConstellationRisk, THREE.Color>> = {
@@ -1069,7 +1069,7 @@ onBeforeUnmount(() => {
 }
 .ic3d-reticle.risk-overdue::before { border-color: rgba(244, 63, 94, 0.75); box-shadow: 0 0 24px rgba(244, 63, 94, 0.5), inset 0 0 14px rgba(244, 63, 94, 0.22); }
 .ic3d-reticle.risk-due-soon::before { border-color: rgba(251, 191, 36, 0.72); box-shadow: 0 0 24px rgba(251, 191, 36, 0.45); }
-.ic3d-reticle.risk-stalled::before { border-color: rgba(167, 139, 250, 0.72); box-shadow: 0 0 24px rgba(167, 139, 250, 0.45); }
+.ic3d-reticle.risk-stalled::before { border-color: rgba(45, 212, 191, 0.72); box-shadow: 0 0 24px rgba(45, 212, 191, 0.45); }
 .ic3d-reticle-bracket {
   position: absolute;
   width: 12px;
@@ -1155,7 +1155,7 @@ onBeforeUnmount(() => {
 }
 .ic3d-target-card.risk-overdue { border-color: rgba(244, 63, 94, 0.5); box-shadow: 0 0 42px rgba(244, 63, 94, 0.26); }
 .ic3d-target-card.risk-due-soon { border-color: rgba(251, 191, 36, 0.46); }
-.ic3d-target-card.risk-stalled { border-color: rgba(167, 139, 250, 0.46); }
+.ic3d-target-card.risk-stalled { border-color: rgba(45, 212, 191, 0.46); }
 .ic3d-remainder {
   position: absolute;
   z-index: 6;

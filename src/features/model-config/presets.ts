@@ -22,7 +22,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     id: 'openai',
     name: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
-    accent: '#a78bfa',
+    accent: '#38bdf8',
     summary: '适合需要图片输入、通用多模态或更强生态兼容性的任务。',
     bestFor: ['截图理解', '多模态问答', '通用 OpenAI 生态'],
     models: [

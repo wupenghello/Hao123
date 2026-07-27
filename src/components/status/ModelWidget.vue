@@ -411,13 +411,13 @@ onUnmounted(() => {
 }
 @keyframes model-widget-confirm {
   0% {
-    box-shadow: 0 0 0 rgba(167, 139, 250, 0);
+    box-shadow: 0 0 0 rgba(0, 217, 255, 0);
   }
   34% {
-    box-shadow: 0 0 18px rgba(167, 139, 250, 0.28);
+    box-shadow: 0 0 18px rgba(0, 217, 255, 0.28);
   }
   100% {
-    box-shadow: 0 0 0 rgba(167, 139, 250, 0);
+    box-shadow: 0 0 0 rgba(0, 217, 255, 0);
   }
 }
 .model-widget:focus-visible {
@@ -507,7 +507,7 @@ onUnmounted(() => {
   inset: 0 0 auto;
   height: 2px;
   content: '';
-  background: linear-gradient(90deg, rgba(167, 139, 250, 0.58), rgba(125, 211, 252, 0.34), transparent);
+  background: linear-gradient(90deg, rgba(0, 217, 255, 0.58), rgba(125, 211, 252, 0.34), transparent);
 }
 
 .model-menu-section-label {
@@ -530,7 +530,7 @@ onUnmounted(() => {
   color: rgba(237, 233, 254, 0.94);
   font-size: 12px;
   line-height: 1;
-  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0.16);
 }
 .model-switch-notice-enter-active,
 .model-switch-notice-leave-active {
@@ -574,13 +574,13 @@ onUnmounted(() => {
 }
 @keyframes model-row-confirm {
   0% {
-    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+    box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0);
   }
   40% {
-    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.32);
+    box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0.32);
   }
   100% {
-    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+    box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0);
   }
 }
 @keyframes model-row-light {
@@ -590,7 +590,7 @@ onUnmounted(() => {
 }
 .model-menu-provider { font-weight: 600; color: rgba(139, 92, 246, 0.85); flex-shrink: 0; }
 .model-menu-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
-.model-menu-check { flex-shrink: 0; color: #a78bfa; }
+.model-menu-check { flex-shrink: 0; color: var(--color-accent); }
 
 .model-menu-empty { padding: 12px 10px; font-size: 12px; color: rgba(255, 255, 255, 0.35); text-align: center; }
 .model-menu-sep { height: 1px; margin: 4px; background: rgba(255, 255, 255, 0.08); }

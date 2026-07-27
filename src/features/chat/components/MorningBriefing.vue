@@ -446,20 +446,20 @@ function startFallbackChat() {
 <style scoped>
 /* —— 原有基座保留，微调适配 plan 模式 —— */
 .mb-card {
-  --mb-tone: var(--accent);
-  --mb-tone-2: #2dd4bf;
+  --mb-tone: var(--color-accent);
+  --mb-tone-2: var(--color-teal);
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--mb-tone) 18%, rgba(148, 163, 184, 0.16));
+  border: 1px solid color-mix(in srgb, var(--mb-tone) 18%, var(--color-line));
   border-radius: 12px;
-  background: radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--mb-tone) 17%, transparent), transparent 66px), linear-gradient(135deg, color-mix(in srgb, var(--mb-tone) 8%, transparent), transparent 44%), rgba(2, 6, 23, 0.32);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055), 0 18px 54px rgba(0,0,0,0.2);
-  backdrop-filter: blur(18px) saturate(130%);
+  /* 实底亮度阶 + 角部氛围光保留；blur 移除 */
+  background: radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--mb-tone) 17%, transparent), transparent 66px), linear-gradient(135deg, color-mix(in srgb, var(--mb-tone) 8%, transparent), transparent 44%), var(--color-surface);
+  box-shadow: var(--highlight-inset), var(--shadow-card);
 }
 .mb-card.is-plan { border-color: color-mix(in srgb, var(--mb-tone) 28%, rgba(148, 163, 184, 0.16)); }
-.mb-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; content: ''; background: linear-gradient(180deg, transparent, var(--mb-tone), transparent); background-size: 100% 220%; opacity: 0.88; animation: mb-rail-flow 6s ease-in-out infinite alternate; }
+.mb-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; content: ''; background: linear-gradient(180deg, transparent, var(--mb-tone), transparent); opacity: 0.72; }
 .mb-card::after { position: absolute; inset: 0; pointer-events: none; content: ''; background: linear-gradient(90deg, rgba(255,255,255,0.044) 1px, transparent 1px), linear-gradient(180deg, rgba(255,255,255,0.032) 1px, transparent 1px); background-size: 28px 28px; mask-image: linear-gradient(115deg, rgba(0,0,0,0.48), transparent 66%); }
 .mb-card > * { position: relative; z-index: 1; }
 .mb-card.is-refreshing { border-color: color-mix(in srgb, var(--mb-tone) 34%, rgba(148, 163, 184, 0.22)); }
@@ -623,10 +623,6 @@ function startFallbackChat() {
 .mb-fade-leave-active { transition: opacity 0.25s ease; }
 .mb-fade-enter-from { opacity: 0; transform: translateY(-6px); }
 .mb-fade-leave-to { opacity: 0; }
-@keyframes mb-rail-flow {
-  0% { background-position: 0 10%; }
-  100% { background-position: 0 90%; }
-}
 @keyframes mb-spin { to { transform: rotate(360deg); } }
 @keyframes mb-pulse { 0%, 100% { opacity: 0.45; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 @keyframes mb-bounce { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }

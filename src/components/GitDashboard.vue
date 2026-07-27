@@ -1571,13 +1571,13 @@ function onBackdropClick() {
           leave-to-class="opacity-0 translate-y-2 scale-[0.98]"
         >
           <div
-            class="gd-card relative z-10 w-[94vw] max-w-[960px] h-[90vh] flex flex-col overflow-hidden"
+            class="hud-panel hud-sheen relative z-10 w-[94vw] max-w-[960px] h-[90vh] flex flex-col overflow-hidden rounded-[20px]"
             @click.stop
           >
             <!-- HUD 四角装饰 -->
-            <div class="gd-corners" aria-hidden="true" />
+            <div class="hud-corners" aria-hidden="true" />
             <!-- 顶部渐变高光条 -->
-            <div class="gd-accent" />
+            <div class="hud-accent-bar hud-accent-bar--teal" />
 
             <!-- ═══ 头部 ═══ -->
             <div class="flex-shrink-0 px-6 pt-5 pb-3">
@@ -2921,57 +2921,9 @@ function onBackdropClick() {
 </template>
 
 <style scoped>
-/* ═══ 卡片 ═══ */
-.gd-card {
-  border-radius: 20px;
-  background:
-    linear-gradient(160deg, rgba(30, 58, 95, 0.92) 0%, rgba(15, 23, 42, 0.94) 55%, rgba(13, 64, 64, 0.92) 100%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 28px);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 24px 70px -12px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(45, 212, 191, 0.18),
-    0 0 32px -4px rgba(45, 212, 191, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  contain: layout paint;
-}
-
-/* HUD 四角 */
-.gd-corners {
-  position: absolute; inset: 0; z-index: 5; pointer-events: none;
-  border-radius: 20px; overflow: hidden;
-}
-.gd-corners::before,
-.gd-corners::after {
-  content: ''; position: absolute; width: 18px; height: 18px;
-  border-color: rgba(94, 234, 212, 0.55); border-style: solid;
-  filter: drop-shadow(0 0 4px rgba(94, 234, 212, 0.5));
-}
-.gd-corners::before { top: 9px; left: 9px; border-width: 2px 0 0 2px; border-top-left-radius: 6px; }
-.gd-corners::after { bottom: 9px; right: 9px; border-width: 0 2px 2px 0; border-bottom-right-radius: 6px; }
-
-/* 入场微光（reduced-motion 下关闭，见末尾） */
-.gd-card::after {
-  content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
-  border-radius: 20px;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.08) 48%, rgba(94,234,212,0.06) 52%, transparent 70%);
-  background-size: 250% 100%; background-position: 150% 0;
-  animation: gd-sheen 0.9s ease-out 0.05s both;
-}
-@keyframes gd-sheen { from { background-position: 150% 0; } to { background-position: -120% 0; } }
-
-/* 顶部流光 */
-.gd-accent {
-  height: 4px; width: 100%; flex-shrink: 0;
-  background: linear-gradient(90deg, #14b8a6, #2dd4bf, #5eead4, #2dd4bf, #14b8a6);
-  background-size: 200% 100%;
-  box-shadow: 0 0 12px rgba(45, 212, 191, 0.5);
-  animation: gd-accent-flow 3.5s linear infinite;
-}
-@keyframes gd-accent-flow { from { background-position: 0% 0; } to { background-position: 200% 0; } }
+/* ═══ 卡片 ═══
+ * 面板基座 / 四角 / 入场微光 / 顶部流光全部复用全局 .hud-panel / .hud-corners /
+ * .hud-sheen / .hud-accent-bar--teal（src/style.css）——此处约 60 行逐字节克隆已删除。 */
 
 /* ═══ 徽标 / 标签 ═══ */
 .gd-badge {
@@ -3273,7 +3225,7 @@ function onBackdropClick() {
   border-radius: 4px;
   transition: background 0.12s;
 }
-.gd-tag-name-btn:hover { background: rgba(167,139,250,0.1); }
+.gd-tag-name-btn:hover { background: rgba(45,212,191,0.1); }
 .gd-tag-name-btn:focus-visible { outline: 2px solid var(--accent, #00d9ff); outline-offset: 2px; }
 .gd-tag-name-copy {
   opacity: 0; flex-shrink: 0; transition: opacity 0.12s, color 0.12s;
@@ -3498,20 +3450,17 @@ select.gd-input { cursor: pointer; }
 }
 
 /* ═══ 焦点可见 ═══ */
-.gd-card :focus-visible {
+.hud-panel :focus-visible {
   outline: 2px solid rgba(94, 234, 212, 0.6);
   outline-offset: 1px;
   border-radius: 4px;
 }
 
-/* ═══ 降低动效（覆盖 accent / sheen / spin / transition） ═══ */
+/* ═══ 降低动效（hud-accent-bar / hud-sheen 由全局 reduced-motion 块统一降级） ═══ */
 @media (prefers-reduced-motion: reduce) {
-  .gd-accent,
-  .gd-card::after,
   .gd-spin,
   .gd-action.is-loading :first-child,
   .gd-action-pulse { animation: none !important; }
-  .gd-card::after { background: none; }
   .gd-action,
   .gd-mini-btn,
   .gd-confirm-btn,
