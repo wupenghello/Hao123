@@ -1504,7 +1504,7 @@ onUnmounted(() => {
     linear-gradient(180deg, rgba(255,255,255,0.026) 1px, transparent 1px),
     repeating-linear-gradient(135deg, transparent 0 34px, rgba(255,255,255,0.018) 34px 35px, transparent 35px 70px);
   background-size: 30px 30px, 30px 30px, auto;
-  mask-image: linear-gradient(135deg, rgba(0,0,0,0.58), transparent 66%);
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.4), transparent 66%);
 }
 .zt-panel::after {
   position: absolute;
@@ -1514,6 +1514,16 @@ onUnmounted(() => {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--zt-tone) 64%, transparent), color-mix(in srgb, var(--zt-tone-2) 38%, transparent), transparent);
   opacity: 0.88;
   box-shadow: 0 0 28px color-mix(in srgb, var(--zt-tone) 18%, transparent);
+  background-size: 220% 100%;
+  animation: zt-top-flow 8s ease-in-out infinite alternate;
+}
+@keyframes zt-top-flow {
+  0% { background-position: 24% 0; }
+  100% { background-position: 76% 0; }
+}
+@keyframes zt-spark-breath {
+  0%, 100% { transform: scale(1); filter: brightness(0.92); }
+  50% { transform: scale(1.08); filter: brightness(1.18); }
 }
 .zt-panel.is-orbit-view {
   border-color: color-mix(in srgb, var(--zt-tone) 12%, transparent);
@@ -1948,6 +1958,7 @@ onUnmounted(() => {
 .zt-insight-name,
 .zt-ic-title { color: rgba(255,255,255,0.9); font-weight: 850; }
 .zt-insight-stats { display: inline-flex; gap: 6px; }
+.zt-insight-spark { animation: zt-spark-breath 3.4s ease-in-out infinite; }
 .zt-insight-stats span,
 .zt-risk,
 .zt-kind,
@@ -2496,6 +2507,12 @@ onUnmounted(() => {
   transition: opacity 0.15s, color 0.15s, background 0.15s, transform 0.15s;
 }
 .zt-mission-card:hover .zt-act { opacity: 1; }
+.zt-type-chip,
+.zt-meta-chip { opacity: 0; transition: opacity 0.18s ease; pointer-events: none; }
+.zt-mission-card:hover .zt-type-chip,
+.zt-mission-card:hover .zt-meta-chip { opacity: 1; }
+.zt-from-zentao { transition: opacity 0.18s ease; opacity: 0.5; }
+.zt-mission-card:hover .zt-from-zentao { opacity: 1; }
 .zt-act:hover,
 .zt-act:focus-visible { color: rgba(255,255,255,0.84); background: rgba(255,255,255,0.09); outline: 0; transform: translateY(-1px); }
 .zt-act.is-confirm { opacity: 1; color: #fda4af; background: rgba(244,63,94,0.14); }

@@ -459,7 +459,7 @@ function startFallbackChat() {
   backdrop-filter: blur(18px) saturate(130%);
 }
 .mb-card.is-plan { border-color: color-mix(in srgb, var(--mb-tone) 28%, rgba(148, 163, 184, 0.16)); }
-.mb-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; content: ''; background: linear-gradient(180deg, transparent, var(--mb-tone), transparent); opacity: 0.78; }
+.mb-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; content: ''; background: linear-gradient(180deg, transparent, var(--mb-tone), transparent); background-size: 100% 220%; opacity: 0.88; animation: mb-rail-flow 6s ease-in-out infinite alternate; }
 .mb-card::after { position: absolute; inset: 0; pointer-events: none; content: ''; background: linear-gradient(90deg, rgba(255,255,255,0.044) 1px, transparent 1px), linear-gradient(180deg, rgba(255,255,255,0.032) 1px, transparent 1px); background-size: 28px 28px; mask-image: linear-gradient(115deg, rgba(0,0,0,0.48), transparent 66%); }
 .mb-card > * { position: relative; z-index: 1; }
 .mb-card.is-refreshing { border-color: color-mix(in srgb, var(--mb-tone) 34%, rgba(148, 163, 184, 0.22)); }
@@ -540,9 +540,9 @@ function startFallbackChat() {
 .mb-config:hover { border-color: color-mix(in srgb, var(--mb-tone) 44%, transparent); }
 
 /* ========== plan 模式：topPriority 高亮卡 ========== */
-.mb-top { padding: 14px; border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 12%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--mb-tone) 10%, transparent), transparent); }
+.mb-top { position: relative; padding: 14px 14px 14px 16px; border-bottom: 1px solid color-mix(in srgb, var(--mb-tone) 12%, transparent); border-left: 2px solid color-mix(in srgb, #fbbf24 55%, transparent); background: linear-gradient(180deg, color-mix(in srgb, #fbbf24 8%, transparent), color-mix(in srgb, var(--mb-tone) 6%, transparent)); }
 .mb-top-kicker { display: flex; align-items: center; gap: 6px; color: color-mix(in srgb, var(--mb-tone) 82%, white 6%); font: 850 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
-.mb-top-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--mb-danger, #fb7185); box-shadow: 0 0 8px var(--mb-danger, #fb7185); }
+.mb-top-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.75); }
 .mb-top-risk { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-danger, #fb7185) 40%, transparent); background: color-mix(in srgb, var(--mb-danger, #fb7185) 12%, transparent); color: #fda4af; font-size: 9.5px; font-weight: 800; }
 .mb-top-risk-normal { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--mb-tone-2) 30%, transparent); background: color-mix(in srgb, var(--mb-tone-2) 10%, transparent); color: rgba(226,232,240,0.6); font-size: 9.5px; font-weight: 600; }
 .mb-top-deadline { color: rgba(226,232,240,0.5); font-size: 10px; font-weight: 600; }
@@ -623,6 +623,10 @@ function startFallbackChat() {
 .mb-fade-leave-active { transition: opacity 0.25s ease; }
 .mb-fade-enter-from { opacity: 0; transform: translateY(-6px); }
 .mb-fade-leave-to { opacity: 0; }
+@keyframes mb-rail-flow {
+  0% { background-position: 0 10%; }
+  100% { background-position: 0 90%; }
+}
 @keyframes mb-spin { to { transform: rotate(360deg); } }
 @keyframes mb-pulse { 0%, 100% { opacity: 0.45; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 @keyframes mb-bounce { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }

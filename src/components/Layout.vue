@@ -8,7 +8,8 @@ import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
-import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
+import { ChatCommandPalette, useChatHotkeys } from '@/features/chat'
+import { CompanionPet } from '@/features/companion'
 import {
   startStorageHealthMonitor,
   stopStorageHealthMonitor,
@@ -46,8 +47,8 @@ onUnmounted(() => stopStorageHealthMonitor())
     <!-- 悬浮侧边导航（宽屏主力；窄屏自动隐藏回退顶栏） -->
     <NavRail />
 
-    <!-- 助手入口：固定左下角小药丸（position:fixed，视口定位） -->
-    <ChatLauncher />
+    <!-- 助手入口：常驻卡通伙伴（小吴桌宠，Live2D 渲染，默认右下角） -->
+    <CompanionPet />
 
     <!-- 全局命令面板（Spotlight 式，Teleport 到 body，Alt+K 召唤） -->
     <ChatCommandPalette />
@@ -70,6 +71,27 @@ onUnmounted(() => stopStorageHealthMonitor())
   pointer-events: none;
   background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.24));
 }
+.layout-shell::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  background: conic-gradient(from 200deg at 50% 50%,
+    transparent 0deg,
+    rgba(0, 217, 255, 0.06) 50deg,
+    transparent 130deg,
+    rgba(45, 212, 191, 0.05) 210deg,
+    transparent 300deg);
+  filter: blur(50px);
+  mix-blend-mode: screen;
+  opacity: 0.7;
+  animation: layout-aurora 28s linear infinite;
+}
+@keyframes layout-aurora {
+  to { transform: rotate(360deg); }
+}
+
 .status-brand {
   position: relative;
   display: inline-flex;

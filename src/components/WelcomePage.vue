@@ -82,6 +82,18 @@ const dailySummary = computed(() => {
   return prefix + parts.join(' · ')
 })
 
+/** 首屏一句人话：小吴口吻的时段问候（纯氛围，非数据），给冷峻仪表盘加一句温度 */
+const whisper = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6) return '夜深了，剩下的交给明天。'
+  if (h < 9) return '早，先别急——今天从最重要的那件事开始。'
+  if (h < 12) return '上午脑子最清醒，把难的先啃掉。'
+  if (h < 14) return '午饭后容易犯困，安排点轻省的活。'
+  if (h < 18) return '下午的活，一件一件来就好。'
+  if (h < 22) return '晚上适合收尾和复盘。'
+  return '该歇了，硬撑的效率并不高。'
+})
+
 // ============ 今日信号迷你瓦片（bento 单元，纯展示，复用 store 计数）============
 // 只读：给左侧 bento 提供一行紧凑信号块；可视化增强（sparkline/进度环）在模块 2
 const signals = computed(() => [
@@ -185,6 +197,7 @@ function finishOnboarding() {
             <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
           </p>
         </Transition>
+        <p class="bento-whisper">{{ whisper }}</p>
       </header>
 
       <!-- bento 单元 B：今日信号迷你瓦片（任务 / Bug / 本地，纯计数） -->
@@ -328,7 +341,8 @@ function finishOnboarding() {
   --home-danger: #fb7185;
   --home-border: rgba(148, 163, 184, 0.16);
   --home-text: rgba(248, 250, 252, 0.92);
-  --home-muted: rgba(226, 232, 240, 0.52);
+  --home-muted: rgba(226, 232, 240, 0.62);
+  --home-warm: #fbbf24;
   position: relative;
   width: 100%;
   height: 100%;
@@ -406,7 +420,7 @@ function finishOnboarding() {
   overflow: hidden;
   border: 1px solid var(--home-border);
   border-radius: var(--radius-card);
-  background: rgba(10, 11, 14, 0.4);
+  background: rgba(16, 24, 40, 0.52);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     var(--elev-2);
@@ -484,6 +498,18 @@ function finishOnboarding() {
   line-height: 1.55;
 }
 
+.bento-whisper {
+  position: relative;
+  z-index: 1;
+  margin: 10px 0 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--home-warm, #fbbf24) 62%, transparent);
+  color: color-mix(in srgb, var(--home-warm, #fbbf24) 70%, rgba(226, 232, 240, 0.72));
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
 /* ===== 信号迷你瓦片：每个计数一块，按来源上色 ===== */
 .signal-tile {
   display: flex;
@@ -550,6 +576,21 @@ function finishOnboarding() {
   flex-shrink: 0;
   width: 92px;
   height: 92px;
+}
+.radar-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    color-mix(in srgb, var(--home-tone) 34%, transparent) 0deg,
+    transparent 72deg);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: radar-sweep 4.2s linear infinite;
+}
+@keyframes radar-sweep {
+  to { transform: rotate(360deg); }
 }
 .radar-center {
   position: absolute;
