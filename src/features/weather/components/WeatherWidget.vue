@@ -120,7 +120,7 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 .weather-led.is-ok {
-  background: var(--run, #00ff94);
+  background: var(--color-success);
   box-shadow: 0 0 7px rgba(0, 255, 148, 0.75);
 }
 .weather-led.is-loading {
@@ -139,7 +139,7 @@ onUnmounted(() => {
 .weather-icon-core {
   display: inline-flex;
   align-items: center;
-  color: var(--accent, #00d9ff);
+  color: var(--color-accent);
   flex: 0 0 auto;
 }
 .weather-icon-core.is-warn {
@@ -158,7 +158,7 @@ onUnmounted(() => {
   }
 }
 .weather-temp {
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 850;
   font-variant-numeric: tabular-nums;

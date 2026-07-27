@@ -74,7 +74,7 @@ onUnmounted(() => stopStorageHealthMonitor())
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 800;
   color: rgba(224, 242, 254, 0.96);

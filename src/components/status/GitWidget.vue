@@ -140,7 +140,7 @@ onUnmounted(() => dash.stopWidgetPolling())
     0 6px 18px rgba(0, 217, 255, 0.16);
 }
 .git-widget:focus-visible {
-  outline: 2px solid var(--accent, #00d9ff);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .git-widget.is-unavailable {
@@ -152,7 +152,7 @@ onUnmounted(() => dash.stopWidgetPolling())
 .git-icon-wrap {
   display: inline-flex;
   align-items: center;
-  color: var(--accent, #00d9ff);
+  color: var(--color-accent);
   flex: 0 0 auto;
 }
 /* 同步状态指示灯：synced=青柠绿(运行) / ahead=琥珀 / behind=电光蓝 / danger=玫红 / muted=灰 */
@@ -163,9 +163,9 @@ onUnmounted(() => dash.stopWidgetPolling())
   border-radius: 999px;
   flex: 0 0 auto;
 }
-.git-led.is-synced { background: var(--run, #00ff94); box-shadow: 0 0 7px rgba(0, 255, 148, 0.7); }
+.git-led.is-synced { background: var(--color-success); box-shadow: 0 0 7px rgba(0, 255, 148, 0.7); }
 .git-led.is-ahead { background: #fbbf24; box-shadow: 0 0 7px rgba(251, 191, 36, 0.7); }
-.git-led.is-behind { background: var(--accent, #00d9ff); box-shadow: 0 0 7px rgba(0, 217, 255, 0.7); }
+.git-led.is-behind { background: var(--color-accent); box-shadow: 0 0 7px rgba(0, 217, 255, 0.7); }
 .git-led.is-danger { background: #fb7185; box-shadow: 0 0 7px rgba(251, 113, 133, 0.75); animation: git-led-pulse 1.2s ease-in-out infinite; }
 .git-led.is-muted { background: rgba(255, 255, 255, 0.3); }
 @keyframes git-led-pulse {
@@ -219,7 +219,7 @@ onUnmounted(() => dash.stopWidgetPolling())
   color: #fbbf24;
 }
 .git-sync.tone-behind {
-  color: #7dd3fc;
+  color: var(--color-accent-strong);
 }
 .git-sync.tone-danger {
   color: #fb7185;

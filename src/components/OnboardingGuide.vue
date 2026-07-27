@@ -235,7 +235,7 @@ const readyCount = computed(() => capabilities.value.filter((c) => c.ready).leng
 }
 .onboard-kicker {
   margin: 0 0 7px;
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -328,8 +328,8 @@ const readyCount = computed(() => capabilities.value.filter((c) => c.ready).leng
   background: rgba(251, 191, 36, 0.12);
 }
 .onboard-status.is-idle {
-  color: #7dd3fc;
-  background: rgba(56, 189, 248, 0.12);
+  color: var(--color-accent-strong);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 .onboard-try {
   height: 30px;
@@ -366,7 +366,7 @@ const readyCount = computed(() => capabilities.value.filter((c) => c.ready).leng
   font-size: 14px;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(150deg, rgba(56, 189, 248, 0.85), rgba(20, 184, 166, 0.85));
+  background: linear-gradient(150deg, color-mix(in srgb, var(--color-accent) 85%, transparent), rgba(20, 184, 166, 0.85));
   border: 1px solid rgba(94, 234, 212, 0.4);
   box-shadow: 0 4px 16px -4px rgba(20, 184, 166, 0.5);
   transition: transform 0.15s, box-shadow 0.15s;

@@ -502,7 +502,7 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
   backdrop-filter: blur(16px) saturate(140%);
 }
 .lt-form-card {
-  --lt-tone: #22d3ee;
+  --lt-tone: var(--color-accent);
   --lt-tone-2: var(--color-teal);
   --lt-success: #34d399;
   --lt-warning: #fbbf24;
@@ -593,7 +593,7 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
 .lt-eyebrow {
   margin: 0 0 3px;
   color: color-mix(in srgb, var(--lt-tone) 72%, white 8%);
-  font: 850 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font: 850 10px/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

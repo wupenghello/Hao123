@@ -613,7 +613,7 @@ function groupOpen(key: string) {
 }
 
 /** 需求线配色：按线索名 hash 取一个稳定颜色，让同一线一眼可辨 */
-const THREAD_COLORS = ['#818cf8', '#38bdf8', '#34d399', '#fbbf24', '#f472b6', '#5eead4', '#2dd4bf', '#fb7185']
+const THREAD_COLORS = ['#818cf8', 'var(--color-accent)', '#34d399', '#fbbf24', '#f472b6', '#5eead4', '#2dd4bf', '#fb7185']
 function threadColor(label: string): string {
   let h = 0
   for (const c of label) h = (h * 31 + c.charCodeAt(0)) >>> 0
@@ -1634,7 +1634,7 @@ onUnmounted(() => {
 }
 .zt-title-kicker {
   color: color-mix(in srgb, var(--zt-tone) 64%, white 4%);
-  font: 850 9px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 850 9px/1 var(--font-mono);
   letter-spacing: 0.12em;
 }
 .zt-title-copy h2 {
@@ -2022,7 +2022,7 @@ onUnmounted(() => {
 .zt-trust-kicker {
   margin: 0 0 2px;
   color: color-mix(in srgb, var(--zt-tone-2) 72%, white 6%);
-  font: 850 9px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 850 9px/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -2052,7 +2052,7 @@ onUnmounted(() => {
 .zt-trust-source-status.is-ok { color: #86efac; background: rgba(34,197,94,0.12); }
 .zt-trust-source-status.is-warn { color: #fde68a; background: rgba(251,191,36,0.12); }
 .zt-trust-source-status.is-error { color: #fda4af; background: rgba(244,63,94,0.13); }
-.zt-trust-source-status.is-idle { color: #7dd3fc; background: rgba(56,189,248,0.12); }
+.zt-trust-source-status.is-idle { color: var(--color-accent-strong); background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
 .zt-trust-source-detail { margin: 3px 0 0; color: rgba(255,255,255,0.5); font-size: 11.5px; line-height: 1.55; }
 .zt-trust-rules li { display: grid; grid-template-columns: 46px minmax(0,1fr); gap: 8px; align-items: baseline; color: rgba(255,255,255,0.52); font-size: 11.5px; line-height: 1.5; }
 .zt-trust-rules li + li { margin-top: 7px; }
@@ -2182,7 +2182,7 @@ onUnmounted(() => {
 .zt-mission-card.is-completing {
   pointer-events: none;
   animation: zt-complete-row 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  background: linear-gradient(90deg, rgba(45,212,191,0.16), rgba(45,212,191,0.03)), rgba(125,211,252,0.05);
+  background: linear-gradient(90deg, rgba(45,212,191,0.16), rgba(45,212,191,0.03)), color-mix(in srgb, var(--color-accent-strong) 5%, transparent);
   box-shadow: inset 3px 0 0 rgba(45,212,191,0.72), 0 0 24px rgba(45,212,191,0.1);
 }
 .zt-mission-card.is-completing .zt-title,
@@ -2203,11 +2203,11 @@ onUnmounted(() => {
 .zt-mission-card.is-completing .zt-check { color: #99f6e4; background: rgba(45,212,191,0.18); box-shadow: 0 0 0 5px rgba(45,212,191,0.1); animation: zt-complete-check 0.42s ease-out; }
 /* ---- 行状态色：左侧描边 + 背景 tint + 边框，深色主题下足够醒目 ---- */
 .zt-mission-card.is-status-wait { --zt-status: #64748b; --zt-status-bg: rgba(100,116,139,0.1); } /* 未开始 — 冷灰 */
-.zt-mission-card.is-status-doing, .zt-mission-card.is-status-active { --zt-status: #38bdf8; --zt-status-bg: rgba(56,189,248,0.12); } /* 进行中 / Bug激活 — 天蓝 */
+.zt-mission-card.is-status-doing, .zt-mission-card.is-status-active { --zt-status: var(--color-accent); --zt-status-bg: color-mix(in srgb, var(--color-accent) 12%, transparent); } /* 进行中 / Bug激活 — 天蓝 */
 .zt-mission-card.is-status-done, .zt-mission-card.is-status-resolved { --zt-status: #34d399; --zt-status-bg: rgba(52,211,153,0.1); } /* 已完成 / 已解决 — 翠绿 */
 .zt-mission-card.is-status-pause { --zt-status: #fbbf24; --zt-status-bg: rgba(251,191,36,0.12); } /* 已暂停 — 琥珀 */
 .zt-mission-card.is-status-cancel, .zt-mission-card.is-status-closed { --zt-status: #71717a; --zt-status-bg: rgba(113,113,122,0.1); } /* 已取消 / 已关闭 — 暗灰 */
-.zt-mission-card.is-status-local { --zt-status: #22d3ee; --zt-status-bg: rgba(34,211,238,0.12); } /* 本地 — 青 */
+.zt-mission-card.is-status-local { --zt-status: var(--color-accent); --zt-status-bg: rgba(34,211,238,0.12); } /* 本地 — 青 */
 /* 类型主色：驱动左轨 / 图标盒 / kind 徽标（青=任务 · 玫红=Bug · 紫=本地） */
 .zt-mission-card.is-kind-task { --zt-type: var(--zt-tone); }
 .zt-mission-card.is-kind-bug { --zt-type: var(--zt-danger); }
@@ -2222,7 +2222,7 @@ onUnmounted(() => {
    同特异性 (0,2,1) 但排在状态 ::before 之后 → 覆盖状态轨；urgent 在其后 → 紧急仍压过。 */
 .zt-mission-card.is-pri-1 { --zt-pri: #fb7185; }  /* P1 — 玫红 */
 .zt-mission-card.is-pri-2 { --zt-pri: #fbbf24; }  /* P2 — 琥珀 */
-.zt-mission-card.is-pri-3 { --zt-pri: #38bdf8; }  /* P3 — 天蓝 */
+.zt-mission-card.is-pri-3 { --zt-pri: var(--color-accent); }  /* P3 — 天蓝 */
 .zt-mission-card.is-pri-4 { --zt-pri: #64748b; }  /* P4 — 冷灰 */
 /* 左轨底色已由类型 is-kind-* 驱动（青/玫红/紫）；优先级仅调辉光，见下方 P1/P2 块 */
 /* 高优（P1/P2）左轨加辉光，让优先级一眼可辨 */
@@ -2245,8 +2245,8 @@ onUnmounted(() => {
   animation: zt-led-breathe 1.8s ease-in-out infinite;
 }
 @keyframes zt-led-breathe {
-  0%, 100% { opacity: 0.5; box-shadow: 0 0 4px color-mix(in srgb, var(--zt-status, #38bdf8) 50%, transparent); }
-  50% { opacity: 1; box-shadow: 0 0 10px color-mix(in srgb, var(--zt-status, #38bdf8) 90%, transparent); }
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 4px color-mix(in srgb, var(--zt-status, var(--color-accent)) 50%, transparent); }
+  50% { opacity: 1; box-shadow: 0 0 10px color-mix(in srgb, var(--zt-status, var(--color-accent)) 90%, transparent); }
 }
 /* ===== 模块 2：截止倒计时 chip 配色 ===== */
 .zt-countdown {
@@ -2261,7 +2261,7 @@ onUnmounted(() => {
 }
 .zt-countdown.is-overdue { background: rgba(251,113,133,0.14); color: #fda4af; }
 .zt-countdown.is-today { background: rgba(251,191,36,0.14); color: #fcd34d; }
-.zt-countdown.is-soon { background: rgba(56,189,248,0.12); color: #7dd3fc; }
+.zt-countdown.is-soon { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent-strong); }
 /* 紧急项玫红警示必须压过状态色：特异性 (0,3,0) > 状态色 (0,2,0) */
 .zt-mission-card.is-urgent[class*='is-status-'] {
   border-color: rgba(244,63,94,0.24);
@@ -2302,7 +2302,7 @@ onUnmounted(() => {
   border-radius: 5px;
   background: rgba(2,6,23,0.42);
   color: rgba(226,232,240,0.45);
-  font: 800 9px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 800 9px/1 var(--font-mono);
 }
 .zt-main {
   display: flex;
@@ -2317,7 +2317,7 @@ onUnmounted(() => {
 .zt-calm {
   flex-shrink: 0;
   color: rgba(226,232,240,0.42);
-  font: 800 10px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 800 10px/1 var(--font-mono);
   letter-spacing: 0.08em;
 }
 .zt-pressure {
@@ -2433,7 +2433,7 @@ onUnmounted(() => {
   border-radius: 6px;
   background: rgba(255,255,255,0.035);
   color: rgba(226,232,240,0.5);
-  font: 700 10.5px/1.4 var(--hud-font-data, ui-monospace, monospace);
+  font: 700 10.5px/1.4 var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

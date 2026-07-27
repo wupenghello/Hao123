@@ -148,7 +148,7 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gdb-prompt { color: var(--accent, #00d9ff); font-weight: 700; }
+.gdb-prompt { color: var(--color-accent); font-weight: 700; }
 .gdb-loading {
   padding: 12px 16px;
   display: flex;
@@ -210,7 +210,7 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
 .gdb-ln.is-del .gdb-sign,
 .gdb-ln.is-del .gdb-code { color: #fda4af; }
 .gdb-ln.is-hunk { background: rgba(0, 217, 255, 0.07); }
-.gdb-ln.is-hunk .gdb-code { color: var(--accent, #00d9ff); }
+.gdb-ln.is-hunk .gdb-code { color: var(--color-accent); }
 .gdb-ln.is-meta .gdb-code { color: rgba(255, 255, 255, 0.4); }
 
 .gdb-empty { padding: 12px 16px; color: rgba(255, 255, 255, 0.3); font-size: 12px; }
@@ -234,7 +234,7 @@ const truncated = computed(() => totalLines.value > MAX_LINES)
   border-radius: 6px;
   background: rgba(0, 217, 255, 0.1);
   border: 1px solid rgba(0, 217, 255, 0.22);
-  color: var(--accent, #00d9ff);
+  color: var(--color-accent);
   font-size: 11px;
   cursor: pointer;
   transition: all 0.15s;

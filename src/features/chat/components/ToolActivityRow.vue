@@ -50,20 +50,20 @@ const activityIcon = (status: ToolActivity['status']) =>
 
 <style scoped>
 .activity-row {
-  --activity-color: var(--text-muted, #74839a);
+  --activity-color: var(--color-ink-3);
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   width: 100%;
   min-width: 0;
-  color: var(--text-secondary, #a8b5c7);
+  color: var(--color-ink-2);
 }
 
-.activity-row.is-running { --activity-color: var(--status-info, #60a5fa); }
-.activity-row.is-pending { --activity-color: var(--status-warning, #f59e0b); }
-.activity-row.is-done { --activity-color: var(--status-success, #34d399); }
-.activity-row.is-error { --activity-color: var(--status-danger, #fb7185); }
+.activity-row.is-running { --activity-color: var(--color-accent); }
+.activity-row.is-pending { --activity-color: var(--color-warning); }
+.activity-row.is-done { --activity-color: var(--color-success); }
+.activity-row.is-error { --activity-color: var(--color-danger); }
 
 .activity-icon {
   width: 14px;
@@ -73,7 +73,7 @@ const activityIcon = (status: ToolActivity['status']) =>
 }
 
 .activity-label {
-  color: var(--text-secondary, #a8b5c7);
+  color: var(--color-ink-2);
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
@@ -83,8 +83,8 @@ const activityIcon = (status: ToolActivity['status']) =>
   min-width: 0;
   overflow: hidden;
   padding-left: 7px;
-  color: var(--text-muted, #74839a);
-  border-left: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  color: var(--color-ink-3);
+  border-left: 1px solid var(--color-line);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,7 +112,7 @@ const activityIcon = (status: ToolActivity['status']) =>
 }
 
 .is-compact .activity-meta {
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
 }
 
 @media (prefers-reduced-motion: reduce) {

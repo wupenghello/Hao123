@@ -176,7 +176,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: 'readUrlMaxChars', label: '网页读取上限', desc: '读取公开网页链接时，正文单字段保留的最大字符数。增大可让小吴看到更完整的原文、分层呈现观点；设为 0 表示不裁剪。占用上下文，过大可能推高成本。',
-    icon: IconFileDocument, tone: '#22d3ee', step: 2_000, bounds: [0, 100_000],
+    icon: IconFileDocument, tone: 'var(--color-accent)', step: 2_000, bounds: [0, 100_000],
   },
 ]
 
@@ -473,7 +473,7 @@ onUnmounted(unlockBody)
 .cs-backdrop {
   position: absolute;
   inset: 0;
-  background: var(--surface-overlay, rgba(5, 10, 20, 0.78));
+  background: var(--color-overlay);
   backdrop-filter: blur(10px);
 }
 
@@ -485,18 +485,18 @@ onUnmounted(unlockBody)
   width: min(720px, 100%);
   max-height: min(780px, calc(100dvh - 32px));
   overflow: hidden;
-  color: var(--text-primary, #e8eef7);
-  background: var(--surface-canvas, #0f1a2a);
-  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.28));
+  color: var(--color-ink);
+  background: var(--color-overlay);
+  border: 1px solid var(--color-line-hover);
   border-radius: 10px;
-  box-shadow: var(--shadow-modal, 0 24px 72px rgba(2, 6, 23, 0.48));
+  box-shadow: var(--shadow-floating);
 }
 
 .cs-header,
 .cs-footer {
   position: relative;
   flex: 0 0 auto;
-  background: var(--surface-raised, #142238);
+  background: var(--color-raised);
 }
 
 .cs-header {
@@ -505,7 +505,7 @@ onUnmounted(unlockBody)
   gap: 12px;
   min-height: 76px;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-bottom: 1px solid var(--color-line);
 }
 
 .cs-brand-mark,
@@ -513,9 +513,9 @@ onUnmounted(unlockBody)
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  color: var(--accent-primary, #38bdf8);
-  background: var(--surface-inset, #0b1524);
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  color: var(--color-accent);
+  background: var(--color-base);
+  border: 1px solid var(--color-line);
   border-radius: 5px;
 }
 
@@ -533,7 +533,7 @@ onUnmounted(unlockBody)
 .cs-section-heading h3,
 .cs-pref-title-row h3 {
   margin: 0;
-  color: var(--text-primary, #e8eef7);
+  color: var(--color-ink);
   font-weight: 750;
 }
 
@@ -544,7 +544,7 @@ onUnmounted(unlockBody)
 
 .cs-subtitle {
   margin: 3px 0 0;
-  color: var(--text-secondary, #a8b5c7);
+  color: var(--color-ink-2);
   font-size: 12px;
 }
 
@@ -563,11 +563,11 @@ onUnmounted(unlockBody)
 .cs-preset,
 .cs-step-btn {
   appearance: none;
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
-  color: var(--text-secondary, #a8b5c7);
-  background: var(--surface-secondary, #111f33);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink-2);
+  background: var(--color-raised);
   cursor: pointer;
-  transition: color var(--dur-fast, 160ms) var(--ease), background var(--dur-fast, 160ms) var(--ease), border-color var(--dur-fast, 160ms) var(--ease), transform var(--dur-fast, 160ms) var(--ease);
+  transition: color var(--duration-fast) var(--ease-out-quint), background var(--duration-fast) var(--ease-out-quint), border-color var(--duration-fast) var(--ease-out-quint), transform var(--duration-fast) var(--ease-out-quint);
 }
 
 .cs-header-btn:hover:not(:disabled),
@@ -576,9 +576,9 @@ onUnmounted(unlockBody)
 .cs-btn-secondary:hover,
 .cs-step-btn:hover:not(:disabled),
 .cs-preset:hover {
-  color: var(--text-primary, #e8eef7);
-  background: var(--surface-raised, #142238);
-  border-color: var(--border-strong, rgba(148, 163, 184, 0.28));
+  color: var(--color-ink);
+  background: var(--color-raised);
+  border-color: var(--color-line-hover);
 }
 
 .cs-header-btn:active:not(:disabled),
@@ -621,16 +621,16 @@ onUnmounted(unlockBody)
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
-  color: var(--text-secondary, #a8b5c7);
-  background: var(--status-warning-soft, rgba(245, 158, 11, 0.1));
-  border-left: 3px solid var(--status-warning, #f59e0b);
+  color: var(--color-ink-2);
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
   font-size: 12px;
   line-height: 1.55;
 }
 
 .cs-hint-icon {
   margin-top: 1px;
-  color: var(--status-warning, #f59e0b);
+  color: var(--color-warning);
 }
 
 .cs-section {
@@ -652,13 +652,13 @@ onUnmounted(unlockBody)
 
 .cs-section-heading span,
 .cs-pref-title-row span {
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
   font-size: 11px;
 }
 
 .cs-presets {
   display: flex;
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border: 1px solid var(--color-line);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -682,9 +682,9 @@ onUnmounted(unlockBody)
 }
 
 .cs-preset.is-active {
-  color: var(--accent-primary, #38bdf8);
-  background: var(--accent-soft, rgba(56, 189, 248, 0.12));
-  box-shadow: inset 0 -2px 0 var(--accent-primary, #38bdf8);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 .cs-preset-copy {
@@ -706,20 +706,20 @@ onUnmounted(unlockBody)
 
 .cs-preset-copy small {
   margin-top: 2px;
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
   font-size: 10px;
 }
 
 .cs-fields {
   overflow: hidden;
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border: 1px solid var(--color-line);
   border-radius: 6px;
 }
 
 .cs-field {
   padding: 14px;
-  background: var(--surface-secondary, #111f33);
-  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+  background: var(--color-raised);
+  border-bottom: 1px solid var(--color-line-hair);
 }
 
 .cs-field:last-child {
@@ -727,7 +727,7 @@ onUnmounted(unlockBody)
 }
 
 .cs-field.is-dirty {
-  box-shadow: inset 3px 0 0 var(--accent-primary, #38bdf8);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .cs-field-main {
@@ -754,15 +754,15 @@ onUnmounted(unlockBody)
 }
 
 .cs-field-title label {
-  color: var(--text-primary, #e8eef7);
+  color: var(--color-ink);
   font-size: 12px;
   font-weight: 700;
 }
 
 .cs-dirty-tag {
   padding: 2px 5px;
-  color: var(--accent-primary, #38bdf8);
-  background: var(--accent-soft, rgba(56, 189, 248, 0.12));
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
   border-radius: 4px;
   font-size: 9px;
   font-weight: 700;
@@ -771,7 +771,7 @@ onUnmounted(unlockBody)
 .cs-field-copy p,
 .cs-pref-copy > p {
   margin: 3px 0 0;
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -779,7 +779,7 @@ onUnmounted(unlockBody)
 .cs-field-value {
   min-width: 64px;
   padding-top: 2px;
-  color: var(--text-primary, #e8eef7);
+  color: var(--color-ink);
   font: 750 13px/1.4 var(--font-mono, ui-monospace, monospace);
   text-align: right;
   white-space: nowrap;
@@ -805,14 +805,14 @@ onUnmounted(unlockBody)
   width: 100%;
   height: 24px;
   margin: 0;
-  accent-color: var(--accent-primary, #38bdf8);
+  accent-color: var(--color-accent);
   background: transparent;
   cursor: pointer;
 }
 
 .cs-range::-webkit-slider-runnable-track {
   height: 4px;
-  background: linear-gradient(to right, var(--accent-primary, #38bdf8) 0 var(--range-progress), var(--surface-inset, #0b1524) var(--range-progress) 100%);
+  background: linear-gradient(to right, var(--color-accent) 0 var(--range-progress), var(--color-base) var(--range-progress) 100%);
   border-radius: 2px;
 }
 
@@ -821,34 +821,34 @@ onUnmounted(unlockBody)
   height: 18px;
   margin-top: -7px;
   appearance: none;
-  background: var(--text-primary, #e8eef7);
-  border: 3px solid var(--accent-primary, #38bdf8);
+  background: var(--color-ink);
+  border: 3px solid var(--color-accent);
   border-radius: 3px;
 }
 
 .cs-range::-moz-range-track {
   height: 4px;
-  background: var(--surface-inset, #0b1524);
+  background: var(--color-base);
   border-radius: 2px;
 }
 
 .cs-range::-moz-range-progress {
   height: 4px;
-  background: var(--accent-primary, #38bdf8);
+  background: var(--color-accent);
   border-radius: 2px;
 }
 
 .cs-range::-moz-range-thumb {
   width: 10px;
   height: 14px;
-  background: var(--text-primary, #e8eef7);
-  border: 3px solid var(--accent-primary, #38bdf8);
+  background: var(--color-ink);
+  border: 3px solid var(--color-accent);
   border-radius: 3px;
 }
 
 .cs-range-label {
   min-width: 28px;
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
   font: 650 10px/1 var(--font-mono, ui-monospace, monospace);
   text-align: right;
 }
@@ -858,13 +858,13 @@ onUnmounted(unlockBody)
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   height: 34px;
   overflow: hidden;
-  background: var(--surface-inset, #0b1524);
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  background: var(--color-base);
+  border: 1px solid var(--color-line);
   border-radius: 5px;
 }
 
 .cs-stepper:focus-within {
-  border-color: var(--accent-primary, #38bdf8);
+  border-color: var(--color-accent);
 }
 
 .cs-step-btn {
@@ -885,7 +885,7 @@ onUnmounted(unlockBody)
   min-width: 0;
   border: 0;
   outline: 0;
-  color: var(--text-primary, #e8eef7);
+  color: var(--color-ink);
   background: transparent;
   font: 650 11px/1 var(--font-mono, ui-monospace, monospace);
   text-align: center;
@@ -904,8 +904,8 @@ onUnmounted(unlockBody)
   justify-content: space-between;
   gap: 16px;
   padding: 13px 14px;
-  background: var(--surface-secondary, #111f33);
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  background: var(--color-raised);
+  border: 1px solid var(--color-line);
   border-radius: 6px;
 }
 
@@ -939,16 +939,16 @@ onUnmounted(unlockBody)
 }
 
 .cs-secondary-btn.is-danger:hover:not(:disabled) {
-  color: var(--status-danger, #fb7185);
-  background: var(--status-danger-soft, rgba(251, 113, 133, 0.1));
-  border-color: var(--status-danger, #fb7185);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger);
 }
 
 .cs-footer {
   justify-content: flex-end;
   min-height: 62px;
   padding: 12px 18px;
-  border-top: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  border-top: 1px solid var(--color-line);
 }
 
 .cs-btn {
@@ -963,15 +963,15 @@ onUnmounted(unlockBody)
 }
 
 .cs-btn-primary {
-  color: var(--accent-contrast, #07111f);
-  background: var(--accent-primary, #38bdf8);
-  border-color: var(--accent-primary, #38bdf8);
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .cs-btn-primary:hover {
-  color: var(--accent-contrast, #07111f);
-  background: var(--accent-hover, #7dd3fc);
-  border-color: var(--accent-hover, #7dd3fc);
+  color: var(--color-accent-contrast);
+  background: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
 }
 
 button:disabled {
@@ -983,7 +983,7 @@ button:disabled {
 .cs-fade-leave-active,
 .cs-panel-enter-active,
 .cs-panel-leave-active {
-  transition: opacity var(--dur-fast, 160ms) var(--ease);
+  transition: opacity var(--duration-fast) var(--ease-out-quint);
 }
 
 .cs-panel-enter-active,
@@ -1030,7 +1030,7 @@ button:disabled {
   }
 
   .cs-header-btn svg {
-    color: var(--text-secondary, #a8b5c7);
+    color: var(--color-ink-2);
   }
 
   .cs-body {
@@ -1047,7 +1047,7 @@ button:disabled {
   }
 
   .cs-preset:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+    border-bottom: 1px solid var(--color-line);
   }
 
   .cs-field-controls {

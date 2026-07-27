@@ -507,7 +507,7 @@ onUnmounted(() => {
   inset: 0 0 auto;
   height: 2px;
   content: '';
-  background: linear-gradient(90deg, rgba(0, 217, 255, 0.58), rgba(125, 211, 252, 0.34), transparent);
+  background: linear-gradient(90deg, rgba(0, 217, 255, 0.58), color-mix(in srgb, var(--color-accent-strong) 34%, transparent), transparent);
 }
 
 .model-menu-section-label {

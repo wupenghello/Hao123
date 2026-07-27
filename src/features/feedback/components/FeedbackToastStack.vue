@@ -70,7 +70,7 @@ function runAction(toast: FeedbackToast): void {
   pointer-events: none;
 }
 .fb-toast {
-  --fb-tone: var(--hud-cyan);
+  --fb-tone: var(--color-accent);
   pointer-events: auto;
   position: relative;
   display: flex;
@@ -100,9 +100,9 @@ function runAction(toast: FeedbackToast): void {
   background: var(--fb-tone);
   box-shadow: 0 0 18px var(--fb-tone);
 }
-.fb-toast.is-success { --fb-tone: var(--hud-teal); }
-.fb-toast.is-warning { --fb-tone: var(--hud-warn); }
-.fb-toast.is-danger { --fb-tone: var(--hud-danger); }
+.fb-toast.is-success { --fb-tone: var(--color-teal); }
+.fb-toast.is-warning { --fb-tone: var(--color-warning); }
+.fb-toast.is-danger { --fb-tone: var(--color-danger); }
 .fb-toast-orbit {
   display: grid;
   flex: 0 0 auto;

@@ -320,7 +320,7 @@ function finishOnboarding() {
             :data="precipData"
             :width="260"
             :height="30"
-            tone="var(--accent, #00D9FF)"
+            tone="var(--color-accent)"
             :fill="true"
             :dots="false"
           />
@@ -691,19 +691,19 @@ function finishOnboarding() {
 .bento-weather > * { position: relative; z-index: 1; }
 .bento-weather[data-ambient='clear']::before {
   background: radial-gradient(circle at 78% 18%, rgba(250, 204, 21, 0.22), transparent 60%),
-    radial-gradient(circle at 12% 88%, rgba(56, 189, 248, 0.14), transparent 58%);
+    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 58%);
 }
 .bento-weather[data-ambient='cloudy']::before {
   background: radial-gradient(circle at 80% 20%, rgba(148, 163, 184, 0.18), transparent 62%),
     radial-gradient(circle at 14% 86%, rgba(100, 116, 139, 0.14), transparent 60%);
 }
 .bento-weather[data-ambient='rain']::before {
-  background: radial-gradient(circle at 78% 16%, rgba(56, 189, 248, 0.2), transparent 60%),
+  background: radial-gradient(circle at 78% 16%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 60%),
     radial-gradient(circle at 16% 88%, rgba(14, 165, 233, 0.16), transparent 58%);
 }
 .bento-weather[data-ambient='storm']::before {
   background: radial-gradient(circle at 76% 14%, rgba(0, 217, 255, 0.2), transparent 58%),
-    radial-gradient(circle at 18% 88%, rgba(56, 189, 248, 0.18), transparent 60%);
+    radial-gradient(circle at 18% 88%, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 60%);
 }
 .bento-weather[data-ambient='snow']::before {
   background: radial-gradient(circle at 80% 18%, rgba(226, 232, 240, 0.2), transparent 62%),
@@ -714,7 +714,7 @@ function finishOnboarding() {
     radial-gradient(circle at 50% 90%, rgba(148, 163, 184, 0.12), transparent 60%);
 }
 .bento-weather[data-ambient='night']::before {
-  background: radial-gradient(circle at 80% 16%, rgba(125, 211, 252, 0.14), transparent 60%),
+  background: radial-gradient(circle at 80% 16%, color-mix(in srgb, var(--color-accent-strong) 14%, transparent), transparent 60%),
     radial-gradient(circle at 14% 86%, rgba(30, 41, 59, 0.4), transparent 58%);
 }
 .bento-weather[data-ambient='default']::before {
@@ -806,7 +806,7 @@ function finishOnboarding() {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent, #00d9ff);
+  color: var(--color-accent);
   font-variant-numeric: tabular-nums;
 }
 .weather-card-precip-peak.is-dry {

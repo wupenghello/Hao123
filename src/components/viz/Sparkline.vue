@@ -41,7 +41,7 @@ const props = withDefaults(
     width: 120,
     height: 36,
     tone: 'var(--color-accent)',
-    tone2: 'rgba(125, 211, 252, 0.45)',
+    tone2: 'color-mix(in srgb, var(--color-accent-strong) 45%, transparent)',
     fill: true,
     dots: true,
     min: undefined,

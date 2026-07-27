@@ -10,12 +10,12 @@ const { time } = useTime()
 
 <style scoped>
 .status-time {
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.08em;
   color: rgba(224, 242, 254, 0.92);
-  text-shadow: 0 0 14px rgba(125, 211, 252, 0.34);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--color-accent-strong) 34%, transparent);
 }
 </style>

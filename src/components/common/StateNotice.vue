@@ -80,7 +80,7 @@ const isLoading = computed(() => props.tone === 'loading')
 
 <style scoped>
 .state-notice {
-  --state-tone: #22d3ee;
+  --state-tone: var(--color-accent);
   position: relative;
   display: grid;
   width: min(560px, calc(100% - 32px));

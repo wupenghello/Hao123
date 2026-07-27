@@ -113,7 +113,7 @@ onUnmounted(() => {
 }
 
 .claude-btn:hover {
-  background: rgba(125, 211, 252, 0.09);
+  background: color-mix(in srgb, var(--color-accent-strong) 9%, transparent);
   color: #fff;
 }
 

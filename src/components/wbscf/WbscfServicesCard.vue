@@ -102,7 +102,7 @@ function btnLabel(s: WbscfServiceStatus): string {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
-  transition: border-color 0.18s var(--ease, ease), background 0.18s var(--ease, ease);
+  transition: border-color 0.18s var(--ease-out-quint), background 0.18s var(--ease-out-quint);
 }
 .svc[data-tone='running'] {
   border-color: rgba(0, 255, 148, 0.28);
@@ -124,7 +124,7 @@ function btnLabel(s: WbscfServiceStatus): string {
   border-radius: 999px;
 }
 .svc-led.is-running {
-  background: var(--run, #00ff94);
+  background: var(--color-success);
   box-shadow: 0 0 8px rgba(0, 255, 148, 0.8);
   animation: svc-pulse 1.6s ease-in-out infinite;
 }
@@ -180,7 +180,7 @@ function btnLabel(s: WbscfServiceStatus): string {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.18s var(--ease, cubic-bezier(0.22, 1, 0.36, 1));
+  transition: all 0.18s var(--ease-out-quint);
 }
 .svc-btn :deep(svg),
 .svc-btn svg {
@@ -195,7 +195,7 @@ function btnLabel(s: WbscfServiceStatus): string {
 }
 .svc-btn.is-running {
   border-color: rgba(0, 255, 148, 0.4);
-  color: var(--run, #00ff94);
+  color: var(--color-success);
 }
 .svc-btn.is-running:hover {
   border-color: rgba(0, 255, 148, 0.7);

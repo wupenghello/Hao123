@@ -501,7 +501,7 @@ const TAG_GROUP_COLORS = [
   { bg: 'rgba(45,212,191,0.10)', border: 'rgba(45,212,191,0.22)', text: 'rgb(94,234,212)' },
   { bg: 'rgba(168,85,247,0.10)', border: 'rgba(168,85,247,0.22)', text: 'rgb(216,180,254)' },
   { bg: 'rgba(251,191,36,0.10)', border: 'rgba(251,191,36,0.22)', text: 'rgb(252,211,77)' },
-  { bg: 'rgba(56,189,248,0.10)', border: 'rgba(56,189,248,0.22)', text: 'rgb(125,211,252)' },
+  { bg: 'color-mix(in srgb, var(--color-accent) 10%, transparent)', border: 'color-mix(in srgb, var(--color-accent) 22%, transparent)', text: 'var(--color-accent-strong)' },
   { bg: 'rgba(244,63,94,0.10)', border: 'rgba(244,63,94,0.22)', text: 'rgb(251,113,133)' },
 ]
 
@@ -2370,7 +2370,7 @@ function onBackdropClick() {
                       <span
                         v-if="remoteOnlyTagCount > 0"
                         class="gd-badge-sm"
-                        style="background: rgba(56,189,248,0.14); color: rgb(125,211,252); border-color: rgba(56,189,248,0.24)"
+                        style="background: color-mix(in srgb, var(--color-accent) 14%, transparent); color: var(--color-accent-strong); border-color: color-mix(in srgb, var(--color-accent) 24%, transparent)"
                         :title="`${remoteOnlyTagCount} 个标签只在远端、本地尚未拉取`"
                       >仅远端 {{ remoteOnlyTagCount }}</span>
                     </div>
@@ -2572,7 +2572,7 @@ function onBackdropClick() {
                         <span
                           v-if="t.localMissing"
                           class="gd-badge-sm"
-                          style="background: rgba(56,189,248,0.14); color: rgb(125,211,252); border-color: rgba(56,189,248,0.24)"
+                          style="background: color-mix(in srgb, var(--color-accent) 14%, transparent); color: var(--color-accent-strong); border-color: color-mix(in srgb, var(--color-accent) 24%, transparent)"
                           title="只在远端存在，本地尚未拉取；点击右上「同步远端标签」可拉下来"
                         >仅远端</span>
                         <span
@@ -2999,14 +2999,14 @@ function onBackdropClick() {
 .gd-action.is-loading :first-child { animation: gd-spin 1s linear infinite; }
 /* 远端有本地缺失的 tag 时，给同步按钮一个温和的呼吸提示 */
 .gd-action.gd-action-pulse {
-  background: rgba(56, 189, 248, 0.12);
-  color: rgb(125, 211, 252);
-  border-color: rgba(56, 189, 248, 0.3);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent-strong);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
   animation: gd-action-pulse 2.4s ease-in-out infinite;
 }
 @keyframes gd-action-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
-  50% { box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 12%, transparent); }
 }
 
 .gd-icon-btn {
@@ -3182,7 +3182,7 @@ function onBackdropClick() {
   bottom: 0;
   width: 2px;
   content: '';
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent, #00d9ff) 40%, transparent) 12%, color-mix(in srgb, var(--accent, #00d9ff) 40%, transparent) 88%, transparent);
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--color-accent) 40%, transparent) 12%, color-mix(in srgb, var(--color-accent) 40%, transparent) 88%, transparent);
 }
 /* 首尾淡出由渐变处理；节点圆点盖在竖线上 */
 .gd-graph-node {
@@ -3194,14 +3194,14 @@ function onBackdropClick() {
   height: 10px;
   flex-shrink: 0;
   border-radius: 999px;
-  background: var(--bg-base, #0a0b0e);
-  border: 2px solid var(--accent, #00d9ff);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent, #00d9ff) 55%, transparent);
+  background: var(--color-base);
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 55%, transparent);
   z-index: 1;
 }
 .gd-commit-row:hover .gd-graph-node {
-  background: var(--accent, #00d9ff);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #00d9ff) 80%, transparent);
+  background: var(--color-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 80%, transparent);
 }
 /* hash：终端绿等宽（致敬命令行 commit hash） */
 .gd-commit-row .gd-hash {
@@ -3265,7 +3265,7 @@ function onBackdropClick() {
   transition: background 0.12s;
 }
 .gd-tag-name-btn:hover { background: rgba(45,212,191,0.1); }
-.gd-tag-name-btn:focus-visible { outline: 2px solid var(--accent, #00d9ff); outline-offset: 2px; }
+.gd-tag-name-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .gd-tag-name-copy {
   opacity: 0; flex-shrink: 0; transition: opacity 0.12s, color 0.12s;
   color: rgba(255,255,255,0.35);

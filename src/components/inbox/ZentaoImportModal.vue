@@ -151,7 +151,7 @@ function onKeydown(e: KeyboardEvent) {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 50% 18%, rgba(56, 189, 248, 0.12), transparent 42%),
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 42%),
     rgba(2, 6, 23, 0.74);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
@@ -170,7 +170,7 @@ function onKeydown(e: KeyboardEvent) {
 .zim-eyebrow {
   margin: 0 0 16px;
   color: rgba(94, 234, 212, 0.82);
-  font: 850 11px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font: 850 11px/1 var(--font-mono);
   letter-spacing: 0.24em;
   text-transform: uppercase;
 }
@@ -194,7 +194,7 @@ function onKeydown(e: KeyboardEvent) {
   margin-top: 14px;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(94, 234, 212, 0.7), rgba(56, 189, 248, 0.5), transparent);
+  background: linear-gradient(90deg, rgba(94, 234, 212, 0.7), color-mix(in srgb, var(--color-accent) 50%, transparent), transparent);
   opacity: 0.75;
 }
 .zim-line.is-loading {

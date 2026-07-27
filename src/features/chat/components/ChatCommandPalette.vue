@@ -1812,7 +1812,7 @@ onUnmounted(() => {
                   >
                     <IconQuote class="w-4 h-4 shrink-0 mt-0.5" />
                     <div class="flex-1 min-w-0">
-                      <div class="text-[11px] font-medium" style="color: rgba(125,211,252,0.8)">
+                      <div class="text-[11px] font-medium" style="color: color-mix(in srgb, var(--color-accent-strong) 80%, transparent)">
                         引用 {{ getQuoteRole(quoteMessageIdx) }} 的回复
                       </div>
                       <div class="text-[12px] text-white/50 truncate italic">
@@ -2068,11 +2068,11 @@ onUnmounted(() => {
 
 /* ---------- 卡片（去 chrome：无四角 / 无网格 / 干净玻璃） ---------- */
 .cmd-card {
-  --cmd-tone: var(--accent);
-  --cmd-run: var(--run);
+  --cmd-tone: var(--color-accent);
+  --cmd-run: var(--color-success);
   --cmd-border: rgba(0, 217, 255, 0.14);
-  --cmd-text: var(--color-text);
-  --cmd-muted: var(--color-text-secondary);
+  --cmd-text: var(--color-ink);
+  --cmd-muted: var(--color-ink-2);
   border: 1px solid var(--cmd-border);
   border-radius: var(--radius-card);
   background: linear-gradient(180deg, rgba(13, 17, 24, 0.92), rgba(7, 10, 16, 0.96));
@@ -2098,7 +2098,7 @@ onUnmounted(() => {
   height: 1px;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cmd-tone) 40%, transparent), transparent);
   opacity: 0.5;
-  transition: opacity var(--dur) var(--ease), height var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint), height var(--duration-base) var(--ease-out-quint);
 }
 .cmd-accent.is-streaming {
   height: 2px;
@@ -2142,7 +2142,7 @@ onUnmounted(() => {
     rgba(12, 18, 28, 0.6);
   color: color-mix(in srgb, var(--cmd-tone) 85%, white);
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-brand-dot:hover { border-color: color-mix(in srgb, var(--cmd-tone) 55%, transparent); }
 .cmd-status-dot {
@@ -2155,7 +2155,7 @@ onUnmounted(() => {
   border: 2px solid rgba(7, 10, 16, 0.95);
 }
 .cmd-status-dot.is-ready { background: var(--cmd-run); box-shadow: 0 0 8px rgba(0, 255, 148, 0.6); }
-.cmd-status-dot.is-warn { background: var(--hud-warn); }
+.cmd-status-dot.is-warn { background: var(--color-warning); }
 
 /* 模型芯片（可点进设置） */
 .cmd-model-chip {
@@ -2174,7 +2174,7 @@ onUnmounted(() => {
   font-weight: 760;
   white-space: nowrap;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-model-chip:hover,
 .cmd-model-chip:focus-visible {
@@ -2188,7 +2188,7 @@ onUnmounted(() => {
   color: rgba(251, 191, 36, 0.85);
 }
 .cmd-model-provider {
-  color: rgba(125, 211, 252, 0.82);
+  color: color-mix(in srgb, var(--color-accent-strong) 82%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2216,23 +2216,23 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .cmd-header-spacer { flex: 1; min-width: 0; }
-.cmd-session-new { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: rgba(190,230,252,0.7); cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-new { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: rgba(190,230,252,0.7); cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint); }
 .cmd-session-new:hover:not(:disabled) { background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.06)); color: #fff; }
 .cmd-session-new:disabled { cursor: not-allowed; opacity: 0.4; }
 .cmd-session-list { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; max-height: 240px; overflow-y: auto; }
-.cmd-session-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.cmd-session-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint); }
 .cmd-session-item:hover:not(:disabled) { background: rgba(255,255,255,0.04); color: #fff; }
 .cmd-session-item.is-active { background: color-mix(in srgb, var(--cmd-tone) 14%, rgba(255,255,255,0.04)); border-color: color-mix(in srgb, var(--cmd-tone) 30%, transparent); color: #fff; }
 .cmd-session-item:disabled { cursor: not-allowed; opacity: 0.5; }
-.cmd-session-del { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px; color: rgba(190,230,252,0.4); cursor: pointer; transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.cmd-session-del { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px; color: rgba(190,230,252,0.4); cursor: pointer; transition: color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint); }
 .cmd-session-del:hover { color: rgba(253,164,175,0.95); background: rgba(244,63,94,0.14); }
 .cmd-session-switcher-wrap { position: relative; flex: 1; min-width: 0; }
-.cmd-session-switcher { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 11px; border: 1px solid rgba(0,217,255,0.1); border-radius: var(--radius-pill); background: rgba(12,18,28,0.4); color: rgba(190,230,252,0.7); font-size: 11.5px; cursor: pointer; transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-switcher { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 11px; border: 1px solid rgba(0,217,255,0.1); border-radius: var(--radius-pill); background: rgba(12,18,28,0.4); color: rgba(190,230,252,0.7); font-size: 11.5px; cursor: pointer; transition: border-color var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint); }
 .cmd-session-switcher:hover:not(:disabled) { border-color: color-mix(in srgb, var(--cmd-tone) 32%, transparent); color: #fff; }
 .cmd-session-switcher:disabled { cursor: not-allowed; opacity: 0.5; }
 .cmd-session-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmd-session-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px; max-width: 100%; max-height: 320px; overflow-y: auto; padding: 5px; border: 1px solid rgba(0,217,255,0.14); border-radius: 12px; background: rgba(13,17,24,0.96); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,0.5); z-index: 30; }
-.cmd-session-menu-new, .cmd-session-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; border: none; background: transparent; color: rgba(190,230,252,0.8); font-size: 12px; text-align: left; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-session-menu-new, .cmd-session-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; border: none; background: transparent; color: rgba(190,230,252,0.8); font-size: 12px; text-align: left; cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint); }
 .cmd-session-menu-new { color: color-mix(in srgb, var(--cmd-tone) 90%, white); font-weight: 600; }
 .cmd-session-menu-new:hover:not(:disabled), .cmd-session-menu-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .cmd-session-menu-new:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -2256,7 +2256,7 @@ onUnmounted(() => {
   background: transparent;
   color: rgba(190, 230, 252, 0.6);
   cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: color var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-iconbtn:hover,
 .cmd-iconbtn:focus-visible {
@@ -2313,10 +2313,10 @@ onUnmounted(() => {
 .cmd-setup svg { color: rgba(251, 191, 36, 0.7); }
 .cmd-setup-title { margin: 4px 0 0; color: rgba(248, 250, 252, 0.85); font-size: 15px; font-weight: 700; }
 .cmd-setup-hint { margin: 0; max-width: 18rem; font-size: 12px; color: rgba(190, 230, 252, 0.4); line-height: 1.6; }
-.cmd-setup-btn { margin-top: 14px; padding: 8px 20px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--cmd-tone) 18%, rgba(12,18,28,0.6)); border: 1px solid color-mix(in srgb, var(--cmd-tone) 42%, transparent); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.cmd-setup-btn { margin-top: 14px; padding: 8px 20px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--cmd-tone) 18%, rgba(12,18,28,0.6)); border: 1px solid color-mix(in srgb, var(--cmd-tone) 42%, transparent); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint); }
 .cmd-setup-btn:hover { background: color-mix(in srgb, var(--cmd-tone) 30%, rgba(12,18,28,0.6)); border-color: color-mix(in srgb, var(--cmd-tone) 60%, transparent); }
 .cmd-confirm-clear { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--cmd-border); background: rgba(244,63,94,0.08); color: rgba(253,164,175,0.92); font-size: 12px; }
-.cmd-confirm-clear-btn { padding: 4px 12px; border-radius: 7px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background var(--dur) var(--ease); }
+.cmd-confirm-clear-btn { padding: 4px 12px; border-radius: 7px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint); }
 .cmd-confirm-clear-btn.is-cancel { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: rgba(190,230,252,0.7); }
 .cmd-confirm-clear-btn.is-cancel:hover { background: rgba(255,255,255,0.1); }
 .cmd-confirm-clear-btn.is-ok { background: rgba(244,63,94,0.85); color: #fff; border: 1px solid transparent; }
@@ -2324,7 +2324,7 @@ onUnmounted(() => {
 .cmd-confirm-clear-btn:disabled { cursor: not-allowed; opacity: 0.5; }
 .cmd-empty-recent { margin-top: 18px; }
 .cmd-empty-recent-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.cmd-empty-recent-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.025); color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.cmd-empty-recent-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.025); color: rgba(190,230,252,0.7); font-size: 12px; cursor: pointer; transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint); }
 .cmd-empty-recent-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
 
 .cmd-messages {
@@ -2352,7 +2352,7 @@ onUnmounted(() => {
   color: rgba(190, 230, 252, 0.35);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-msg-user:hover .cmd-edit-trigger { opacity: 1; }
 .cmd-edit-trigger:hover { color: #fff; background: rgba(255,255,255,0.08); }
@@ -2379,7 +2379,7 @@ onUnmounted(() => {
   max-height: 240px;
   overflow-y: auto;
 }
-.cmd-edit-textarea:focus { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.cmd-edit-textarea:focus { border-color: color-mix(in srgb, var(--color-accent) 50%, transparent); }
 .cmd-edit-actions, .cmd-edit-confirm {
   display: flex;
   align-items: center;
@@ -2396,12 +2396,12 @@ onUnmounted(() => {
   font-size: 11px;
   padding: 4px 10px;
   cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint);
 }
 .cmd-edit-btn.is-ok {
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: color-mix(in srgb, var(--accent) 90%, white);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: color-mix(in srgb, var(--color-accent) 90%, white);
 }
 .cmd-edit-btn:hover:not(:disabled) { color: #fff; }
 .cmd-edit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -2426,12 +2426,12 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint);
 }
 .cmd-version-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
 .cmd-version-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .cmd-version-label {
-  font: 600 10px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 600 10px/1 var(--font-mono);
   color: rgba(190, 230, 252, 0.6);
   min-width: 30px;
   text-align: center;
@@ -2523,7 +2523,7 @@ onUnmounted(() => {
   border-radius: var(--radius-btn);
   background: rgba(255,255,255,0.02);
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-loop-intermediate:hover { border-color: rgba(0, 217, 255, 0.16); background: rgba(255,255,255,0.04); }
 .cmd-loop-intermediate.is-expanded { border-color: rgba(0, 217, 255, 0.14); background: rgba(255,255,255,0.03); }
@@ -2536,7 +2536,7 @@ onUnmounted(() => {
   border-radius: var(--radius-tag);
   background: rgba(255,255,255,0.03);
   color: rgba(255,255,255,0.4);
-  font: 700 9.5px/1 var(--hud-font-data, ui-monospace, monospace);
+  font: 700 9.5px/1 var(--font-mono);
   white-space: nowrap;
 }
 .cmd-loop-step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2554,7 +2554,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--tool-tone) 5%, rgba(12, 18, 28, 0.4));
   font-size: 12px;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-activity::before {
   position: absolute;
@@ -2566,7 +2566,7 @@ onUnmounted(() => {
   content: '';
   background: var(--tool-tone);
   opacity: 0.4;
-  transition: opacity var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint);
 }
 .cmd-activity:hover::before,
 .cmd-activity.running::before { opacity: 0.9; }
@@ -2580,12 +2580,12 @@ onUnmounted(() => {
   50% { opacity: 1; }
 }
 .cmd-activity.is-compact { padding: 6px 10px; background: rgba(12,18,28,0.3); cursor: default; }
-.cmd-activity.is-error { --tool-tone: var(--hud-danger); }
-.cmd-activity.is-pending { --tool-tone: var(--hud-warn); }
-.cmd-activity.tool-weather { --tool-tone: #38bdf8; }
+.cmd-activity.is-error { --tool-tone: var(--color-danger); }
+.cmd-activity.is-pending { --tool-tone: var(--color-warning); }
+.cmd-activity.tool-weather { --tool-tone: var(--color-accent); }
 .cmd-activity.tool-task { --tool-tone: var(--cmd-run); }
-.cmd-activity.tool-bug { --tool-tone: var(--hud-danger); }
-.cmd-activity.tool-kb { --tool-tone: var(--hud-warn); }
+.cmd-activity.tool-bug { --tool-tone: var(--color-danger); }
+.cmd-activity.tool-kb { --tool-tone: var(--color-warning); }
 .cmd-activity.tool-local { --tool-tone: #2dd4bf; }
 .cmd-activity pre {
   margin: 7px 0 0;
@@ -2618,7 +2618,7 @@ onUnmounted(() => {
   border-radius: var(--radius-pill);
   background: rgba(251, 191, 36, 0.1);
   color: #fde68a;
-  font: 850 10px/1.35 var(--hud-font-data, ui-monospace, monospace);
+  font: 850 10px/1.35 var(--font-mono);
 }
 .cmd-approval-desc, .cmd-approval-risk { margin: 7px 0 0; font-size: 11.5px; line-height: 1.55; }
 .cmd-approval-desc { color: rgba(190, 230, 252, 0.66); }
@@ -2635,12 +2635,12 @@ onUnmounted(() => {
   font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
-  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  transition: transform var(--duration-base) var(--ease-out-quint), opacity var(--duration-base) var(--ease-out-quint);
 }
 .cmd-approval-btn:hover:not(:disabled) { transform: translateY(-1px); }
 .cmd-approval-btn:disabled { cursor: not-allowed; opacity: 0.5; }
 .cmd-approval-btn.is-cancel { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.055); color: rgba(190, 230, 252, 0.66); }
-.cmd-approval-btn.is-confirm { background: var(--hud-warn); color: #281705; box-shadow: 0 0 16px rgba(251, 191, 36, 0.2); }
+.cmd-approval-btn.is-confirm { background: var(--color-warning); color: #281705; box-shadow: 0 0 16px rgba(251, 191, 36, 0.2); }
 
 .cmd-ui-stack { display: grid; gap: 10px; }
 
@@ -2687,7 +2687,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(8px);
   opacity: 0;
   transform: translateY(2px);
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint), transform var(--duration-base) var(--ease-out-quint);
 }
 .cmd-md:hover .cmd-action-bar,
 .cmd-md:focus-within .cmd-action-bar { opacity: 1; transform: none; }
@@ -2701,7 +2701,7 @@ onUnmounted(() => {
   background: transparent;
   color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint);
 }
 .cmd-action:hover, .cmd-action:focus-visible { color: #fff; background: rgba(255,255,255,0.1); outline: 0; }
 .cmd-quality-tag {
@@ -2729,7 +2729,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint), transform var(--duration-base) var(--ease-out-quint);
 }
 .cmd-followup-chip:hover {
   border-color: color-mix(in srgb, var(--cmd-tone) 34%, transparent);
@@ -2772,7 +2772,7 @@ onUnmounted(() => {
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 10px 28px rgba(2, 6, 16, 0.32);
-  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint), transform var(--duration-base) var(--ease-out-quint);
 }
 .cmd-jump-latest-btn:hover, .cmd-jump-latest-btn:focus-visible {
   color: #fff;
@@ -2823,7 +2823,7 @@ onUnmounted(() => {
   font-size: 13.5px;
   text-align: left;
   cursor: pointer;
-  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: transform var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint);
 }
 .cmd-suggestion svg { color: color-mix(in srgb, var(--cmd-tone) 75%, white); }
 .cmd-suggestion:last-child svg { color: rgba(190, 230, 252, 0.3); }
@@ -2863,14 +2863,14 @@ onUnmounted(() => {
   border: 0;
   background: transparent;
   cursor: pointer;
-  transition: opacity var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint);
 }
 .cmd-pending-thumb:hover .cmd-pending-x { opacity: 1; }
 
 /* ---------- 胶囊合成器 ---------- */
 .cmd-input-wrapper {
   padding: 10px 14px 6px;
-  transition: background var(--dur) var(--ease);
+  transition: background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-card.is-immersive .cmd-input-wrapper {
   padding: 12px clamp(16px, 6vw, 80px) max(14px, env(safe-area-inset-bottom));
@@ -2900,10 +2900,10 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 850;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint), color var(--duration-base) var(--ease-out-quint);
 }
 .cmd-mode-tab.is-active {
-  border-color: rgba(125, 211, 252, 0.2);
+  border-color: color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
   background: rgba(0, 217, 255, 0.09);
   color: rgba(186, 230, 253, 0.92);
 }
@@ -2925,7 +2925,7 @@ onUnmounted(() => {
   border-radius: var(--radius-card);
   background: rgba(12, 18, 28, 0.62);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: border-color var(--duration-base) var(--ease-out-quint), box-shadow var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-card.is-immersive .cmd-composer { max-width: 820px; margin: 0 auto; min-height: 56px; }
 .cmd-input-wrapper:focus-within .cmd-composer {
@@ -2967,7 +2967,7 @@ onUnmounted(() => {
   color: rgba(5, 8, 15, 0.95);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--cmd-tone) 22%, transparent), inset 0 1px 0 rgba(255,255,255,0.25);
   cursor: pointer;
-  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease), opacity var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: transform var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint), opacity var(--duration-base) var(--ease-out-quint), box-shadow var(--duration-base) var(--ease-out-quint);
 }
 .cmd-send:hover:not(:disabled), .cmd-send:focus-visible:not(:disabled) {
   transform: translateY(-1px) scale(1.04);
@@ -3003,7 +3003,7 @@ onUnmounted(() => {
   border-radius: var(--radius-tag);
   background: rgba(255,255,255,0.05);
   color: rgba(190, 230, 252, 0.5);
-  font: 600 10px/1.4 var(--hud-font-data, ui-monospace, monospace);
+  font: 600 10px/1.4 var(--font-mono);
 }
 .cmd-footer-sep { color: rgba(255,255,255,0.16); margin: 0 2px; }
 .cmd-footer-stats { margin-left: auto; color: rgba(190,230,252,0.3); font-size: 11px; white-space: nowrap; }
@@ -3019,7 +3019,7 @@ onUnmounted(() => {
 }
 .cmd-side-section { padding: 2px 0 16px; border-bottom: 1px solid rgba(0, 217, 255, 0.09); }
 .cmd-side-section:last-child { border-bottom: 0; }
-.cmd-side-head { display: flex; align-items: center; gap: 7px; color: rgba(125, 211, 252, 0.7); font-size: 11px; font-weight: 850; }
+.cmd-side-head { display: flex; align-items: center; gap: 7px; color: color-mix(in srgb, var(--color-accent-strong) 70%, transparent); font-size: 11px; font-weight: 850; }
 .cmd-side-title { margin-top: 9px; color: rgba(248, 250, 252, 0.92); font-size: 13px; font-weight: 800; line-height: 1.45; }
 .cmd-side-metrics { display: flex; margin-top: 14px; padding: 10px 0; border-top: 1px solid rgba(0, 217, 255, 0.08); border-bottom: 1px solid rgba(0, 217, 255, 0.08); }
 .cmd-side-metrics div { flex: 1; min-width: 0; padding: 0 8px; border-right: 1px solid rgba(0, 217, 255, 0.08); }
@@ -3037,7 +3037,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: color var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-side-chip:hover:not(:disabled), .cmd-side-chip:focus-visible {
   color: #fff;
@@ -3051,8 +3051,8 @@ onUnmounted(() => {
 .cmd-side-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 999px; background: rgba(148, 163, 184, 0.5); box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.08); }
 .cmd-side-activity.running .cmd-side-dot { background: var(--cmd-tone); box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.12), 0 0 12px rgba(0, 217, 255, 0.28); }
 .cmd-side-activity.done .cmd-side-dot { background: var(--cmd-run); }
-.cmd-side-activity.error .cmd-side-dot { background: var(--hud-danger); }
-.cmd-side-activity.pending .cmd-side-dot { background: var(--hud-warn); }
+.cmd-side-activity.error .cmd-side-dot { background: var(--color-danger); }
+.cmd-side-activity.pending .cmd-side-dot { background: var(--color-warning); }
 .cmd-side-activity-title { overflow: hidden; color: rgba(248, 250, 252, 0.76); font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .cmd-side-activity-sub, .cmd-side-empty { margin-top: 2px; color: rgba(190, 230, 252, 0.36); font-size: 11px; line-height: 1.4; }
 
@@ -3066,7 +3066,7 @@ onUnmounted(() => {
   border-bottom-right-radius: var(--radius-card);
   opacity: 0.5;
   cursor: se-resize;
-  transition: opacity var(--dur) var(--ease);
+  transition: opacity var(--duration-base) var(--ease-out-quint);
 }
 .resize-handle:hover { opacity: 0.95; }
 .resize-icon { width: 10px; height: 10px; fill: rgba(255,255,255,0.5); }
@@ -3076,16 +3076,16 @@ onUnmounted(() => {
 /* ---------- 过渡 ---------- */
 .content-fade-enter-active, .content-fade-leave-active,
 .quote-fade-enter-active, .quote-fade-leave-active,
-.activity-expand-enter-active, .activity-expand-leave-active { transition: all var(--dur) var(--ease); }
+.activity-expand-enter-active, .activity-expand-leave-active { transition: all var(--duration-base) var(--ease-out-quint); }
 .content-fade-enter-from, .content-fade-leave-to,
 .quote-fade-enter-from, .quote-fade-leave-to,
 .activity-expand-enter-from, .activity-expand-leave-to { opacity: 0; transform: translateY(-4px); }
 .activity-expand-enter-active, .activity-expand-leave-active { overflow: hidden; }
 .activity-expand-enter-from, .activity-expand-leave-to { max-height: 0; margin-top: 0; padding-top: 0; }
 .activity-expand-enter-to, .activity-expand-leave-from { max-height: 220px; }
-.cmd-fade-enter-active, .cmd-fade-leave-active { transition: opacity var(--dur) var(--ease); }
+.cmd-fade-enter-active, .cmd-fade-leave-active { transition: opacity var(--duration-base) var(--ease-out-quint); }
 .cmd-fade-enter-from, .cmd-fade-leave-to { opacity: 0; }
-.cmd-jump-enter-active, .cmd-jump-leave-active { transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.cmd-jump-enter-active, .cmd-jump-leave-active { transition: opacity var(--duration-base) var(--ease-out-quint), transform var(--duration-base) var(--ease-out-quint); }
 .cmd-jump-enter-from, .cmd-jump-leave-to { opacity: 0; transform: translateY(6px); }
 
 /* ---------- Markdown（无框，仅内容） ---------- */
@@ -3111,7 +3111,7 @@ onUnmounted(() => {
   border-radius: var(--radius-tag);
   background: color-mix(in srgb, var(--cmd-tone) 12%, rgba(255,255,255,0.08));
   color: color-mix(in srgb, var(--cmd-tone) 85%, white);
-  font-family: var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--font-mono);
   font-size: 0.86em;
 }
 .cmd-md :deep(.code-block-wrapper) { position: relative; margin: 0.7em 0; }
@@ -3136,7 +3136,7 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.62);
   cursor: pointer;
   font-size: 11px;
-  transition: all var(--dur) var(--ease);
+  transition: all var(--duration-base) var(--ease-out-quint);
 }
 .cmd-md :deep(.code-copy-btn:hover) { background: color-mix(in srgb, var(--cmd-tone) 16%, transparent); color: rgba(255,255,255,0.92); }
 .cmd-md :deep(.code-copy-btn:disabled) { cursor: not-allowed; border-color: rgba(0, 217, 255, 0.08); background: rgba(0, 217, 255, 0.07); color: rgba(190, 230, 252, 0.34); }
@@ -3238,7 +3238,7 @@ onUnmounted(() => {
   letter-spacing: .04em;
 }
 .cmd-session-head strong {
-  color: rgba(125, 211, 252, .72);
+  color: color-mix(in srgb, var(--color-accent-strong) 72%, transparent);
   font: 800 10px/1 var(--font-mono);
 }
 .cmd-session-item {
@@ -3273,7 +3273,7 @@ onUnmounted(() => {
   font-size: 10.5px;
   font-weight: 760;
   cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: color var(--duration-base) var(--ease-out-quint), border-color var(--duration-base) var(--ease-out-quint), background var(--duration-base) var(--ease-out-quint);
 }
 .cmd-session-context button:hover:not(:disabled),
 .cmd-session-context button:focus-visible {
@@ -3452,7 +3452,7 @@ onUnmounted(() => {
 .cmd-suggestion svg { color: rgba(94,234,212,.7); }
 
 .cmd-msg-body {
-  border: 1px solid rgba(125,211,252,.12);
+  border: 1px solid color-mix(in srgb, var(--color-accent-strong) 12%, transparent);
   background: rgba(30,58,95,.42);
   color: rgba(226,232,240,.76);
 }
@@ -3461,7 +3461,7 @@ onUnmounted(() => {
 .cmd-md :deep(h1), .cmd-md :deep(h2), .cmd-md :deep(h3), .cmd-md :deep(h4), .cmd-md :deep(strong) { color: rgba(241,245,249,.86); }
 .cmd-md :deep(p), .cmd-md :deep(li), .cmd-md :deep(blockquote) { color: rgba(226,232,240,.7); }
 .cmd-md :deep(a), .cmd-md :deep(li::marker) { color: rgba(94,234,212,.78); }
-.cmd-md :deep(code) { background: rgba(2,6,23,.3); color: rgba(125,211,252,.76); }
+.cmd-md :deep(code) { background: rgba(2,6,23,.3); color: color-mix(in srgb, var(--color-accent-strong) 76%, transparent); }
 .cmd-md :deep(.code-block-header), .cmd-md :deep(pre) { border-color: rgba(255,255,255,.08); }
 .cmd-md :deep(.code-block-header) { background: rgba(15,23,42,.58); color: rgba(203,213,225,.48); }
 .cmd-md :deep(pre) { background: rgba(2,6,23,.4); }

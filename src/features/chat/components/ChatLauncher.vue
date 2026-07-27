@@ -196,21 +196,21 @@ const launcherStyle = computed(() => {
   gap: 8px;
   min-height: 44px;
   padding: 5px 6px 5px 5px;
-  color: var(--text-secondary, #a8b5c7);
-  background: var(--surface-raised, #142238);
-  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  color: var(--color-ink-2);
+  background: var(--color-raised);
+  border: 1px solid var(--color-line-hover);
   border-radius: 7px;
-  box-shadow: var(--shadow-raised, 0 12px 32px rgba(2, 6, 23, 0.32));
+  box-shadow: var(--shadow-card);
   cursor: grab;
   touch-action: none;
   user-select: none;
-  transition: color var(--dur-fast, 160ms) var(--ease), background var(--dur-fast, 160ms) var(--ease), border-color var(--dur-fast, 160ms) var(--ease), transform var(--dur-fast, 160ms) var(--ease);
+  transition: color var(--duration-fast) var(--ease-out-quint), background var(--duration-fast) var(--ease-out-quint), border-color var(--duration-fast) var(--ease-out-quint), transform var(--duration-fast) var(--ease-out-quint);
 }
 
 .chat-launcher:hover {
-  color: var(--text-primary, #e8eef7);
-  background: color-mix(in srgb, var(--surface-raised, #142238) 88%, var(--accent-primary, #38bdf8));
-  border-color: var(--accent-primary, #38bdf8);
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-raised) 88%, var(--color-accent));
+  border-color: var(--color-accent);
 }
 
 .chat-launcher:not(.is-dragging):active {
@@ -222,11 +222,11 @@ const launcherStyle = computed(() => {
   cursor: grabbing;
   transition: none;
   transform: none;
-  box-shadow: var(--shadow-raised, 0 12px 32px rgba(2, 6, 23, 0.32)), 0 0 0 2px color-mix(in srgb, var(--accent-primary, #38bdf8) 40%, transparent);
+  box-shadow: var(--shadow-card), 0 0 0 2px color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
 .chat-launcher.is-unreachable {
-  border-color: color-mix(in srgb, var(--status-warning, #f59e0b) 58%, var(--border-default, rgba(148, 163, 184, 0.2)));
+  border-color: color-mix(in srgb, var(--color-warning) 58%, var(--color-line));
 }
 
 .launcher-icon {
@@ -235,9 +235,9 @@ const launcherStyle = computed(() => {
   height: 32px;
   place-items: center;
   flex: 0 0 auto;
-  color: var(--accent-hover, #7dd3fc);
-  background: var(--surface-inset, #0b1524);
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  color: var(--color-accent-strong);
+  background: var(--color-base);
+  border: 1px solid var(--color-line);
   border-radius: 4px;
 }
 
@@ -257,13 +257,13 @@ const launcherStyle = computed(() => {
 }
 
 .launcher-status.is-ok {
-  color: var(--status-success, #34d399);
-  background: var(--status-success-soft, rgba(52, 211, 153, 0.1));
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }
 
 .launcher-status.is-down {
-  color: var(--status-warning, #f59e0b);
-  background: var(--status-warning-soft, rgba(245, 158, 11, 0.1));
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 .launcher-shortcut,
@@ -279,18 +279,18 @@ const launcherStyle = computed(() => {
 .launcher-shortcut {
   min-width: 38px;
   padding: 0 6px;
-  color: var(--text-muted, #74839a);
-  background: var(--surface-inset, #0b1524);
-  border: 1px solid var(--border-default, rgba(148, 163, 184, 0.2));
+  color: var(--color-ink-3);
+  background: var(--color-base);
+  border: 1px solid var(--color-line);
   font: 650 9px/1 var(--font-mono, ui-monospace, monospace);
 }
 
 .launcher-unread {
   min-width: 22px;
   padding: 0 5px;
-  color: var(--status-danger, #fb7185);
-  background: var(--status-danger-soft, rgba(251, 113, 133, 0.1));
-  border: 1px solid color-mix(in srgb, var(--status-danger, #fb7185) 40%, transparent);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
   font-size: 9px;
 }
 
@@ -299,13 +299,13 @@ const launcherStyle = computed(() => {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  color: var(--text-muted, #74839a);
+  color: var(--color-ink-3);
   opacity: 0.5;
   transition: opacity 0.15s, color 0.15s;
 }
 .chat-launcher:hover .launcher-drag-handle {
   opacity: 0.85;
-  color: var(--accent-hover, #7dd3fc);
+  color: var(--color-accent-strong);
 }
 
 @media (max-width: 480px) {

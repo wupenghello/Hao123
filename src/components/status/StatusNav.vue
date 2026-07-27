@@ -165,7 +165,7 @@ button.status-nav-label {
 
 .status-nav-item:hover > .status-nav-label {
   color: #fff;
-  background: rgba(125, 211, 252, 0.09);
+  background: color-mix(in srgb, var(--color-accent-strong) 9%, transparent);
 }
 
 .status-nav-label.is-local-running {
@@ -184,7 +184,7 @@ button.status-nav-label {
   width: 1px;
   height: 16px;
   margin: 0 6px;
-  background: rgba(125, 211, 252, 0.18);
+  background: color-mix(in srgb, var(--color-accent-strong) 18%, transparent);
   flex-shrink: 0;
 }
 
@@ -212,7 +212,7 @@ button.status-nav-label {
   padding: 6px;
   border-radius: var(--radius-sm);
   background: rgba(2, 6, 23, 0.86);
-  border: 1px solid rgba(125, 211, 252, 0.14);
+  border: 1px solid color-mix(in srgb, var(--color-accent-strong) 14%, transparent);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(18px) saturate(135%);
   -webkit-backdrop-filter: blur(18px) saturate(135%);
@@ -284,7 +284,7 @@ button.status-nav-label {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
-  color: rgba(125, 211, 252, 0.72);
+  color: color-mix(in srgb, var(--color-accent-strong) 72%, transparent);
   white-space: nowrap;
 }
 

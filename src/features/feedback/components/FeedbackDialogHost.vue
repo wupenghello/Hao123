@@ -136,7 +136,7 @@ onUnmounted(() => {
 
 <style scoped>
 .fb-dialog-shell {
-  --fb-tone: var(--hud-cyan);
+  --fb-tone: var(--color-accent);
   position: fixed;
   inset: 0;
   z-index: 160;
@@ -144,9 +144,9 @@ onUnmounted(() => {
   place-items: center;
   padding: 20px;
 }
-.fb-dialog-shell.is-success { --fb-tone: var(--hud-teal); }
-.fb-dialog-shell.is-warning { --fb-tone: var(--hud-warn); }
-.fb-dialog-shell.is-danger { --fb-tone: var(--hud-danger); }
+.fb-dialog-shell.is-success { --fb-tone: var(--color-teal); }
+.fb-dialog-shell.is-warning { --fb-tone: var(--color-warning); }
+.fb-dialog-shell.is-danger { --fb-tone: var(--color-danger); }
 .fb-dialog-backdrop {
   position: absolute;
   inset: 0;
@@ -214,7 +214,7 @@ onUnmounted(() => {
 .fb-dialog-titlebox small {
   display: block;
   margin-bottom: 3px;
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1;
   color: color-mix(in srgb, var(--fb-tone) 76%, rgba(226, 232, 240, 0.55));
@@ -267,11 +267,11 @@ onUnmounted(() => {
   margin: 0;
   overflow: auto;
   padding: 11px 12px;
-  border: 1px solid rgba(125, 211, 252, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-accent-strong) 12%, transparent);
   border-radius: 8px;
   background: rgba(2, 6, 23, 0.56);
   color: rgba(226, 232, 240, 0.72);
-  font-family: var(--hud-font-data);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;

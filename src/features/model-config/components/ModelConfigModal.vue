@@ -328,13 +328,13 @@ const {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--mm-tone, #38bdf8) 22%, transparent), transparent 34%),
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--mm-tone, var(--color-accent)) 22%, transparent), transparent 34%),
     radial-gradient(circle at 86% 80%, rgba(45, 212, 191, 0.16), transparent 32%),
     rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(16px) saturate(140%);
 }
 .mm-console {
-  --mm-tone: #38bdf8;
+  --mm-tone: var(--color-accent);
   --mm-panel: rgba(6, 13, 28, 0.76);
   --mm-panel-strong: rgba(8, 17, 36, 0.86);
   --mm-border: rgba(148, 163, 184, 0.16);
@@ -416,7 +416,7 @@ const {
 .mm-eyebrow {
   margin: 0 0 3px;
   color: color-mix(in srgb, var(--mm-tone) 72%, white 8%);
-  font: 800 10px/1 var(--hud-font-data, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font: 800 10px/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -548,7 +548,7 @@ const {
   padding: 12px 18px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
   background:
-    radial-gradient(circle at 0% 0, color-mix(in srgb, var(--mm-tone, #38bdf8) 10%, transparent), transparent 60%),
+    radial-gradient(circle at 0% 0, color-mix(in srgb, var(--mm-tone, var(--color-accent)) 10%, transparent), transparent 60%),
     linear-gradient(180deg, rgba(8, 17, 36, 0.7), rgba(2, 6, 23, 0.82));
   backdrop-filter: blur(6px);
 }

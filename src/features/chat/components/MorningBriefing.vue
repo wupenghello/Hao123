@@ -487,15 +487,15 @@ function startFallbackChat() {
 /* 中心光晕容器 */
 .mb-thinking-orb { position: relative; width: 56px; height: 56px; display: grid; place-items: center; }
 /* 中心实心圆：青色渐变 + 呼吸 + 辉光 */
-.mb-thinking-core { position: relative; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #fff 0%, var(--mb-tone, #38bdf8) 55%, color-mix(in srgb, var(--mb-tone, #38bdf8) 40%, transparent) 100%); box-shadow: 0 0 18px color-mix(in srgb, var(--mb-tone, #38bdf8) 65%, transparent), 0 0 36px color-mix(in srgb, var(--mb-tone, #38bdf8) 35%, transparent); animation: mb-core-breath 2.4s ease-in-out infinite; z-index: 2; }
+.mb-thinking-core { position: relative; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #fff 0%, var(--mb-tone, var(--color-accent)) 55%, color-mix(in srgb, var(--mb-tone, var(--color-accent)) 40%, transparent) 100%); box-shadow: 0 0 18px color-mix(in srgb, var(--mb-tone, var(--color-accent)) 65%, transparent), 0 0 36px color-mix(in srgb, var(--mb-tone, var(--color-accent)) 35%, transparent); animation: mb-core-breath 2.4s ease-in-out infinite; z-index: 2; }
 /* 同心圆波纹：3 层延迟扩散 */
-.mb-thinking-ring { position: absolute; inset: 0; border: 1px solid color-mix(in srgb, var(--mb-tone, #38bdf8) 50%, transparent); border-radius: 50%; opacity: 0; animation: mb-ring-spread 2.4s ease-out infinite; }
+.mb-thinking-ring { position: absolute; inset: 0; border: 1px solid color-mix(in srgb, var(--mb-tone, var(--color-accent)) 50%, transparent); border-radius: 50%; opacity: 0; animation: mb-ring-spread 2.4s ease-out infinite; }
 .mb-thinking-ring.is-2 { animation-delay: 0.8s; }
 .mb-thinking-ring.is-3 { animation-delay: 1.6s; }
 /* 阶段文字 + 呼吸省略号 */
 .mb-thinking-text { margin: 0; color: rgba(226, 232, 240, 0.72); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; display: inline-flex; align-items: baseline; gap: 2px; animation: mb-text-fade 2.4s ease-in-out infinite; }
 .mb-thinking-dots { display: inline-flex; gap: 3px; margin-left: 4px; }
-.mb-thinking-dots i { width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--mb-tone, #38bdf8) 70%, white); opacity: 0.4; animation: mb-dot-breath 1.5s ease-in-out infinite; }
+.mb-thinking-dots i { width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--mb-tone, var(--color-accent)) 70%, white); opacity: 0.4; animation: mb-dot-breath 1.5s ease-in-out infinite; }
 .mb-thinking-dots i:nth-child(2) { animation-delay: 0.2s; }
 .mb-thinking-dots i:nth-child(3) { animation-delay: 0.4s; }
 /* 工作步骤列表（三态：已完成 / 进行中 / 待做） */
@@ -503,10 +503,10 @@ function startFallbackChat() {
 .mb-step { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; transition: opacity 0.2s; }
 .mb-step-icon { display: grid; width: 16px; height: 16px; flex-shrink: 0; place-items: center; }
 .mb-step.is-done .mb-step-icon { color: #2dd4bf; }
-.mb-step.is-running .mb-step-icon { color: color-mix(in srgb, var(--mb-tone, #38bdf8) 80%, white); }
+.mb-step.is-running .mb-step-icon { color: color-mix(in srgb, var(--mb-tone, var(--color-accent)) 80%, white); }
 .mb-step.is-error .mb-step-icon { color: #fda4af; }
 .mb-step.is-pending .mb-step-icon { color: rgba(148, 163, 184, 0.45); }
-.mb-step-pulse { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--mb-tone, #38bdf8) 80%, white); box-shadow: 0 0 8px color-mix(in srgb, var(--mb-tone, #38bdf8) 60%, transparent); animation: mb-step-breath 1.2s ease-in-out infinite; }
+.mb-step-pulse { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--mb-tone, var(--color-accent)) 80%, white); box-shadow: 0 0 8px color-mix(in srgb, var(--mb-tone, var(--color-accent)) 60%, transparent); animation: mb-step-breath 1.2s ease-in-out infinite; }
 .mb-step-dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid currentColor; background: transparent; }
 .mb-step-label { flex: 1 1 auto; min-width: 0; color: rgba(226, 232, 240, 0.7); }
 .mb-step.is-done .mb-step-label { color: rgba(148, 163, 184, 0.6); }
@@ -517,7 +517,7 @@ function startFallbackChat() {
 @keyframes mb-step-breath { 0%, 100% { opacity: 0.5; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.1); } }
 
 /* 背景流光：卡片底部横向扫描 */
-.mb-thinking-scan { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--mb-tone, #38bdf8) 70%, white), transparent); animation: mb-scan-flow 2.8s ease-in-out infinite; }
+.mb-thinking-scan { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--mb-tone, var(--color-accent)) 70%, white), transparent); animation: mb-scan-flow 2.8s ease-in-out infinite; }
 /* 动画关键帧 */
 @keyframes mb-core-breath { 0%, 100% { transform: scale(0.82); opacity: 0.7; } 50% { transform: scale(1.12); opacity: 1; } }
 @keyframes mb-ring-spread { 0% { transform: scale(0.4); opacity: 0.75; } 100% { transform: scale(1.8); opacity: 0; } }
