@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { useWeatherStore } from '../store'
 import { getWeatherIcon } from '../icons'
 import { aqiTone, alarmTone, getIndexIcon } from '../ui'
@@ -22,6 +22,9 @@ import IconWeatherWindy from '~icons/mdi/weather-windy'
 
 const store = useWeatherStore()
 
+/** 逐小时温度曲线：async chunk——echarts 核心仅在打开本弹窗时加载 */
+const HourlyTempChart = defineAsyncComponent(() => import('./HourlyTempChart.vue'))
+
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -35,6 +38,8 @@ const currentIcon = computed(() => {
 
 const forecastDays = computed(() => store.daily.slice(0, 7))
 const hourlyList = computed(() => store.hourly?.slice(0, 12) ?? [])
+/** 温度趋势刻度标签（首项「现在」，与逐小时瓦片同口径） */
+const hourlyLabels = computed(() => hourlyList.value.map((h, i) => hourLabel(h, i)))
 const indexList = computed(() => store.indices ?? [])
 const warningList = computed(() => store.warnings ?? [])
 const aqi = computed(() => aqiTone(store.air))
@@ -336,6 +341,12 @@ onUnmounted(unlockScroll)
                   class="pointer-events-none absolute right-0 top-7 bottom-0 w-8 bg-gradient-to-l from-slate-950/80 to-transparent md:hidden"
                   aria-hidden="true"
                 />
+              </section>
+
+              <!-- 温度趋势（ECharts async chunk，仅打开本弹窗时加载） -->
+              <section v-if="hourlyList.length >= 2">
+                <h3 class="text-white/55 text-[11px] mb-2 font-medium">温度趋势 · 未来 {{ hourlyList.length }} 小时</h3>
+                <HourlyTempChart :hourly="hourlyList" :labels="hourlyLabels" />
               </section>
 
               <!-- 主体双栏：左 7 天预报 / 右 实况细节 + 生活指数 -->

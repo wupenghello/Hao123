@@ -26,6 +26,7 @@ import { ProgressRing, Sparkline } from '@/components/viz'
 import { getWeatherIcon } from '@/features/weather'
 import WbscfServicesCard from '@/components/wbscf/WbscfServicesCard.vue'
 import { useTilt } from '@/composables/useTilt'
+import { useCountUp } from '@/composables/useCountUp'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
@@ -108,10 +109,17 @@ const whisper = computed(() => {
 // ============ 今日信号迷你瓦片（bento 单元，纯展示，复用 store 计数）============
 // 只读：给左侧 bento 提供一行紧凑信号块；可视化增强（sparkline/进度环）在模块 2
 const signals = computed(() => [
-  { key: 'task', label: '指派任务', value: taskStore.assignedCount, tone: 'cyan' },
-  { key: 'bug', label: '待修 Bug', value: bugStore.assignedCount, tone: 'rose' },
-  { key: 'local', label: '本地待办', value: localStore.openCount, tone: 'teal' },
+  { key: 'task' as const, label: '指派任务', value: taskStore.assignedCount, tone: 'cyan' },
+  { key: 'bug' as const, label: '待修 Bug', value: bugStore.assignedCount, tone: 'rose' },
+  { key: 'local' as const, label: '本地待办', value: localStore.openCount, tone: 'teal' },
 ])
+
+/** KPI 数字滚动（count-up ~850ms easeOutExpo）：配 tabular-nums 等宽不抖；reduced-motion 瞬时到位 */
+const signalDisplays = {
+  task: useCountUp(() => taskStore.assignedCount),
+  bug: useCountUp(() => bugStore.assignedCount),
+  local: useCountUp(() => localStore.openCount),
+}
 
 // ============ 风险雷达（分段环：逾期 / 临期 / 停滞 / 正常）============
 // 数据来自 insights summary（纯启发式、始终可用），用 ProgressRing 分段呈现。
@@ -222,7 +230,7 @@ function finishOnboarding() {
           tabindex="-1"
           aria-hidden="true"
         >
-          <span class="signal-value">{{ s.value }}</span>
+          <span class="signal-value">{{ signalDisplays[s.key].value }}</span>
           <span class="signal-label">{{ s.label }}</span>
         </button>
       </div>

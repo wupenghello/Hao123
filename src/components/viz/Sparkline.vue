@@ -11,7 +11,7 @@
  *  - 端点圆点 + 末点 glow，强化「最新值」。
  *  - 无障碍：aria-hidden 装饰，由父组件用文字说明数据含义（避免重复）。
  */
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -40,7 +40,7 @@ const props = withDefaults(
     data2: () => [],
     width: 120,
     height: 36,
-    tone: 'var(--hud-cyan)',
+    tone: 'var(--color-accent)',
     tone2: 'rgba(125, 211, 252, 0.45)',
     fill: true,
     dots: true,
@@ -48,6 +48,9 @@ const props = withDefaults(
     max: undefined,
   },
 )
+
+/** 渐变元素 id：每组件实例唯一（修同尺寸实例互吞渐变的 bug） */
+const gradId = useId()
 
 const PAD = 3 // 上下留白，避免线条贴边
 
@@ -106,7 +109,7 @@ const last = computed(() => (pts.value.length ? pts.value.at(-1) : null))
     aria-hidden="true"
   >
     <defs>
-      <linearGradient :id="`sp-grad-${width}-${height}`" x1="0" y1="0" x2="0" y2="1">
+      <linearGradient :id="gradId" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" :stop-color="tone" stop-opacity="0.32" />
         <stop offset="100%" :stop-color="tone" stop-opacity="0" />
       </linearGradient>
@@ -126,7 +129,7 @@ const last = computed(() => (pts.value.length ? pts.value.at(-1) : null))
       v-if="fill && pts.length > 1"
       class="spark-area"
       :d="areaPath"
-      :fill="`url(#sp-grad-${width}-${height})`"
+      :fill="`url(#${gradId})`"
     />
     <!-- 主线 -->
     <polyline
@@ -146,7 +149,7 @@ const last = computed(() => (pts.value.length ? pts.value.at(-1) : null))
         r="2"
         :fill="tone"
       />
-      <circle v-if="last" class="spark-end" :cx="last.x" :cy="last.y" r="2.4" :fill="tone" />
+      <circle v-if="last" class="spark-end" :cx="last.x" :cy="last.y" r="2.4" :fill="tone" :style="{ '--spark-tone': tone }" />
     </template>
   </svg>
 </template>
@@ -165,7 +168,7 @@ const last = computed(() => (pts.value.length ? pts.value.at(-1) : null))
 }
 .spark-area { opacity: 0.9; }
 .spark-end {
-  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.7));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--spark-tone, var(--color-accent)) 45%, transparent));
 }
 @media (prefers-reduced-motion: reduce) {
   .spark-end { filter: none; }

@@ -16,12 +16,14 @@
     "eval:optimize": "node eval/optimize.mjs"
   },
   "dependencies": {
+    "echarts": "^6.1.0",
     "markdown-it": "^14.2.0",
     "oh-my-live2d": "^0.19.3",
     "pinia": "^3.0.4",
     "three": "^0.181.2",
     "vanilla-tilt": "^1.8.1",
     "vue": "^3.5.34",
+    "vue-echarts": "^8.0.1",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {

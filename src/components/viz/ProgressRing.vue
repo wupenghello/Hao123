@@ -43,7 +43,7 @@ const props = withDefaults(
     value: 0,
     max: 100,
     segments: () => [],
-    tone: 'var(--hud-cyan)',
+    tone: 'var(--color-accent)',
     size: 88,
     thickness: 8,
     label: undefined,
@@ -70,7 +70,7 @@ const segs = computed(() => {
     .map((x) => {
       const frac = x.value / total
       const seg = {
-        tone: x.tone ?? 'var(--hud-cyan)',
+        tone: x.tone ?? 'var(--color-accent)',
         frac,
         arc: frac * circumference.value,
         offset: -acc * circumference.value, // 负偏移让段顺时针首尾相接
@@ -108,6 +108,7 @@ const isMulti = computed(() => props.segments.length > 0)
         v-for="(s, i) in segs"
         :key="i"
         class="ring-seg"
+        :style="{ '--seg-tone': s.tone }"
         :cx="center"
         :cy="center"
         :r="radius"
@@ -123,6 +124,7 @@ const isMulti = computed(() => props.segments.length > 0)
     <circle
       v-else
       class="ring-seg ring-single"
+      :style="{ '--seg-tone': tone }"
       :cx="center"
       :cy="center"
       :r="radius"
@@ -141,12 +143,12 @@ const isMulti = computed(() => props.segments.length > 0)
   transform: rotate(-90deg); /* 起点拨到 12 点钟 */
 }
 .ring-track {
-  stroke: rgba(148, 163, 184, 0.14);
+  stroke: rgba(255, 255, 255, 0.07);
 }
 .ring-seg {
   transition: stroke-dasharray 0.6s cubic-bezier(0.22, 1, 0.36, 1),
     stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.22));
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--seg-tone, var(--color-accent)) 45%, transparent));
 }
 @media (prefers-reduced-motion: reduce) {
   .ring-seg { transition: none; }

@@ -18,6 +18,7 @@ import { useGitDashboard } from '@/features/git'
 import { useChatStore } from '@/features/chat'
 import { useFeedback } from '@/features/feedback'
 import { useTilt } from '@/composables/useTilt'
+import { Bars } from '@/components/viz'
 import type { GitBlameLine, GitReflogEntry, GitCommit, GitTag } from '@/features/git'
 import GitDiffBox from '@/components/GitDiffBox.vue'
 import GitBranchesPanel from '@/components/git-dashboard/GitBranchesPanel.vue'
@@ -90,6 +91,28 @@ const statSyncRef = ref<HTMLElement | null>(null)
 for (const tiltRef of [healthRef, statStagedRef, statModifiedRef, statUntrackedRef, statSyncRef]) {
   useTilt(tiltRef, { max: 8, maxGlare: 0.3 })
 }
+
+// ============ AI 可视化：近 14 天提交按日聚合（纯 CSS 微图表，零依赖）============
+const commitTrend = computed(() => {
+  const days: { label: string; key: string; count: number }[] = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    days.push({ label: `${d.getMonth() + 1}/${d.getDate()}`, key: `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`, count: 0 })
+  }
+  const idx = new Map(days.map((d, i) => [d.key, i]))
+  for (const c of dash.commits.value) {
+    const cd = new Date(c.date)
+    if (!Number.isFinite(cd.getTime())) continue
+    const pos = idx.get(`${cd.getFullYear()}-${cd.getMonth() + 1}-${cd.getDate()}`)
+    if (pos !== undefined) days[pos].count++
+  }
+  return days
+})
+const commitTrendData = computed(() => commitTrend.value.map((d) => d.count))
+const commitTrendLabels = computed(() => commitTrend.value.map((d) => d.label))
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'branches', label: '分支' },
@@ -1870,6 +1893,15 @@ function onBackdropClick() {
                       <span v-else class="text-white/30 text-sm">—</span>
                     </div>
                   </div>
+                </div>
+
+                <!-- 提交趋势（近 14 天按日聚合，纯 CSS 微图表） -->
+                <div v-if="commitTrendData.some((n) => n > 0)" class="rounded-xl border border-white/6 bg-white/3 px-4 pt-3 pb-2">
+                  <div class="gd-section-title mb-2">
+                    <IconCommit class="w-3.5 h-3.5" />
+                    提交趋势 · 近 14 天
+                  </div>
+                  <Bars :data="commitTrendData" :labels="commitTrendLabels" :height="56" tone="var(--color-teal)" />
                 </div>
 
                 <!-- 色彩语义 legend -->
