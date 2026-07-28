@@ -19,6 +19,7 @@ import ModaoWidget from './ModaoWidget.vue'
 import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
+import IconSparkle from '~icons/mdi/star-four-points'
 
 const { startOrOpen, statusOf } = useWbscfServices()
 
@@ -102,7 +103,7 @@ function onLocalClick(app?: string): void {
           :href="item.url"
           target="_blank"
           rel="noopener noreferrer"
-        >{{ item.label }}</a>
+        >{{ item.label }}<span v-if="item.isNew" class="status-nav-new"><IconSparkle class="status-nav-new-spark" aria-hidden="true" /><span class="status-nav-new-txt">NEW</span></span></a>
       </li>
     </ul>
 
@@ -292,6 +293,46 @@ button.status-nav-label {
   height: 1px;
   margin: 4px 4px;
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* 新上线平台 NEW 标记（与 NavRail 同款纯字骨架；窄屏顶栏常显） */
+.status-nav-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  animation: status-nav-new-breathe 4.2s ease-in-out infinite;
+}
+.status-nav-new-txt {
+  font-family: 'Avenir Next', 'Futura', 'Century Gothic', 'Segoe UI', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #fff6dd 0%, #ffd982 48%, #dd9d33 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.status-nav-new-spark {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  color: #edbd5c;
+  animation: status-nav-new-twinkle 4.2s ease-in-out infinite;
+}
+@keyframes status-nav-new-breathe {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(240, 190, 90, 0.28)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(255, 205, 110, 0.55)); }
+}
+@keyframes status-nav-new-twinkle {
+  0%, 100% { transform: scale(0.75) rotate(0deg); opacity: 0.55; }
+  50%      { transform: scale(1.1) rotate(90deg); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-nav-new,
+  .status-nav-new-spark { animation: none; }
 }
 
 /* 宽屏：导航列表交给 NavRail，顶栏只留 widget；窄屏回退完整横向列表 */

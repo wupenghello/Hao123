@@ -26,6 +26,8 @@ import IconDatabase from '~icons/mdi/database-outline'
 import IconRocket from '~icons/mdi/rocket-launch-outline'
 import IconTag from '~icons/mdi/tag-multiple-outline'
 import IconTruck from '~icons/mdi/truck-fast-outline'
+import IconCloudUpload from '~icons/mdi/cloud-upload-outline'
+import IconSparkle from '~icons/mdi/star-four-points'
 import IconList from '~icons/mdi/format-list-bulleted-type'
 import IconApi from '~icons/mdi/api'
 import IconDots from '~icons/mdi/dots-horizontal-circle-outline'
@@ -44,6 +46,7 @@ const iconMap: Record<string, Component> = {
   'rocket-launch-outline': IconRocket,
   'tag-multiple-outline': IconTag,
   'truck-fast-outline': IconTruck,
+  'cloud-upload-outline': IconCloudUpload,
   'format-list-bulleted-type': IconList,
   'api': IconApi,
 }
@@ -99,13 +102,18 @@ function hasMenu(item: NavItem): boolean {
         <a
           v-if="item.url"
           class="nav-rail-trigger"
+          :class="{ 'is-new': item.isNew }"
           :href="item.url"
           target="_blank"
           rel="noopener noreferrer"
           :title="item.label"
         >
           <component :is="iconOf(item)" class="nav-rail-icon" />
-          <span class="nav-rail-label">{{ item.label }}</span>
+          <span class="nav-rail-label">{{ item.railLabel ?? item.label }}</span>
+          <span v-if="item.isNew" class="nav-rail-new" aria-label="新上线平台">
+            <IconSparkle class="nav-rail-new-spark" aria-hidden="true" />
+            <span class="nav-rail-new-txt">NEW</span>
+          </span>
         </a>
 
         <!-- 触发器：带环境菜单 -->
@@ -117,7 +125,7 @@ function hasMenu(item: NavItem): boolean {
           :title="item.label"
         >
           <component :is="iconOf(item)" class="nav-rail-icon" />
-          <span class="nav-rail-label">{{ item.label }}</span>
+          <span class="nav-rail-label">{{ item.railLabel ?? item.label }}</span>
           <span v-if="isRunning(item.local)" class="nav-rail-run-dot" aria-hidden="true" />
           <IconChevron v-if="hasMenu(item)" class="nav-rail-chev" aria-hidden="true" />
         </button>
@@ -282,6 +290,62 @@ function hasMenu(item: NavItem): boolean {
   box-shadow: 0 0 8px rgba(0, 255, 148, 0.85);
 }
 
+/* ===== 新上线平台 NEW 标记（纯字骨架）=====
+   无底色、无边、无容器——只有字：鎏金渐变刻字（上香槟下深金，顶光感）+ 呼吸金光 +
+   星芒微闪；细字重 / 宽字距 / 几何无衬线；仅轨道展开（悬停）时弹性浮现，收起态隐藏。 */
+.nav-rail-trigger.is-new .nav-rail-label {
+  padding-right: 48px; /* 给绝对定位的标记留位（字组约 38px + right 8px），标签文字不压字 */
+}
+.nav-rail-new {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(-50%) translateX(8px) scale(0.55);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: nav-rail-new-breathe 4.2s ease-in-out infinite;
+}
+.nav-rail:hover .nav-rail-new {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0) scale(1);
+  transition-delay: 0.07s;
+}
+.nav-rail-new-txt {
+  font-family: 'Avenir Next', 'Futura', 'Century Gothic', 'Segoe UI', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #fff6dd 0%, #ffd982 48%, #dd9d33 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.nav-rail-new-spark {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  color: #edbd5c;
+  animation: nav-rail-new-twinkle 4.2s ease-in-out infinite;
+}
+/* 呼吸青光：一圈淡晕随字组缓脉，字像悬在轨道上发光 */
+@keyframes nav-rail-new-breathe {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(240, 190, 90, 0.28)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(255, 205, 110, 0.55)); }
+}
+@keyframes nav-rail-new-twinkle {
+  0%, 100% { transform: scale(0.75) rotate(0deg); opacity: 0.55; }
+  50%      { transform: scale(1.1) rotate(90deg); opacity: 1; }
+}
+
 /* ===== 飞出菜单（向右）===== */
 .nav-rail-flyout {
   position: absolute;
@@ -394,7 +458,10 @@ function hasMenu(item: NavItem): boolean {
   .nav-rail,
   .nav-rail-label,
   .nav-rail-chev,
-  .nav-rail-flyout { transition: none; }
-  .nav-rail-spin { animation: none; }
+  .nav-rail-flyout,
+  .nav-rail-new { transition: none; }
+  .nav-rail-spin,
+  .nav-rail-new,
+  .nav-rail-new-spark { animation: none; }
 }
 </style>

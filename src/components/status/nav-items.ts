@@ -22,6 +22,10 @@ export interface NavItem {
   envGroups?: EnvGroup[]
   /** wbscf app key（存在则渲染本地 dev 启动入口） */
   local?: string
+  /** 新上线平台标记（NavRail 鎏金 NEW 胶囊 / StatusNav 同款） */
+  isNew?: boolean
+  /** NavRail 专用短标签（轨道展开宽度有限，缺省回退 label；tooltip 始终用 label 全称） */
+  railLabel?: string
   /** mdi 图标名后缀，用于 NavRail 渲染 */
   icon: string
 }
@@ -107,6 +111,7 @@ export const navItems: NavItem[] = [
     url: 'http://git.esteel.tech/brcc/wbtech/fe/platform/wbscf-web/-/tags',
   },
   { label: '发布平台', icon: 'truck-fast-outline', url: 'http://cd.esteel.tech/#/page/history' },
+  { label: 'Mysteel DevOps', railLabel: 'Mysteel', icon: 'cloud-upload-outline', url: 'http://devops.mysteelsoft.tech/login', isNew: true },
   { label: '我的地盘-禅道', icon: 'format-list-bulleted-type', url: 'http://pm.esteel.tech/zentao/my/' },
   { label: 'apifox', icon: 'api', url: 'https://app.apifox.com/project/7718065' },
 ]
