@@ -76,6 +76,33 @@ export function toArray<T>(v: Record<string, T> | T[] | undefined | null): T[] {
 }
 
 /**
+ * 从响应体里提取「首个完整的 JSON 对象」（花括号配对，跳过字符串字面量与转义）。
+ * 禅道个别场景会把多个外层包拼接进同一个响应体（如资源不存在时先返回内层
+ * result:fail、紧跟一个 locate:back 包），整体 JSON.parse 会失败；
+ * 用它捞出首包拿到真实错误，避免一律误判「会话失效」触发无效重登重试。
+ */
+function extractLeadingJson(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  let inStr = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
+/**
  * 底层请求：拼 PATH_INFO 风格 URL（模块-方法.json）→ 注入 zentaosid →
  * 解析外层 → 对 data 做「二次 JSON 解析」→ 错误归一化。
  *
@@ -124,14 +151,53 @@ export async function request(
 
   // 未登录时禅道会吐 HTML 重定向到登录页（self.location=...），这里做容错
   const text = await res.text()
-  let env: ZentaoEnvelope & Record<string, unknown>
+  let env: (ZentaoEnvelope & Record<string, unknown>) | null = null
   try {
     env = JSON.parse(text) as ZentaoEnvelope & Record<string, unknown>
   } catch {
-    throw new ZentaoApiError(
-      'auth',
-      '禅道返回内容无法解析（会话失效，已被重定向到登录页）',
-    )
+    // 解析失败分两类，归因不同——不能一律扣「会话失效」（会触发无效的重登重试）：
+    //   1) 响应体是 HTML（会话失效被重定向到登录页）→ auth，重登一次重试
+    //   2) 禅道把多个 JSON 外层包拼进一个响应体（如实测：访问不存在的资源时
+    //      先回内层 result:fail「对象不存在」，紧跟拼接一个 locate:back 包），
+    //      整体 JSON.parse 失败 → 捞首包取真实错误，多为 biz 业务错误
+    if (/^\s*</.test(text)) {
+      throw new ZentaoApiError(
+        'auth',
+        '禅道返回内容无法解析（会话失效，已被重定向到登录页）',
+      )
+    }
+    const leading = extractLeadingJson(text)
+    if (leading) {
+      try {
+        const first = JSON.parse(leading) as ZentaoEnvelope & Record<string, unknown>
+        let inner: unknown = first.data
+        if (typeof inner === 'string') {
+          try { inner = JSON.parse(inner) } catch { /* 非 JSON 字符串就原样保留 */ }
+        }
+        const obj = (inner && typeof inner === 'object' ? inner : {}) as {
+          result?: unknown
+          message?: unknown
+          locate?: unknown
+        }
+        if (obj.result === 'fail') {
+          throw new ZentaoApiError(
+            'biz',
+            flattenMessage(obj.message as ZentaoEnvelope['message']) || '禅道接口返回失败',
+          )
+        }
+        if (typeof obj.locate === 'string' && /user-login/i.test(obj.locate)) {
+          throw new ZentaoApiError('auth', '禅道会话已失效，正在重新登录')
+        }
+        // 首包本身是正常 success：丢弃尾部冗余包，按正常流程继续处理
+        env = first
+      } catch (e) {
+        if (e instanceof ZentaoApiError) throw e
+        // 首包也解析不了 → 落到下方统一兜底
+      }
+    }
+  }
+  if (!env) {
+    throw new ZentaoApiError('parse', '禅道返回内容无法解析（非 JSON 响应）')
   }
 
   const status = env.status ?? env.result

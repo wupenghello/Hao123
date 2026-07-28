@@ -130,9 +130,10 @@ function hasMenu(item: NavItem): boolean {
   max-width: calc(100vw - 32px);
   padding: 8px 10px;
   border-radius: 20px;
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: none;
+  /* 不能给 overflow-x: auto —— CSS 规范下 overflow-y: visible 会被一并算成 auto，
+     向上飞出的二级菜单（.dk-fly, bottom: 100%）会被 dock 自身裁掉；
+     窄屏适配改走下方媒体查询缩窄图标，不换横向滚动 */
+  overflow: visible;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
   border: 1px solid color-mix(in srgb, var(--color-accent) 22%, rgba(255, 255, 255, 0.12));
   box-shadow:
@@ -143,7 +144,6 @@ function hasMenu(item: NavItem): boolean {
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
 }
-.dock::-webkit-scrollbar { display: none; }
 
 .dk-item {
   position: relative;
@@ -245,6 +245,17 @@ function hasMenu(item: NavItem): boolean {
 .dk-state { color: var(--color-warning); font-size: 11px; white-space: nowrap; }
 .dk-grp { padding: 7px 10px 4px; font-size: 11px; font-weight: 600; color: color-mix(in srgb, var(--color-accent) 72%, transparent); white-space: nowrap; }
 .dk-sep { height: 1px; margin: 4px; background: rgba(255, 255, 255, 0.08); }
+
+/* 窄屏兜底：不引入横向滚动（会裁掉飞出菜单），改为缩窄图标档位 */
+@media (max-width: 780px) {
+  .dk-btn { width: 46px; }
+  .dk-lb { display: none; }
+}
+@media (max-width: 620px) {
+  .dock { gap: 2px; padding: 6px 8px; }
+  .dk-btn { width: 38px; padding: 6px 2px 5px; }
+  .dk-ic { width: 18px; height: 18px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .dk-btn, .dk-fly { transition: none; }

@@ -178,9 +178,10 @@ function finishOnboarding() {
   flex-direction: column;
   gap: 14px;
   padding: 16px 22px 92px;
-  /* 页面级滚动容器：body 永久 overflow:hidden，内容超出视口时在这里滚（横向恒裁） */
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* 首屏固定构图，页面级不允许出现滚动条（body 永久 overflow:hidden 约定的延续）：
+     三栏各自守住高度，长文本面板（晨报等）在各自卡片内部滚动；
+     窄屏堆叠布局退回容器内滚动（见 ≤980px 媒体查询） */
+  overflow: hidden;
   color: var(--color-ink);
 }
 /* 单一柔光顶晕 + 极淡遮罩网格（取代旧逐卡纹理；克制、不抢 3D） */
@@ -251,8 +252,11 @@ function finishOnboarding() {
   position: relative;
   z-index: 1;
   flex: 1 1 auto;
+  min-height: 0; /* 允许在 flex 列里收缩到比内容矮，首屏才撑不出滚动条 */
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr) 312px;
+  /* 行高锁定为容器实高（min 0 可收缩）：三栏随视口伸缩，而非按内容反推页面高度 */
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
 }
 .home-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
@@ -286,7 +290,7 @@ function finishOnboarding() {
 }
 .lt-k { font-size: 11px; letter-spacing: 0.02em; color: var(--color-ink-2); }
 
-.home-center { position: relative; min-width: 0; min-height: 0; }
+.home-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 
 .home-right { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .gauge {
@@ -333,11 +337,11 @@ function finishOnboarding() {
 .ho-led { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); }
 
 @media (max-width: 980px) {
-  .home { padding-bottom: 104px; }
-  .home-grid { grid-template-columns: 1fr; grid-auto-rows: auto; min-height: 100%; }
+  .home { padding-bottom: 104px; overflow-y: auto; } /* 窄屏堆叠布局内容必超视口，退回容器内滚动 */
+  .home-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; min-height: 100%; }
   .home-left { flex-direction: row; }
   .lt { flex: 1 1 0; }
-  .home-center { min-height: 540px; }
+  .home-center { min-height: 540px; overflow: visible; }
   .mb-wrap { min-height: 320px; }
 }
 @media (prefers-reduced-motion: reduce) {

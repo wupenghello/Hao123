@@ -36,6 +36,8 @@ const RANK: Record<RiskKey, number> = { overdue: 3, 'due-soon': 2, stalled: 1, o
 
 interface DeckItem {
   key: string
+  /** 原始工作项 id（禅道任务/Bug 的 id、本地待办的 id）——详情弹窗 / 编辑 / 完成全靠它，漏掉会让详情请求打到 task-view-undefined 上 */
+  id: string
   kind: WorkItem['kind']
   kindLabel: string
   title: string
@@ -63,6 +65,7 @@ const deck = computed<DeckItem[]>(() => {
     const risk: RiskKey = p ? p.level : 'ok'
     return {
       key: `${w.kind}-${w.id}`,
+      id: w.id,
       kind: w.kind,
       kindLabel: KIND_LABEL[w.kind],
       title: w.title,
@@ -149,6 +152,8 @@ const next = () => setActive(active.value + 1)
 const prev = () => setActive(active.value - 1)
 
 function onCardClick(idx: number) {
+  // 位移超阈值后，这次 click 是拖拽翻页的尾迹——吞掉，避免松手时误切到指尖下的卡片
+  if (movedTotal > 10) return
   if (idx !== active.value) setActive(idx)
 }
 
@@ -194,7 +199,14 @@ function handoff(it: DeckItem) {
   }
 }
 
-// 滚轮需 passive:false 才能 preventDefault，故手动绑定
+// 滚轮需 passive:false 才能 preventDefault，故手动绑定。
+// 舞台是 v-if="N" 条件渲染：首挂载时数据往往未到（N=0，sceneRef 为 null），
+// 数据清空再回填时场景也会销毁重建——只在 onMounted 绑一次会永久错过，
+// 故跟随 ref 生命周期绑定/解绑（watch 在元素替换时先解旧、再绑新）。
+watch(sceneRef, (el, oldEl) => {
+  if (oldEl) oldEl.removeEventListener('wheel', onWheel)
+  if (el) el.addEventListener('wheel', onWheel, { passive: false })
+})
 function onWheel(e: WheelEvent) {
   e.preventDefault()
   acc += e.deltaY
@@ -204,16 +216,45 @@ function onWheel(e: WheelEvent) {
 }
 let acc = 0
 let down = false
-let sy = 0
+let sy = 0          // 翻页阈值基线（每次翻页后重置，支持一次拖动连续翻多张）
 let dy = 0
-function onDown(e: PointerEvent) { down = true; sy = e.clientY; dy = 0 }
+let lastY = 0       // 上一帧指针 Y，用于累计真实位移
+let movedTotal = 0  // 本次拖动累计位移：抑制拖尾点击 + 判定 interacted
+
+/**
+ * 拖拽视觉回显：卡堆整体跟手位移（橡皮筋：45% 阻尼 + 84px 上限）。
+ * 翻页瞬间 / 松手时归零，非按压态带弹簧回位过渡——「粘手且有重量」。
+ */
+const dragging = ref(false)
+const dragY = ref(0)
+const dragStyle = computed(() => ({ '--drag-y': `${dragY.value}px` }))
+
+function onDown(e: PointerEvent) {
+  // 按钮 / 链接是点击手势，不发起拖动（查看详情 / 交给小吴 / 新建 / 圆点导航）
+  const t = e.target as HTMLElement | null
+  if (t?.closest('button, a')) return
+  down = true
+  sy = lastY = e.clientY
+  dy = 0
+  movedTotal = 0
+  dragging.value = true
+}
 function onMove(e: PointerEvent) {
   if (!down) return
+  movedTotal += Math.abs(e.clientY - lastY)
+  lastY = e.clientY
   dy = e.clientY - sy
-  if (dy > 58) { next(); sy = e.clientY; dy = 0 }
-  else if (dy < -58) { prev(); sy = e.clientY; dy = 0 }
+  dragY.value = Math.sign(dy) * Math.min(Math.abs(dy) * 0.45, 84)
+  if (dy > 58) { next(); sy = e.clientY; dy = 0; dragY.value = 0 }
+  else if (dy < -58) { prev(); sy = e.clientY; dy = 0; dragY.value = 0 }
 }
-function onUp() { if (down) { down = false; if (Math.abs(dy) > 4) interacted.value = true } }
+function onUp() {
+  if (!down) return
+  down = false
+  dragging.value = false
+  dragY.value = 0
+  if (movedTotal > 4) interacted.value = true
+}
 function onKey(e: KeyboardEvent) {
   // 焦点在表单控件内时不截获方向键（输入框光标移动 / 弹窗表单优先，不抢给卡堆）
   const t = e.target as HTMLElement | null
@@ -228,7 +269,7 @@ onMounted(() => {
   // 承担原 UnifiedInbox 的数据拉取触发（store 不自加载）；门控口径与原实现一致
   if (taskStore.configured) void taskStore.loadAssigned()
   if (bugStore.configured) void bugStore.loadAssigned()
-  sceneRef.value?.addEventListener('wheel', onWheel, { passive: false })
+  // wheel 监听由 watch(sceneRef) 跟随舞台 v-if 生命周期绑定，不在此处一次性绑定
   window.addEventListener('pointermove', onMove)
   window.addEventListener('pointerup', onUp)
   window.addEventListener('keydown', onKey)
@@ -272,8 +313,9 @@ onBeforeUnmount(() => {
       <button type="button" class="dk-add" title="新建本地待办" @click="openCreate">+ 新建</button>
     </div>
 
-    <!-- 3D 舞台 -->
-    <div ref="sceneRef" class="deck-scene" @pointerdown="onDown">
+    <!-- 3D 舞台（.deck-drag 为拖拽跟手层：只承担跟手位移，与内层 drift 动画的 transform 互不占用） -->
+    <div ref="sceneRef" class="deck-scene" :class="{ dragging }" @pointerdown="onDown">
+      <div class="deck-drag" :style="dragStyle">
       <div class="deck-stack">
         <div
           v-for="(it, idx) in deck"
@@ -317,6 +359,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      </div>
     </div>
 
     <div class="deck-hint" :class="{ gone: interacted }">
@@ -346,6 +389,9 @@ onBeforeUnmount(() => {
   min-height: 460px;
   display: grid;
   place-items: center;
+  /* 抑制系统级文字选中：拖拽翻卡时不再出现「框选高亮」，观感干净 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .deck-scene {
   position: absolute;
@@ -355,6 +401,18 @@ onBeforeUnmount(() => {
   perspective: 1500px;
   perspective-origin: 50% 45%;
   touch-action: none;
+  cursor: grab;
+}
+.deck-scene.dragging,
+.deck-scene.dragging * { cursor: grabbing; }
+/* 拖拽跟手层：translateY 跟手位移；preserve-3d 把舞台透视链透传给内层卡堆 */
+.deck-drag {
+  transform-style: preserve-3d;
+  transform: translateY(var(--drag-y, 0px));
+}
+/* 非按压态才带弹簧回位（翻页瞬间 / 松手归零）；按压中禁用过渡，避免跟手延迟 */
+.deck-scene:not(.dragging) .deck-drag {
+  transition: transform 0.42s var(--ease-out-expo);
 }
 .deck-stack {
   position: relative;
