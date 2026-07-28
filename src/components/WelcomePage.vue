@@ -178,7 +178,9 @@ function finishOnboarding() {
   flex-direction: column;
   gap: 14px;
   padding: 16px 22px 92px;
-  overflow: hidden;
+  /* 页面级滚动容器：body 永久 overflow:hidden，内容超出视口时在这里滚（横向恒裁） */
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--color-ink);
 }
 /* 单一柔光顶晕 + 极淡遮罩网格（取代旧逐卡纹理；克制、不抢 3D） */
@@ -249,7 +251,6 @@ function finishOnboarding() {
   position: relative;
   z-index: 1;
   flex: 1 1 auto;
-  min-height: 0;
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr) 312px;
   gap: 16px;
@@ -263,10 +264,10 @@ function finishOnboarding() {
   border: 1px solid color-mix(in srgb, var(--tile-c, var(--color-accent)) 22%, var(--color-line));
   background:
     radial-gradient(120px 80px at 88% -10%, color-mix(in srgb, var(--tile-c, var(--color-accent)) 16%, transparent), transparent 70%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    linear-gradient(160deg, #141b29, #0e1422);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 16px 40px -22px rgba(0, 8, 16, 0.7);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transition: transform 0.3s var(--ease-out-expo), border-color 0.3s, box-shadow 0.3s;
 }
 .lt:hover {
@@ -292,10 +293,10 @@ function finishOnboarding() {
   display: flex; gap: 13px;
   padding: 15px 16px; border-radius: 15px;
   border: 1px solid var(--color-line);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  background: linear-gradient(160deg, #131a28, #0e1422);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 16px 40px -24px rgba(0, 8, 16, 0.7);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .g-track { position: relative; width: 9px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .g-fill {
@@ -332,7 +333,7 @@ function finishOnboarding() {
 .ho-led { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); }
 
 @media (max-width: 980px) {
-  .home { overflow-y: auto; padding-bottom: 104px; }
+  .home { padding-bottom: 104px; }
   .home-grid { grid-template-columns: 1fr; grid-auto-rows: auto; min-height: 100%; }
   .home-left { flex-direction: row; }
   .lt { flex: 1 1 0; }

@@ -504,9 +504,9 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
 .lt-form-card {
   --lt-tone: var(--color-accent);
   --lt-tone-2: var(--color-teal);
-  --lt-success: #34d399;
-  --lt-warning: #fbbf24;
-  --lt-danger: #fb7185;
+  --lt-success: var(--color-alive);
+  --lt-warning: var(--color-warning);
+  --lt-danger: var(--color-danger);
   --lt-border: rgba(148, 163, 184, 0.16);
   position: relative;
   z-index: 10;

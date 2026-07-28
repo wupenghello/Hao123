@@ -441,7 +441,7 @@ const {
   border: 1px solid rgba(251, 191, 36, 0.22);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(251, 191, 36, 0.13), rgba(251, 191, 36, 0.06));
-  color: #fbbf24;
+  color: var(--color-warning);
   font-size: 12px;
   font-weight: 750;
   white-space: nowrap;
@@ -574,13 +574,13 @@ const {
   height: 9px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #fbbf24;
+  background: var(--color-warning);
   box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
 }
-.mm-actionbar-status.is-ready .mm-actionbar-led { background: #34d399; box-shadow: 0 0 12px rgba(52, 211, 153, 0.5); }
-.mm-actionbar-status.is-failed .mm-actionbar-led { background: #fb7185; box-shadow: 0 0 12px rgba(251, 113, 133, 0.5); }
+.mm-actionbar-status.is-ready .mm-actionbar-led { background: var(--color-alive); box-shadow: 0 0 12px color-mix(in srgb, var(--color-alive) 50%, transparent); }
+.mm-actionbar-status.is-failed .mm-actionbar-led { background: var(--color-danger); box-shadow: 0 0 12px color-mix(in srgb, var(--color-danger) 50%, transparent); }
 .mm-actionbar-status.is-needs-key .mm-actionbar-led,
-.mm-actionbar-status.is-needs-test .mm-actionbar-led { background: #fbbf24; box-shadow: 0 0 12px rgba(251, 191, 36, 0.5); }
+.mm-actionbar-status.is-needs-test .mm-actionbar-led { background: var(--color-warning); box-shadow: 0 0 12px color-mix(in srgb, var(--color-warning) 50%, transparent); }
 .mm-actionbar-btns {
   display: inline-flex;
   align-items: center;
@@ -750,11 +750,11 @@ const {
   height: 8px;
   flex-shrink: 0;
   border-radius: 999px;
-  background: #fbbf24;
+  background: var(--color-warning);
   box-shadow: 0 0 12px rgba(251,191,36,0.45);
 }
-.mm-provider-led.is-ok { background: #34d399; box-shadow: 0 0 14px rgba(52,211,153,0.52); }
-.mm-provider-led.is-bad { background: #fb7185; box-shadow: 0 0 14px rgba(251,113,133,0.52); }
+.mm-provider-led.is-ok { background: var(--color-alive); box-shadow: 0 0 14px color-mix(in srgb, var(--color-alive) 52%, transparent); }
+.mm-provider-led.is-bad { background: var(--color-danger); box-shadow: 0 0 14px color-mix(in srgb, var(--color-danger) 52%, transparent); }
 .mm-provider-name,
 .mm-provider-meta {
   display: block;
@@ -1109,7 +1109,7 @@ const {
   outline: 0;
 }
 .mm-row-link.danger:hover,
-.mm-row-link.danger:focus-visible { color: #fb7185; }
+.mm-row-link.danger:focus-visible { color: var(--color-danger); }
 .mm-add-model {
   margin-top: 12px;
 }
@@ -1168,7 +1168,7 @@ const {
 }
 .mm-error-text {
   margin: 0;
-  color: #fb7185;
+  color: var(--color-danger);
   font-size: 11px;
 }
 .mm-spin { animation: mm-spin 1s linear infinite; }

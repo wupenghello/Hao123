@@ -215,6 +215,9 @@ function onMove(e: PointerEvent) {
 }
 function onUp() { if (down) { down = false; if (Math.abs(dy) > 4) interacted.value = true } }
 function onKey(e: KeyboardEvent) {
+  // 焦点在表单控件内时不截获方向键（输入框光标移动 / 弹窗表单优先，不抢给卡堆）
+  const t = e.target as HTMLElement | null
+  if (t?.closest('input, textarea, select, [contenteditable]')) return
   if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') { next(); e.preventDefault() }
   else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp') { prev(); e.preventDefault() }
   else if (e.key === 'Home') setActive(0)
@@ -375,15 +378,15 @@ onBeforeUnmount(() => {
   padding: 15px 17px 15px 20px;
   overflow: hidden;
   cursor: pointer;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.045));
+  background: linear-gradient(155deg, #141b29 0%, #0d1320 100%);
   border: 1px solid color-mix(in srgb, var(--color-accent) 26%, rgba(255, 255, 255, 0.1));
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06),
     0 24px 60px -22px rgba(0, 8, 16, 0.75),
     0 0 34px -8px color-mix(in srgb, var(--color-accent) 32%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transition:
     transform 0.62s var(--ease-out-expo),
     opacity 0.42s var(--ease-out-expo),
@@ -449,7 +452,7 @@ onBeforeUnmount(() => {
 
 .c3.is-active {
   cursor: default; width: 468px; padding: 18px 20px 18px 23px;
-  background: linear-gradient(155deg, rgba(52, 245, 163, 0.17), rgba(255, 255, 255, 0.06));
+  background: linear-gradient(155deg, #11231d 0%, #0c1420 100%);
   border-color: color-mix(in srgb, var(--color-alive) 48%, transparent);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-alive) 44%, transparent),

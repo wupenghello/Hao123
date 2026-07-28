@@ -38,7 +38,8 @@ onUnmounted(() => stopStorageHealthMonitor())
       </template>
     </StatusBar>
 
-    <!-- 主内容区：工作台首页（收件箱为主角，AI 退成左下角召唤层）。min-h-0 让其能在固定高度内滚动 -->
+    <!-- 主内容区：工作台首页（收件箱为主角，AI 退成左下角召唤层）。min-h-0 保证固定高度分配；
+         页面级滚动发生在 WelcomePage 内部（.home 自滚，body 永久 overflow:hidden 的约定） -->
     <main class="layout-main flex-1 min-h-0">
       <WelcomePage />
     </main>

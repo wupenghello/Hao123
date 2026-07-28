@@ -3343,7 +3343,7 @@ onUnmounted(() => {
 }
 .cmd-card {
   --cmd-tone: #2dd4bf;
-  --cmd-run: #34d399;
+  --cmd-run: var(--color-alive);
   --cmd-border: rgba(255, 255, 255, .1);
   --cmd-text: rgba(226, 232, 240, .78);
   --cmd-muted: rgba(203, 213, 225, .46);
