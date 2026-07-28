@@ -106,5 +106,5 @@ export function useInboxInsights() {
   /** 深度洞察（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞），驱动「小吴的洞察」卡 */
   const insights = computed<Insight[]>(() => detectInsights(workItems.value, predictions.value))
 
-  return { predictions, summary, insights }
+  return { workItems, predictions, summary, insights }
 }

@@ -15,7 +15,7 @@ const { time } = useTime()
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.08em;
-  color: rgba(224, 242, 254, 0.92);
+  color: var(--color-ink);
   text-shadow: 0 0 14px color-mix(in srgb, var(--color-accent-strong) 34%, transparent);
 }
 </style>

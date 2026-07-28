@@ -97,7 +97,7 @@ onUnmounted(() => {
   max-width: 220px;
   padding: 4px 7px;
   border-radius: 6px;
-  color: rgba(224, 242, 254, 0.84);
+  color: var(--color-ink-2);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -106,11 +106,11 @@ onUnmounted(() => {
   transition: background-color 0.15s, color 0.15s;
 }
 .weather-widget:hover {
-  background: rgba(0, 217, 255, 0.1);
-  color: #fff;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-ink);
   box-shadow:
-    0 0 0 1px rgba(0, 217, 255, 0.22),
-    0 6px 18px rgba(0, 217, 255, 0.16);
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent),
+    0 6px 18px color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 /* 状态指示灯 */
 .weather-led {
@@ -121,16 +121,16 @@ onUnmounted(() => {
 }
 .weather-led.is-ok {
   background: var(--color-success);
-  box-shadow: 0 0 7px rgba(0, 255, 148, 0.75);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--color-alive) 75%, transparent);
 }
 .weather-led.is-loading {
-  background: #fbbf24;
-  box-shadow: 0 0 7px rgba(251, 191, 36, 0.7);
+  background: var(--color-warning);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--color-warning) 70%, transparent);
   animation: weather-pulse 1.2s ease-in-out infinite;
 }
 .weather-led.is-error {
-  background: #fb7185;
-  box-shadow: 0 0 7px rgba(251, 113, 133, 0.7);
+  background: var(--color-danger);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--color-danger) 70%, transparent);
 }
 @keyframes weather-pulse {
   0%, 100% { opacity: 1; }
@@ -143,7 +143,7 @@ onUnmounted(() => {
   flex: 0 0 auto;
 }
 .weather-icon-core.is-warn {
-  color: rgba(252, 211, 77, 0.92);
+  color: var(--color-warning);
 }
 .weather-icon {
   width: 14px;
@@ -169,7 +169,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 .weather-city.is-muted {
-  color: rgba(224, 242, 254, 0.58);
+  color: var(--color-ink-3);
 }
 @media (max-width: 760px) {
   .weather-city {

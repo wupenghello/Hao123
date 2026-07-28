@@ -1,16 +1,12 @@
 <script setup lang="ts">
 /**
- * 工作台首页（信息仪表盘形态）
+ * 工作台首页 —— 发光深色「指挥舱」构图（全量重做，非旧 bento 修补）。
  *
- * 设计取向：首页是「工作面」而非「聊天欢迎页」。
- *   - 顶部 1 行状态条：问候 + 日期 + 一句话概览（天气/任务/Bug），替代零信息密度的 orb+tagline 块；
- *   - 每日晨报：小吴基于工作台快照生成的「今日简报」，开头一句话即「今天先抓什么」的行动建议，
- *     想细聊可在卡片底部拉起小吴——行动建议已并入晨报，不再单列一条（避免同源建议重复）；
- *   - 收件箱（指派给我的任务/Bug）= 视觉主角，占据主空间；
- *   - AI 入口不在首页中央，而是退成 Layout 里固定左下角的小药丸（见 ChatLauncher）。
- *
- * 能力 chips / 快捷卡片网格 / 独立的「下一步建议」条已移除——它们要么是「教你怎么用」的脚手架，
- * 要么与每日晨报同源同意图（已合并进晨报卡）；快捷问题保留在命令面板（ChatCommandPalette）空态。
+ * 解剖（对齐批准的 3D 概念）：
+ *   极简报头（问候 + 一句话情报 + 一句温度）／左数据柱（指派/Bug/本地，count-up）／
+ *   中间 3D 数据收件箱（InboxDeck，绝对主角）／右栏（竖向队列健康仪表 + 晨报）／
+ *   底部发光 dock（Dock，合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。
+ * 旧六卡 bento / 顶 WbscfServicesCard / 左 NavRail 全部移除——视觉零继承旧设计。
  */
 import { computed, ref, onMounted } from 'vue'
 import { MorningBriefing } from '@/features/chat'
@@ -20,33 +16,16 @@ import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
 import { useInboxInsights } from '@/features/insights'
 import { setLocalStorageItem } from '@/features/storage-health'
-import UnifiedInbox from '@/components/UnifiedInbox.vue'
-import OnboardingGuide from '@/components/OnboardingGuide.vue'
-import { ProgressRing, Sparkline } from '@/components/viz'
-import { getWeatherIcon } from '@/features/weather'
-import WbscfServicesCard from '@/components/wbscf/WbscfServicesCard.vue'
-import { useTilt } from '@/composables/useTilt'
 import { useCountUp } from '@/composables/useCountUp'
+import InboxDeck from '@/components/InboxDeck.vue'
+import Dock from '@/components/Dock.vue'
+import OnboardingGuide from '@/components/OnboardingGuide.vue'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
-/** wbscf 服务卡仅 dev + 配置了 wbscf-web 根目录时挂载（与 GitWidget 同口径门控），
- *  避免生产环境 / 未配置时 useWbscfServices 仍空轮询 /wbscf/services（404 静默吞掉但轮询不停）。 */
-const wbscfCardEnabled = import.meta.env.DEV && !!import.meta.env.VITE_WBSCF_WEB_ROOT?.trim()
-/** 风险预测汇总（纯启发式，始终可用）——驱动「风险雷达」环 */
 const { summary } = useInboxInsights()
-
-// ============ 3D tilt：顶行四小卡跟手（仅精确指针 + 非减动效，守卫见 useTilt）============
-const heroRef = ref<HTMLElement | null>(null)
-const signalsRef = ref<HTMLElement | null>(null)
-const radarRef = ref<HTMLElement | null>(null)
-const weatherRef = ref<HTMLElement | null>(null)
-useTilt(heroRef, { max: 6, maxGlare: 0.2 })
-useTilt(signalsRef, { max: 6, maxGlare: 0.2 })
-useTilt(radarRef, { max: 6, maxGlare: 0.2 })
-useTilt(weatherRef, { max: 6, maxGlare: 0.2 })
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -56,45 +35,25 @@ const greeting = computed(() => {
   if (h < 18) return '下午好'
   return '晚上好'
 })
-
 const dateStr = computed(() => {
   const d = new Date()
   const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]
   return `${d.getMonth() + 1}/${d.getDate()} ${week}`
 })
-
-// ============ 今日概览（聚合天气 + 任务 + Bug + 本地待办 为一句话情报条）============
 const dailySummary = computed(() => {
   const parts: string[] = []
-
-  if (weather.now) {
-    parts.push(`${weather.now.text} ${weather.now.temp}°C`)
-  }
-
-  const tc = taskStore.assignedCount
-  if (tc > 0) {
-    parts.push(`${tc} 个待办任务`)
-  }
-
+  if (weather.now) parts.push(`${weather.now.text} ${weather.now.temp}°C`)
+  if (taskStore.assignedCount > 0) parts.push(`${taskStore.assignedCount} 个待办任务`)
   const bc = bugStore.assignedCount
   if (bc > 0) {
-    const activeBugs = bugStore.assigned.filter(b => b.status === 'active').length
+    const activeBugs = bugStore.assigned.filter((b) => b.status === 'active').length
     parts.push(activeBugs > 0 ? `${activeBugs} 个待修 Bug` : `${bc} 个 Bug`)
   }
-
-  const lc = localStore.openCount
-  if (lc > 0) {
-    parts.push(`${lc} 个本地待办`)
-  }
-
+  if (localStore.openCount > 0) parts.push(`${localStore.openCount} 个本地待办`)
   if (!parts.length) return null
-
-  // 无任何待办时给一句「一切就绪」收尾；否则纯数据，不加 emoji（项目统一用 Iconify 图标）
-  const prefix = tc === 0 && bc === 0 && lc === 0 ? '一切就绪，' : ''
+  const prefix = taskStore.assignedCount === 0 && bc === 0 && localStore.openCount === 0 ? '一切就绪，' : ''
   return prefix + parts.join(' · ')
 })
-
-/** 首屏一句人话：小吴口吻的时段问候（纯氛围，非数据），给冷峻仪表盘加一句温度 */
 const whisper = computed(() => {
   const h = new Date().getHours()
   if (h < 6) return '夜深了，剩下的交给明天。'
@@ -105,823 +64,284 @@ const whisper = computed(() => {
   if (h < 22) return '晚上适合收尾和复盘。'
   return '该歇了，硬撑的效率并不高。'
 })
+const hasUrgentItems = computed(() =>
+  taskStore.assigned.some((t) => isUrgentTask(t)) ||
+  bugStore.assigned.some((b) => isUrgentBug(b)) ||
+  localStore.open.some((t) => isUrgentLocalTask(t)),
+)
 
-// ============ 今日信号迷你瓦片（bento 单元，纯展示，复用 store 计数）============
-// 只读：给左侧 bento 提供一行紧凑信号块；可视化增强（sparkline/进度环）在模块 2
+// 左数据柱
 const signals = computed(() => [
-  { key: 'task' as const, label: '指派任务', value: taskStore.assignedCount, tone: 'cyan' },
-  { key: 'bug' as const, label: '待修 Bug', value: bugStore.assignedCount, tone: 'rose' },
-  { key: 'local' as const, label: '本地待办', value: localStore.openCount, tone: 'teal' },
+  { key: 'task' as const, label: '指派任务', tone: 'cyan' },
+  { key: 'bug' as const, label: '待修 Bug', tone: 'rose' },
+  { key: 'local' as const, label: '本地待办', tone: 'teal' },
 ])
-
-/** KPI 数字滚动（count-up ~850ms easeOutExpo）：配 tabular-nums 等宽不抖；reduced-motion 瞬时到位 */
-const signalDisplays = {
+const signalValue = {
   task: useCountUp(() => taskStore.assignedCount),
   bug: useCountUp(() => bugStore.assignedCount),
   local: useCountUp(() => localStore.openCount),
 }
 
-// ============ 风险雷达（分段环：逾期 / 临期 / 停滞 / 正常）============
-// 数据来自 insights summary（纯启发式、始终可用），用 ProgressRing 分段呈现。
-const riskSegments = computed(() => {
-  const s = summary.value
-  const ok = Math.max(0, s.total - s.overdue - s.dueSoon - s.stalled)
-  return [
-    { value: s.overdue, tone: 'var(--home-danger)', label: '逾期' },
-    { value: s.dueSoon, tone: 'var(--home-warning)', label: '临期' },
-    { value: s.stalled, tone: 'var(--home-tone-2)', label: '停滞' },
-    { value: ok, tone: 'rgba(148, 163, 184, 0.42)', label: '正常' },
-  ].filter((x) => x.value > 0)
-})
-const riskTotal = computed(() => summary.value.total)
-const riskHasData = computed(() => riskTotal.value > 0)
+// 右竖向队列健康仪表
+const totalOpen = computed(() => taskStore.assignedCount + bugStore.assignedCount + localStore.openCount)
+const gaugeOk = computed(() => Math.max(0, totalOpen.value - summary.value.total))
+const gaugePct = computed(() => (totalOpen.value > 0 ? Math.round((gaugeOk.value / totalOpen.value) * 100) : 100))
+const legend = computed(() => [
+  { label: '逾期', n: summary.value.overdue, c: 'var(--color-danger)' },
+  { label: '临期', n: summary.value.dueSoon, c: 'var(--color-warning)' },
+  { label: '停滞', n: summary.value.stalled, c: 'var(--color-steel)' },
+  { label: '正常', n: gaugeOk.value, c: 'var(--color-alive)' },
+])
 
-// ============ 模块 3：沉浸式天气卡 ============
-/** 当前天气图标组件（大号展示） */
-const weatherIcon = computed(() => (weather.now ? getWeatherIcon(weather.now.icon) : null))
-
-/**
- * 天气码 → 背景氛围类。按大类归并（晴 / 多云阴 / 雨 / 雷 / 雪 / 雾霾沙尘 / 夜间），
- * 让天气卡背景随天气变化而不必逐码写渐变。夜间（150~154 / 300+夜段）优先判夜。
- */
-const weatherAmbient = computed(() => {
-  const c = Number(weather.now?.icon)
-  if (!Number.isFinite(c)) return 'default'
-  if (c === 150 || (c >= 151 && c <= 154)) return 'night'
-  if (c === 100) return 'clear'
-  if (c >= 101 && c <= 104) return 'cloudy'
-  if (c === 302 || c === 303 || c === 304) return 'storm'
-  if ((c >= 300 && c <= 318) || (c >= 350 && c <= 399)) return 'rain'
-  if ((c >= 400 && c <= 415) || (c >= 446 && c <= 499)) return 'snow'
-  if (c >= 500 && c <= 518) return 'fog'
-  return 'default'
-})
-
-/** 降水概率序列（未来逐小时 pop%，最多 12 项）——驱动降水 sparkline */
-const precipData = computed(() =>
-  (weather.hourly ?? [])
-    .slice(0, 12)
-    .map((h) => Number(h.pop))
-    .filter((n) => Number.isFinite(n)),
-)
-/** 是否有非零降水概率（全 0 时不渲染降水线，改显「无降水」） */
-const hasPrecip = computed(() => precipData.value.some((n) => n > 0))
-/** 峰值降水概率（卡片角标） */
-const precipPeak = computed(() => (precipData.value.length ? Math.max(...precipData.value) : 0))
-
-// ============ 紧急项检测（禅道口径集中在 zentao/shared/ui，本地待办口径在 local-tasks/ui）============
-const hasUrgentItems = computed(() =>
-  taskStore.assigned.some(t => isUrgentTask(t)) ||
-  bugStore.assigned.some(b => isUrgentBug(b)) ||
-  localStore.open.some(t => isUrgentLocalTask(t)),
-)
-
-// ============ 首次访问引导 ============
+// 首次访问引导
 const isFirstVisit = ref(false)
-/** 收件箱专注模式（最大化）：由 UnifiedInbox 触发；本组件只负责隐去其余 bento + 重排网格 */
-const inboxMax = ref(false)
 const showOnboarding = ref(false)
-
 onMounted(() => {
   isFirstVisit.value = !localStorage.getItem('hao123-onboarding-done')
-  // 降水概率 sparkline 需要逐小时数据（懒加载，按城市缓存，重复调用只发一次请求）
-  weather.ensureHourly()
 })
-
 function finishOnboarding() {
   setLocalStorageItem('hao123-onboarding-done', '1')
   showOnboarding.value = false
-  // 复位「首次访问」标记，否则按钮 v-if="isFirstVisit && !showOnboarding" 会在关闭引导后立刻重现
-  // （isFirstVisit 仅在 onMounted 读 localStorage 赋值，不重置则要等下次整页刷新才消失）
   isFirstVisit.value = false
 }
 </script>
 
 <template>
-  <!-- 外层固定高度容器（body 永久 overflow:hidden，bento 内部各自滚动） -->
-  <div class="welcome-shell" :class="{ 'is-inbox-max': inboxMax }">
-    <!-- 本地 dev 服务状态卡（仅 dev + wbscf-web 配置后、且探测到服务时出现） -->
-    <WbscfServicesCard v-if="wbscfCardEnabled" class="welcome-services enter" />
-
-    <!-- 平铺 bento：顶部一行小卡（hero/信号/风险/温度），底部一行两张高卡（晨报/收件箱）。
-         收件箱不再是唯一主角，降级成一张普通 bento 卡。 -->
-    <div class="welcome-bento stagger">
-      <!-- bento 单元 A：问候 hero —— 今日信号总览 -->
-      <header ref="heroRef" class="bento-cell bento-hero" style="--i: 0">
-        <p class="bento-kicker">today signal</p>
-        <h1 class="bento-title">{{ greeting }} · {{ dateStr }}</h1>
-        <Transition name="guide-fade">
-          <p v-if="dailySummary" class="bento-summary">
-            {{ dailySummary }}
-            <span v-if="hasUrgentItems" class="welcome-urgent-dot" />
-          </p>
-        </Transition>
-        <p class="bento-whisper">{{ whisper }}</p>
-      </header>
-
-      <!-- bento 单元 B：今日信号迷你瓦片（任务 / Bug / 本地，纯计数） -->
-      <div ref="signalsRef" class="bento-cell bento-signals" aria-label="工作项计数" style="--i: 1">
-        <button
-          v-for="s in signals"
-          :key="s.key"
-          type="button"
-          class="signal-tile"
-          :data-tone="s.tone"
-          tabindex="-1"
-          aria-hidden="true"
-        >
-          <span class="signal-value">{{ signalDisplays[s.key].value }}</span>
-          <span class="signal-label">{{ s.label }}</span>
-        </button>
+  <div class="home">
+    <!-- 极简报头：问候即 display 时刻 + 一句话情报 + 一句温度 -->
+    <header class="home-top enter">
+      <div class="ht-left">
+        <h1 class="ht-greet">{{ greeting }}<span class="ht-date">· {{ dateStr }}</span></h1>
+        <p v-if="dailySummary" class="ht-sum">
+          {{ dailySummary }}<i v-if="hasUrgentItems" class="ht-urg" aria-label="存在紧急项" />
+        </p>
       </div>
+      <p class="ht-whisper">{{ whisper }}</p>
+    </header>
 
-      <!-- bento 单元 C：风险雷达（分段环，insights summary，始终可用） -->
-      <div ref="radarRef" class="bento-cell bento-radar" aria-label="风险雷达" style="--i: 2">
-        <div class="bento-section-label">
-          <span class="bento-kicker">risk radar</span>
+    <!-- 三栏：左数据柱 / 中 3D / 右仪表+晨报 -->
+    <div class="home-grid">
+      <aside class="home-left stagger">
+        <div v-for="(s, i) in signals" :key="s.key" class="lt" :data-tone="s.tone" :style="{ '--i': i }">
+          <span class="lt-v tnum">{{ signalValue[s.key].value }}</span>
+          <span class="lt-k">{{ s.label }}</span>
         </div>
-        <div class="radar-body">
-          <div class="radar-ring">
-            <ProgressRing
-              v-if="riskHasData"
-              :segments="riskSegments"
-              :size="84"
-              :thickness="9"
-              label="今日工作项风险分布"
-            />
-            <ProgressRing
-              v-else
-              :value="1"
-              :max="1"
-              tone="rgba(148, 163, 184, 0.42)"
-              :size="84"
-              :thickness="9"
-              label="暂无风险项"
-            />
-            <div class="radar-center">
-              <span class="radar-center-value">{{ riskTotal }}</span>
-              <span class="radar-center-label">待关注</span>
-            </div>
-          </div>
-          <ul class="radar-legend">
-            <li v-for="s in riskSegments" :key="s.label" class="radar-legend-item">
-              <span class="radar-dot" :style="{ background: s.tone }" />
-              <span class="radar-legend-label">{{ s.label }}</span>
-              <span class="radar-legend-value">{{ s.value }}</span>
-            </li>
-            <li v-if="!riskHasData" class="radar-legend-empty">一切正常，无风险项</li>
-          </ul>
-        </div>
-      </div>
+      </aside>
 
-      <!-- bento 单元 D：沉浸式天气卡（大号等宽温度 + 天气图标 + 氛围背景 + 降水 sparkline） -->
-      <div
-        v-if="weather.now"
-        ref="weatherRef"
-        class="bento-cell bento-weather"
-        :data-ambient="weatherAmbient"
-        aria-label="天气"
-        style="--i: 3"
-      >
-        <!-- 顶部：城市 + 天气文字 -->
-        <div class="weather-card-head">
-          <span class="bento-kicker">weather</span>
-          <span v-if="weather.now" class="weather-card-city">{{ weather.cityName }}</span>
-        </div>
-
-        <!-- 主体：大号温度 + 天气图标 -->
-        <div v-if="weather.now" class="weather-card-main">
-          <div class="weather-card-temp">
-            <span class="weather-card-temp-val">{{ weather.now.temp }}</span>
-            <span class="weather-card-temp-unit">°C</span>
-          </div>
-          <div class="weather-card-side">
-            <component :is="weatherIcon" v-if="weatherIcon" class="weather-card-icon" />
-            <span class="weather-card-text">{{ weather.now.text }}</span>
-          </div>
-        </div>
-
-        <!-- 次要信息：体感 · 湿度 · 风 -->
-        <div v-if="weather.now" class="weather-card-meta">
-          <span>体感 {{ weather.now.feelsLike }}°</span>
-          <span>湿度 {{ weather.now.humidity }}%</span>
-          <span>{{ weather.now.windDir }}{{ weather.now.windScale }}级</span>
-        </div>
-
-        <!-- 降水概率 sparkline（有非零概率才画线，否则一句无降水） -->
-        <div v-if="precipData.length >= 2" class="weather-card-precip">
-          <div class="weather-card-precip-head">
-            <span class="weather-card-precip-label">未来降水概率</span>
-            <span v-if="hasPrecip" class="weather-card-precip-peak">峰值 {{ precipPeak }}%</span>
-            <span v-else class="weather-card-precip-peak is-dry">未来无降水</span>
-          </div>
-          <Sparkline
-            v-if="hasPrecip"
-            :data="precipData"
-            :width="260"
-            :height="30"
-            tone="var(--color-accent)"
-            :fill="true"
-            :dots="false"
-          />
-        </div>
-      </div>
-
-      <!-- bento 单元 E：每日晨报（高卡，左侧） -->
-      <MorningBriefing class="bento-cell bento-briefing" style="--i: 4" />
-
-      <!-- bento 单元 F：统一收件箱（高卡，右侧，不再是唯一主角） -->
-      <section class="bento-cell bento-inbox" aria-label="统一收件箱" style="--i: 5">
-        <UnifiedInbox @maximize="inboxMax = $event" />
+      <section class="home-center">
+        <InboxDeck />
       </section>
+
+      <aside class="home-right">
+        <div class="gauge">
+          <div class="g-track"><div class="g-fill" :style="{ height: gaugePct + '%' }" /></div>
+          <div class="g-info">
+            <div>
+              <div class="g-lab">队列健康</div>
+              <div class="g-big tnum">{{ gaugePct }}<span>%</span></div>
+            </div>
+            <ul class="g-leg">
+              <li v-for="r in legend" :key="r.label" class="g-row">
+                <i :style="{ background: r.c }" />{{ r.label }}<b class="tnum">{{ r.n }}</b>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="mb-wrap">
+          <MorningBriefing />
+        </div>
+      </aside>
     </div>
 
-    <!-- 首次访问引导（覆盖层） -->
-    <Transition name="guide-fade">
-      <OnboardingGuide v-if="showOnboarding" @done="finishOnboarding" />
-    </Transition>
-    <Transition name="guide-fade">
-      <button
-        v-if="isFirstVisit && !showOnboarding"
-        class="welcome-onboard-btn fixed bottom-6 right-6 z-40"
-        @click="showOnboarding = true"
-      >
-        <span class="welcome-onboard-led" aria-hidden="true" />
-        <span>快速设置</span>
-      </button>
-    </Transition>
+    <!-- 底部发光 dock：合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条 -->
+    <Dock />
+
+    <!-- 首次访问引导 + 入口 -->
+    <OnboardingGuide v-if="showOnboarding" @done="finishOnboarding" />
+    <button
+      v-if="isFirstVisit && !showOnboarding"
+      type="button"
+      class="home-onboard"
+      @click="showOnboarding = true"
+    >
+      <span class="ho-led" aria-hidden="true" />快速设置
+    </button>
   </div>
 </template>
 
 <style scoped>
-.welcome-shell {
-  /* 局部调色板收敛到全局 token（Phase 1） */
-  --home-tone: var(--color-accent);
-  --home-tone-2: var(--color-teal);
-  --home-success: var(--color-success);
-  --home-warning: var(--color-warning);
-  --home-danger: var(--color-danger);
-  --home-border: var(--color-line);
-  --home-text: var(--color-ink);
-  --home-muted: var(--color-ink-2);
-  --home-warm: var(--color-warning);
+.home {
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  color: var(--home-text);
+  gap: 14px;
+  padding: 16px 22px 92px;
+  /* 页面级滚动容器：body 永久 overflow:hidden，内容超出视口时在这里滚（横向恒裁） */
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--color-ink);
 }
-.welcome-shell::before {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--home-tone) 13%, transparent), transparent 32%),
-    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--home-tone-2) 10%, transparent), transparent 34%);
-}
-.welcome-shell::after {
-  position: absolute;
-  inset: 18px;
-  pointer-events: none;
-  content: '';
-  border: 1px solid color-mix(in srgb, var(--home-tone) 12%, transparent);
-  border-radius: 16px;
-  background:
-    linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(135deg, rgba(0,0,0,0.5), transparent 62%);
-  opacity: 0.9;
-}
-/* ===== 平铺 bento（spec 模块1：瀑布流式 bento，收件箱降级为普通卡）=====
- * 12 列；顶部 auto 行放小卡（hero/信号/风险/温度），底部 1fr 行放两张高卡（晨报/收件箱），
- * 高卡各自内部滚动，整块严丝合缝填满视口（body 永久 overflow:hidden）。 */
-.welcome-bento {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  grid-template-columns: repeat(12, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--space-3);
-  grid-auto-flow: dense;
-}
-.bento-hero { grid-column: span 4; grid-row: 1; }
-.bento-signals { grid-column: span 4; grid-row: 1; }
-.bento-radar { grid-column: span 4; grid-row: 1; }
-.bento-weather { display: none; } /* 默认隐藏；宽屏 ≥1280 独占一格 */
-.bento-briefing { grid-column: span 5; grid-row: 2; min-height: 0; }
-.bento-inbox { grid-column: span 7; grid-row: 2; min-height: 0; display: flex; }
-.bento-inbox > :deep(*) {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-}
-/* 宽屏：顶部四张小卡并排（各 span 3），天气独占一格 */
-@media (min-width: 1280px) {
-  .bento-hero,
-  .bento-signals,
-  .bento-radar { grid-column: span 3; }
-  .bento-weather {
-    grid-column: span 3;
-    grid-row: 1;
-    display: flex;
-    flex-direction: column;
-  }
-}
-/* ===== bento 单元基座：统一毛玻璃 + 信号轨 + 网格纹理（对齐 HUD skill 约定）===== */
-.bento-cell {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--home-border);
-  border-radius: var(--radius-card);
-  /* 实底亮度阶：数据密集卡不上 backdrop-filter（锐利 + 性能），aurora 自卡间隙透出 */
-  background: var(--color-surface);
-  box-shadow: var(--highlight-inset), var(--shadow-card);
-}
-/* bento 单元 B（信号瓦片）横向铺开，自身是瓦片容器而非卡片 */
-.bento-signals {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-}
-
-.bento-hero {
-  padding: var(--space-4) var(--space-4) var(--space-3);
-  border-color: color-mix(in srgb, var(--home-tone) 18%, var(--home-border));
-  background:
-    radial-gradient(circle at 18px 18px, color-mix(in srgb, var(--home-tone) 16%, transparent), transparent 64px),
-    linear-gradient(135deg, color-mix(in srgb, var(--home-tone) 8%, transparent), transparent 40%),
-    rgba(10, 11, 14, 0.4);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
-    0 18px 54px rgba(0, 0, 0, 0.22);
-}
-.bento-hero::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  content: '';
-  background: linear-gradient(180deg, transparent, var(--home-tone), transparent);
-  opacity: 0.76;
-}
-.bento-hero::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.042) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(120deg, rgba(0, 0, 0, 0.46), transparent 64%);
-}
-.bento-hero > * {
-  position: relative;
-  z-index: 1;
-}
-.bento-kicker {
-  margin: 0 0 8px;
-  color: color-mix(in srgb, var(--home-tone) 78%, white 5%);
-  font: 850 10px/1 var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.bento-title {
-  margin: 0;
-  color: rgba(248, 250, 252, 0.96);
-  font-size: var(--text-xl);
-  font-weight: 850;
-  line-height: 1.12;
-  letter-spacing: -0.02em;
-  text-shadow: 0 0 20px color-mix(in srgb, var(--home-tone) 18%, transparent);
-}
-.bento-summary {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 14px 0 0;
-  color: rgba(226, 232, 240, 0.64);
-  font-size: var(--text-sm);
-  line-height: 1.55;
-}
-
-.bento-whisper {
-  position: relative;
-  z-index: 1;
-  margin: 10px 0 0;
-  padding: 2px 0 2px 12px;
-  border-left: 2px solid color-mix(in srgb, var(--home-warm, #fbbf24) 62%, transparent);
-  color: color-mix(in srgb, var(--home-warm, #fbbf24) 70%, rgba(226, 232, 240, 0.72));
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  font-style: italic;
-  letter-spacing: 0.01em;
-}
-/* ===== 信号迷你瓦片：每个计数一块，按来源上色 ===== */
-.signal-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--tile-tone, var(--home-tone)) 22%, transparent);
-  border-radius: var(--radius-sm);
-  background:
-    radial-gradient(circle at 80% 0, color-mix(in srgb, var(--tile-tone, var(--home-tone)) 16%, transparent), transparent 70%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(2, 6, 23, 0.42));
-  text-align: left;
-  cursor: default;
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-}
-.signal-tile[data-tone='cyan'] { --tile-tone: var(--home-tone); }
-.signal-tile[data-tone='rose'] { --tile-tone: var(--home-danger); }
-.signal-tile[data-tone='teal'] { --tile-tone: var(--home-success); }
-.signal-tile:hover {
-  border-color: color-mix(in srgb, var(--tile-tone, var(--home-tone)) 48%, transparent);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--tile-tone, var(--home-tone)) 16%, transparent);
-}
-.signal-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(248, 250, 252, 0.96);
-  text-shadow: 0 0 18px color-mix(in srgb, var(--tile-tone, var(--home-tone)) 30%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-.signal-label {
-  font-size: 10.5px;
-  letter-spacing: 0.02em;
-  color: rgba(226, 232, 240, 0.5);
-}
-
-.bento-briefing {
-  /* 高卡 bento 单元（grid item）：填满网格格，内部 .mb-card → .mb-scroll 滚动 */
-  min-height: 0;
-}
-
-/* ===== bento 单元通用：内边距 + 分区标签 ===== */
-.bento-radar {
-  padding: var(--space-3) var(--space-4);
-}
-.bento-section-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-2);
-}
-
-/* ===== 风险雷达卡 ===== */
-.radar-body {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-.radar-ring {
-  position: relative;
-  flex-shrink: 0;
-  width: 92px;
-  height: 92px;
-}
-.radar-ring::after {
+/* 单一柔光顶晕 + 极淡遮罩网格（取代旧逐卡纹理；克制、不抢 3D） */
+.home::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg,
-    color-mix(in srgb, var(--home-tone) 34%, transparent) 0deg,
-    transparent 72deg);
+  pointer-events: none;
+  background:
+    radial-gradient(820px 360px at 50% -8%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 62%),
+    radial-gradient(620px 420px at 86% 108%, color-mix(in srgb, var(--color-alive) 8%, transparent), transparent 60%);
+}
+.home::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   opacity: 0.5;
-  pointer-events: none;
-  animation: radar-sweep 4.2s linear infinite;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
+  mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
 }
-@keyframes radar-sweep {
-  to { transform: rotate(360deg); }
-}
-.radar-center {
-  position: absolute;
-  inset: 0;
+
+/* 报头 */
+.home-top {
+  position: relative;
+  z-index: 1;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex: 0 0 auto;
 }
-.radar-center-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(248, 250, 252, 0.96);
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 18px color-mix(in srgb, var(--home-tone) 24%, transparent);
-}
-.radar-center-label {
-  margin-top: 3px;
-  font-size: 10px;
-  color: rgba(226, 232, 240, 0.46);
-  letter-spacing: 0.02em;
-}
-.radar-legend {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+.ht-greet {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  min-width: 0;
-}
-.radar-legend-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 12px;
-}
-.radar-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--home-tone) 20%, transparent);
-}
-.radar-legend-label {
-  color: rgba(226, 232, 240, 0.6);
-}
-.radar-legend-value {
-  margin-left: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
+  font-size: 30px;
   font-weight: 600;
-  color: rgba(248, 250, 252, 0.9);
-  font-variant-numeric: tabular-nums;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  color: var(--color-ink);
+  text-shadow: 0 0 26px color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
-.radar-legend-empty {
-  font-size: 12px;
-  color: rgba(226, 232, 240, 0.44);
-  font-style: italic;
+.ht-date { margin-left: 10px; color: var(--color-ink-3); font-weight: 500; }
+.ht-sum {
+  display: flex; align-items: center; gap: 8px;
+  margin: 7px 0 0; font-size: 12.5px; color: var(--color-ink-2);
+}
+.ht-urg {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--color-danger);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 50%, transparent);
+  animation: ht-pulse 2s ease-in-out infinite;
+}
+@keyframes ht-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent); }
+  70% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-danger) 0%, transparent); }
+}
+.ht-whisper {
+  margin: 0 0 4px; max-width: 44ch; text-align: right;
+  font-size: 12.5px; line-height: 1.5; color: var(--color-ink-3); font-style: italic;
 }
 
-/* ===== 模块 3：沉浸式天气卡 ===== */
-.bento-weather {
-  padding: 12px 14px;
-  justify-content: space-between;
+/* 三栏 */
+.home-grid {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr) 312px;
+  gap: 16px;
 }
-/* 氛围背景：随天气码变化（晴/多云/雨/雷/雪/雾/夜间），半透明叠在 bento 基座之上 */
-.bento-weather::before {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  z-index: 0;
-  opacity: 0.9;
-}
-.bento-weather > * { position: relative; z-index: 1; }
-.bento-weather[data-ambient='clear']::before {
-  background: radial-gradient(circle at 78% 18%, rgba(250, 204, 21, 0.22), transparent 60%),
-    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 58%);
-}
-.bento-weather[data-ambient='cloudy']::before {
-  background: radial-gradient(circle at 80% 20%, rgba(148, 163, 184, 0.18), transparent 62%),
-    radial-gradient(circle at 14% 86%, rgba(100, 116, 139, 0.14), transparent 60%);
-}
-.bento-weather[data-ambient='rain']::before {
-  background: radial-gradient(circle at 78% 16%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 60%),
-    radial-gradient(circle at 16% 88%, rgba(14, 165, 233, 0.16), transparent 58%);
-}
-.bento-weather[data-ambient='storm']::before {
-  background: radial-gradient(circle at 76% 14%, rgba(0, 217, 255, 0.2), transparent 58%),
-    radial-gradient(circle at 18% 88%, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 60%);
-}
-.bento-weather[data-ambient='snow']::before {
-  background: radial-gradient(circle at 80% 18%, rgba(226, 232, 240, 0.2), transparent 62%),
-    radial-gradient(circle at 14% 86%, rgba(165, 243, 252, 0.16), transparent 60%);
-}
-.bento-weather[data-ambient='fog']::before {
-  background: radial-gradient(circle at 50% 30%, rgba(203, 213, 225, 0.16), transparent 66%),
-    radial-gradient(circle at 50% 90%, rgba(148, 163, 184, 0.12), transparent 60%);
-}
-.bento-weather[data-ambient='night']::before {
-  background: radial-gradient(circle at 80% 16%, color-mix(in srgb, var(--color-accent-strong) 14%, transparent), transparent 60%),
-    radial-gradient(circle at 14% 86%, rgba(30, 41, 59, 0.4), transparent 58%);
-}
-.bento-weather[data-ambient='default']::before {
-  background: radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--home-tone) 14%, transparent), transparent 60%);
-}
-
-.weather-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.weather-card-city {
-  font-size: 11px;
-  color: rgba(226, 232, 240, 0.6);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.weather-card-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-.weather-card-temp {
-  display: flex;
-  align-items: flex-start;
-  line-height: 0.9;
-}
-.weather-card-temp-val {
-  font-family: var(--font-mono);
-  font-size: 40px;
-  font-weight: 700;
-  color: rgba(248, 250, 252, 0.98);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-  text-shadow: 0 0 22px rgba(255, 255, 255, 0.12);
-}
-.weather-card-temp-unit {
-  margin-top: 4px;
-  margin-left: 2px;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
-  color: rgba(226, 232, 240, 0.6);
-}
-.weather-card-side {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-.weather-card-icon {
-  width: 30px;
-  height: 30px;
-  color: rgba(226, 232, 240, 0.9);
-}
-.weather-card-text {
-  font-size: 11.5px;
-  color: rgba(226, 232, 240, 0.72);
-}
-.weather-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: rgba(226, 232, 240, 0.5);
-  font-variant-numeric: tabular-nums;
-}
-.weather-card-precip {
-  margin-top: 8px;
-}
-.weather-card-precip-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-.weather-card-precip-label {
-  font-size: 10px;
-  color: rgba(226, 232, 240, 0.46);
-  letter-spacing: 0.02em;
-}
-.weather-card-precip-peak {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-accent);
-  font-variant-numeric: tabular-nums;
-}
-.weather-card-precip-peak.is-dry {
-  color: rgba(226, 232, 240, 0.42);
-  font-family: var(--font-sans);
-  font-weight: 500;
-}
-.bento-weather :deep(.sparkline) {
-  width: 100%;
-  height: 30px;
-}
-.welcome-urgent-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--home-danger);
-  animation: urgent-pulse 2s ease-in-out infinite;
-}
-@keyframes urgent-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45); opacity: 1; }
-  70% { box-shadow: 0 0 0 7px rgba(251, 113, 133, 0); }
-}
-.welcome-onboard-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--home-tone) 34%, transparent);
-  border-radius: 999px;
+.home-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.lt {
+  position: relative;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 15px 16px;
+  border-radius: 15px;
+  border: 1px solid color-mix(in srgb, var(--tile-c, var(--color-accent)) 22%, var(--color-line));
   background:
-    radial-gradient(circle at 30% 0, rgba(255,255,255,0.2), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--home-tone) 16%, rgba(2,6,23,0.84)), rgba(2,6,23,0.72));
-  color: rgba(236, 254, 255, 0.92);
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow:
-    0 14px 36px color-mix(in srgb, var(--home-tone) 14%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.1);
-  backdrop-filter: blur(12px) saturate(130%);
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    radial-gradient(120px 80px at 88% -10%, color-mix(in srgb, var(--tile-c, var(--color-accent)) 16%, transparent), transparent 70%),
+    linear-gradient(160deg, #141b29, #0e1422);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 16px 40px -22px rgba(0, 8, 16, 0.7);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: transform 0.3s var(--ease-out-expo), border-color 0.3s, box-shadow 0.3s;
 }
-.welcome-onboard-btn:hover,
-.welcome-onboard-btn:focus-visible {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--home-tone) 52%, transparent);
-  background:
-    radial-gradient(circle at 30% 0, rgba(255,255,255,0.25), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--home-tone) 22%, rgba(2,6,23,0.84)), rgba(2,6,23,0.76));
-  outline: 0;
+.lt:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--tile-c, var(--color-accent)) 46%, var(--color-line));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 22px 48px -20px rgba(0, 8, 16, 0.8), 0 0 26px -10px color-mix(in srgb, var(--tile-c, var(--color-accent)) 50%, transparent);
 }
-.welcome-onboard-led {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--home-tone);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--home-tone) 62%, transparent);
+.lt[data-tone='cyan'] { --tile-c: var(--color-accent); }
+.lt[data-tone='rose'] { --tile-c: var(--color-danger); }
+.lt[data-tone='teal'] { --tile-c: var(--color-alive); }
+.lt-v {
+  font-family: var(--font-display);
+  font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
+  color: var(--color-ink);
+  text-shadow: 0 0 20px color-mix(in srgb, var(--tile-c, var(--color-accent)) 30%, transparent);
 }
-.guide-fade-enter-active { transition: opacity 0.4s ease, transform 0.4s ease; }
-.guide-fade-leave-active { transition: opacity 0.25s ease; }
-.guide-fade-enter-from { opacity: 0; transform: translateY(-6px); }
-.guide-fade-leave-to { opacity: 0; }
+.lt-k { font-size: 11px; letter-spacing: 0.02em; color: var(--color-ink-2); }
 
-/* ===== bento 进场：全局契约 .stagger（enter 320ms expo + 50ms 错峰，--i 行内注入，前 6 项封顶） ===== */
-.welcome-services { flex-shrink: 0; }
-/* 窄屏：bento 退回单列堆叠，整页可滚 */
+.home-center { position: relative; min-width: 0; min-height: 0; }
+
+.home-right { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.gauge {
+  display: flex; gap: 13px;
+  padding: 15px 16px; border-radius: 15px;
+  border: 1px solid var(--color-line);
+  background: linear-gradient(160deg, #131a28, #0e1422);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 16px 40px -24px rgba(0, 8, 16, 0.7);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.g-track { position: relative; width: 9px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.g-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px;
+  background: linear-gradient(0deg, var(--color-alive), var(--color-accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-alive) 60%, transparent);
+  transition: height 0.6s var(--ease-out-expo);
+}
+.g-info { display: flex; flex-direction: column; justify-content: space-between; flex: 1; gap: 8px; }
+.g-lab { font: 600 9.5px/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-ink-2); }
+.g-big { font-family: var(--font-display); font-weight: 700; font-size: 28px; letter-spacing: -0.02em; color: var(--color-ink); line-height: 1; }
+.g-big span { font-size: 13px; color: var(--color-alive); margin-left: 2px; }
+.g-leg { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.g-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--color-ink-2); }
+.g-row i { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.g-row b { margin-left: auto; color: var(--color-ink); font-weight: 600; font-size: 11px; }
+
+.mb-wrap { flex: 1 1 auto; min-height: 0; display: flex; }
+.mb-wrap :deep(.mb-card) { width: 100%; height: 100%; }
+
+/* 首次访问入口 */
+.home-onboard {
+  position: fixed; right: 22px; bottom: 22px; z-index: 40;
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 38px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 16%, rgba(8, 13, 22, 0.84)), rgba(8, 13, 22, 0.72));
+  color: var(--color-ink); font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 14px 36px -12px color-mix(in srgb, var(--color-accent) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(12px) saturate(130%); backdrop-filter: blur(12px) saturate(130%);
+  transition: transform 0.18s var(--ease-out-expo), border-color 0.18s;
+}
+.home-onboard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--color-accent) 52%, transparent); }
+.ho-led { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); }
+
 @media (max-width: 980px) {
-  .welcome-shell {
-    overflow-y: auto;
-    padding: 16px;
-  }
-  .welcome-shell::after { inset: 16px; }
-  .welcome-bento {
-    height: auto;
-    min-height: 100%;
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
-  }
-  .bento-hero,
-  .bento-signals,
-  .bento-radar,
-  .bento-weather,
-  .bento-briefing,
-  .bento-inbox {
-    grid-column: 1 / -1;
-    grid-row: auto;
-  }
-  .bento-weather { display: flex; flex-direction: column; }
-  .bento-inbox { min-height: 560px; }
+  .home { padding-bottom: 104px; }
+  .home-grid { grid-template-columns: 1fr; grid-auto-rows: auto; min-height: 100%; }
+  .home-left { flex-direction: row; }
+  .lt { flex: 1 1 0; }
+  .home-center { min-height: 540px; }
+  .mb-wrap { min-height: 320px; }
 }
-/* ===== 收件箱专注模式（最大化）：隐去其余 bento，收件箱独占整块 ===== */
-.welcome-shell.is-inbox-max .welcome-services,
-.welcome-shell.is-inbox-max .bento-hero,
-.welcome-shell.is-inbox-max .bento-signals,
-.welcome-shell.is-inbox-max .bento-radar,
-.welcome-shell.is-inbox-max .bento-weather,
-.welcome-shell.is-inbox-max .bento-briefing { display: none; }
-.welcome-shell.is-inbox-max .welcome-bento { grid-template-rows: minmax(0, 1fr); }
-.welcome-shell.is-inbox-max .bento-inbox {
-  grid-column: 1 / -1;
-  grid-row: 1 / -1;
-  z-index: 2;
-}
-/* 专注时压暗 shell 装饰光晕，让收件箱更突出 */
-.welcome-shell.is-inbox-max::before { opacity: 0.45; transition: opacity 0.4s ease; }
-
 @media (prefers-reduced-motion: reduce) {
-  .welcome-urgent-dot { animation: none; }
-  .signal-tile { transition: none; }
-  .signal-tile:hover { transform: none; box-shadow: none; }
-  .welcome-onboard-btn,
-  .guide-fade-enter-active,
-  .guide-fade-leave-active { transition: none; }
-  .welcome-onboard-btn:hover { transform: none; }
-  .welcome-shell.is-inbox-max::before { transition: none; }
+  .ht-urg { animation: none; }
+  .lt, .g-fill, .home-onboard { transition: none; }
 }
 </style>
