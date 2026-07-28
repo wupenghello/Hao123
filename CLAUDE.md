@@ -20,7 +20,7 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-morning-briefing`（每日晨报）, `hao123-inbox-insight`（收件箱洞察 LLM 文案，按日 + 检测签名缓存）. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-inbox-insight`（收件箱洞察 LLM 文案，按日 + 检测签名缓存）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 
@@ -152,18 +152,17 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `reachEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
 | `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果回灌前按字段裁剪（`clipForModel`：单字符串字段 4KB、整体 16KB 上限，递归裁剪保持**合法 JSON**，关键字段 title/url/metrics 与尾部 sources 完整保留）；**例外**：`git.show`/`git.diff` 的 diff 已在工具侧按行边界裁剪（~100KB 上限），`clipForModel` 不再二次裁剪、完整 diff 直达模型（用户要求 diff 不截断）；`ui__render` 始终下发（不再因 reach/zentao 自动 UI 卡而剥离，否则对比选型的 data-table 指令无法落地）；`activity.result` 内存持有完整结果供活动卡解析、持久化前裁剪控制体积；abort / retry / 重新生成；👍/👎 反馈统计 |
-| `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide 与晨报**共享**，in-flight 去重（并发只发一次禅道请求） |
-| `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次）；首页「行动建议」已合并进晨报，不再产 headline |
-| `briefing.ts` | **每日晨报**：LLM 综合工作台快照生成「今日简报」Markdown，`useStorage` 持久化（`hao123-morning-briefing`），**今日只自动生成一次**、跨刷新复用、次日或手动点刷新才更新 |
+| `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide **共享**，in-flight 去重（并发只发一次禅道请求） |
+| `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次） |
 | `inbox-insight.ts` | **收件箱洞察（LLM 主动开口）**：基于 `insights` 模块的**确定性检测**（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞），命中才让 LLM 加工成一句自然提醒 + 具体建议（`useInboxInsight`，`hao123-inbox-insight` 按日 + 检测签名缓存）；LLM 未配置时组件侧回退检测模板 |
-| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口，带连通性色点）/ `MorningBriefing.vue`（首页晨报卡；开头即「今天先抓什么」行动建议 + 卡片底部深聊入口） |
+| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口，带连通性色点） |
 
 **连通性（`connectivity.ts`，解决「连不上大模型」缺乏提示）：** 与 `configured`（env 有没有配 Key，静态）正交的**运行期可达性**状态机：`healthy / checking / unreachable`。核心约定：
 
 - **状态分层语义**——`store.error`（红条）= 真·业务错误（解析失败 / 工具异常 / 4xx 鉴权）；`connectivity`（琥珀条 / Launcher 色点）= 网络可达性问题。`store.ts` 的 catch 用 `classifyError(e)` 拆分：网络类（offline / proxy / provider / auth / unknown）走 `markUnreachable`，不污染红条；非网络类走 `store.error`。
 - **复用真实调用结果作信号**（不空探测）：provider 每次成功 → `markSuccess`；网络错误 → `markUnreachable(reason)`。避免每次进站烧 token 探活。
 - **只在需要时主动 probe**：失败后指数退避自动重试（5s → 10s → 30s 封顶）；用户点「重试」立即 probe。probe 是 `max_tokens:1` 的最小 ping + 5s 超时，**故意不走** `fetchWithRetry` 的 1+2+4s 三次退避（要快速反馈，不白等）。
-- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块（`briefing` / `inbox-insight` / `welcome-guide`）+ `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
+- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块（`inbox-insight` / `welcome-guide`）+ `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
 - **离线优先**：`navigator.onLine===false` 直接 `unreachable('offline')`、跳过任何 fetch；监听 `window` 的 `online`/`offline` 事件自动翻转。
 - **根因 → 文案**：offline / proxy（dev server 没起）/ provider（5xx 超时）/ auth（401/403）四类不同中文文案 + 行动指引。
 - **已知不可达时 `send()` 先 probe 短路**：避免用户发消息后白等 fetchWithRetry 的 7s 退避；不通则挂起，恢复后 `onRecover` 自动续答。
@@ -175,7 +174,7 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 ### 洞察模块（`src/features/insights/`，自包含特性模块）
 
-首页「AI 主动评估」的**确定性**来源——对收件箱工作项做纯启发式风险预测（逾期 / 临期 / 停滞），即时、确定、可解释，不依赖 LLM（即便 DeepSeek 未配置，首页也能体现「小吴在主动评估你的工作」）；与「晨报叙述」「交给小吴深聊」等需要自然语言的能力互补。外部统一从 `@/features/insights` 引入（barrel `index.ts`）：
+首页「AI 主动评估」的**确定性**来源——对收件箱工作项做纯启发式风险预测（逾期 / 临期 / 停滞），即时、确定、可解释，不依赖 LLM（即便 DeepSeek 未配置，首页也能体现「小吴在主动评估你的工作」）；与「交给小吴深聊」等需要自然语言的能力互补。外部统一从 `@/features/insights` 引入（barrel `index.ts`）：
 
 | 路径 | 职责 |
 |---|---|

@@ -4,17 +4,15 @@
  *
  * 解剖（对齐批准的 3D 概念）：
  *   极简报头（问候 + 一句话情报 + 一句温度）／左数据柱（指派/Bug/本地，count-up）／
- *   中间 3D 数据收件箱（InboxDeck，绝对主角）／右栏（竖向队列健康仪表 + 晨报）／
+ *   中间 3D 数据收件箱（InboxDeck，绝对主角）／
  *   底部发光 dock（Dock，合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。
  * 旧六卡 bento / 顶 WbscfServicesCard / 左 NavRail 全部移除——视觉零继承旧设计。
  */
 import { computed, ref, onMounted } from 'vue'
-import { MorningBriefing } from '@/features/chat'
 import { useWeatherStore } from '@/features/weather'
 import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
-import { useInboxInsights } from '@/features/insights'
 import { setLocalStorageItem } from '@/features/storage-health'
 import { useCountUp } from '@/composables/useCountUp'
 import InboxDeck from '@/components/InboxDeck.vue'
@@ -25,7 +23,6 @@ const weather = useWeatherStore()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
-const { summary } = useInboxInsights()
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -82,17 +79,6 @@ const signalValue = {
   local: useCountUp(() => localStore.openCount),
 }
 
-// 右竖向队列健康仪表
-const totalOpen = computed(() => taskStore.assignedCount + bugStore.assignedCount + localStore.openCount)
-const gaugeOk = computed(() => Math.max(0, totalOpen.value - summary.value.total))
-const gaugePct = computed(() => (totalOpen.value > 0 ? Math.round((gaugeOk.value / totalOpen.value) * 100) : 100))
-const legend = computed(() => [
-  { label: '逾期', n: summary.value.overdue, c: 'var(--color-danger)' },
-  { label: '临期', n: summary.value.dueSoon, c: 'var(--color-warning)' },
-  { label: '停滞', n: summary.value.stalled, c: 'var(--color-steel)' },
-  { label: '正常', n: gaugeOk.value, c: 'var(--color-alive)' },
-])
-
 // 首次访问引导
 const isFirstVisit = ref(false)
 const showOnboarding = ref(false)
@@ -119,7 +105,7 @@ function finishOnboarding() {
       <p class="ht-whisper">{{ whisper }}</p>
     </header>
 
-    <!-- 三栏：左数据柱 / 中 3D / 右仪表+晨报 -->
+    <!-- 两栏：左数据柱 / 中 3D -->
     <div class="home-grid">
       <aside class="home-left stagger">
         <div v-for="(s, i) in signals" :key="s.key" class="lt" :data-tone="s.tone" :style="{ '--i': i }">
@@ -131,26 +117,6 @@ function finishOnboarding() {
       <section class="home-center">
         <InboxDeck />
       </section>
-
-      <aside class="home-right">
-        <div class="gauge">
-          <div class="g-track"><div class="g-fill" :style="{ height: gaugePct + '%' }" /></div>
-          <div class="g-info">
-            <div>
-              <div class="g-lab">队列健康</div>
-              <div class="g-big tnum">{{ gaugePct }}<span>%</span></div>
-            </div>
-            <ul class="g-leg">
-              <li v-for="r in legend" :key="r.label" class="g-row">
-                <i :style="{ background: r.c }" />{{ r.label }}<b class="tnum">{{ r.n }}</b>
-              </li>
-            </ul>
-          </div>
-        </div>
-        <div class="mb-wrap">
-          <MorningBriefing />
-        </div>
-      </aside>
     </div>
 
     <!-- 底部发光 dock：合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条 -->
@@ -247,15 +213,15 @@ function finishOnboarding() {
   font-size: 12.5px; line-height: 1.5; color: var(--color-ink-3); font-style: italic;
 }
 
-/* 三栏 */
+/* 两栏 */
 .home-grid {
   position: relative;
   z-index: 1;
   flex: 1 1 auto;
   min-height: 0; /* 允许在 flex 列里收缩到比内容矮，首屏才撑不出滚动条 */
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr) 312px;
-  /* 行高锁定为容器实高（min 0 可收缩）：三栏随视口伸缩，而非按内容反推页面高度 */
+  grid-template-columns: 196px minmax(0, 1fr);
+  /* 行高锁定为容器实高（min 0 可收缩）：两栏随视口伸缩，而非按内容反推页面高度 */
   grid-template-rows: minmax(0, 1fr);
   gap: 16px;
 }
@@ -292,35 +258,6 @@ function finishOnboarding() {
 
 .home-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 
-.home-right { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-.gauge {
-  display: flex; gap: 13px;
-  padding: 15px 16px; border-radius: 15px;
-  border: 1px solid var(--color-line);
-  background: linear-gradient(160deg, #131a28, #0e1422);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 16px 40px -24px rgba(0, 8, 16, 0.7);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-.g-track { position: relative; width: 9px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
-.g-fill {
-  position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px;
-  background: linear-gradient(0deg, var(--color-alive), var(--color-accent));
-  box-shadow: 0 0 12px color-mix(in srgb, var(--color-alive) 60%, transparent);
-  transition: height 0.6s var(--ease-out-expo);
-}
-.g-info { display: flex; flex-direction: column; justify-content: space-between; flex: 1; gap: 8px; }
-.g-lab { font: 600 9.5px/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-ink-2); }
-.g-big { font-family: var(--font-display); font-weight: 700; font-size: 28px; letter-spacing: -0.02em; color: var(--color-ink); line-height: 1; }
-.g-big span { font-size: 13px; color: var(--color-alive); margin-left: 2px; }
-.g-leg { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
-.g-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--color-ink-2); }
-.g-row i { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
-.g-row b { margin-left: auto; color: var(--color-ink); font-weight: 600; font-size: 11px; }
-
-.mb-wrap { flex: 1 1 auto; min-height: 0; display: flex; }
-.mb-wrap :deep(.mb-card) { width: 100%; height: 100%; }
-
 /* 首次访问入口 */
 .home-onboard {
   position: fixed; right: 22px; bottom: 22px; z-index: 40;
@@ -342,10 +279,9 @@ function finishOnboarding() {
   .home-left { flex-direction: row; }
   .lt { flex: 1 1 0; }
   .home-center { min-height: 540px; overflow: visible; }
-  .mb-wrap { min-height: 320px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ht-urg { animation: none; }
-  .lt, .g-fill, .home-onboard { transition: none; }
+  .lt, .home-onboard { transition: none; }
 }
 </style>

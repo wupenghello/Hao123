@@ -28,6 +28,12 @@ const RISK: Record<RiskKey, { c: string; t: string }> = {
   ok: { c: 'var(--color-alive)', t: '正常' },
 }
 const KIND_LABEL: Record<WorkItem['kind'], string> = { task: '任务', bug: 'Bug', local: '本地' }
+/** 卡片主题色按来源区分：禅道任务绿 / Bug 红 / 本地待办蓝 */
+const KIND_COLOR: Record<WorkItem['kind'], string> = {
+  task: 'var(--color-alive)',
+  bug: 'var(--color-danger)',
+  local: 'var(--color-accent)',
+}
 const STATUS_LABEL: Record<string, string> = {
   doing: '进行中', wait: '待办', active: '进行中', open: '待办',
   done: '完成', resolved: '已解决', closed: '已关闭',
@@ -48,6 +54,8 @@ interface DeckItem {
   risk: RiskKey
   riskColor: string
   riskLabel: string
+  /** 卡片主题色（按来源区分），驱动 --rc */
+  kindColor: string
   why: string
   action: string
   filled: number
@@ -76,6 +84,7 @@ const deck = computed<DeckItem[]>(() => {
       risk,
       riskColor: RISK[risk].c,
       riskLabel: RISK[risk].t,
+      kindColor: KIND_COLOR[w.kind],
       why: p?.why ?? '当前无逾期 / 临期 / 停滞信号，按既有节奏推进即可。',
       action: p?.action ?? `帮我看一下「${w.title}」接下来怎么安排最合适。`,
       filled: Math.max(1, Math.min(4, 5 - w.pri)),
@@ -117,7 +126,7 @@ function itemStyle(idx: number): CSSProperties {
   const it = deck.value[idx]
   if (abs > 2) {
     return {
-      '--rc': it.riskColor,
+      '--rc': it.kindColor,
       opacity: 0,
       filter: 'blur(4px)',
       pointerEvents: 'none',
@@ -133,7 +142,7 @@ function itemStyle(idx: number): CSSProperties {
   const op = off === 0 ? 1 : abs === 1 ? 0.84 : 0.55
   const bl = off === 0 ? 0 : abs === 1 ? 0.6 : 1.6
   return {
-    '--rc': it.riskColor,
+    '--rc': it.kindColor,
     opacity: op,
     filter: `blur(${bl}px)`,
     pointerEvents: off === 0 ? 'default' : 'auto',
@@ -143,7 +152,10 @@ function itemStyle(idx: number): CSSProperties {
 }
 
 function setActive(i: number) {
-  const c = Math.max(0, Math.min(N.value - 1, i))
+  const n = N.value
+  if (n === 0) return
+  // 循环滚动：到头不停止，末卡继续翻 → 回首页，首卡往回翻 → 末尾
+  const c = ((i % n) + n) % n
   if (c === active.value) return
   active.value = c
   interacted.value = true
@@ -301,14 +313,12 @@ onBeforeUnmount(() => {
           :key="it.key"
           class="qd"
           :class="{ on: i === active }"
-          :style="{ '--qc': it.riskColor }"
+          :style="{ '--qc': it.kindColor }"
           @click="setActive(i)"
         />
       </div>
       <span class="sep" />
       <span class="pos"><b>{{ String(active + 1).padStart(2, '0') }}</b> / {{ String(N).padStart(2, '0') }}</span>
-      <span class="sep" />
-      <span class="sort">AI 推荐序</span>
       <span class="sep" />
       <button type="button" class="dk-add" title="新建本地待办" @click="openCreate">+ 新建</button>
     </div>
@@ -437,11 +447,11 @@ onBeforeUnmount(() => {
   overflow: hidden;
   cursor: pointer;
   background: linear-gradient(155deg, #141b29 0%, #0d1320 100%);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, rgba(255, 255, 255, 0.1));
+  border: 1px solid color-mix(in srgb, var(--rc) 26%, rgba(255, 255, 255, 0.1));
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06),
     0 24px 60px -22px rgba(0, 8, 16, 0.75),
-    0 0 34px -8px color-mix(in srgb, var(--color-accent) 32%, transparent),
+    0 0 34px -8px color-mix(in srgb, var(--rc) 32%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.22);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -468,15 +478,15 @@ onBeforeUnmount(() => {
   font-size: 15px; font-weight: 600; margin: 11px 0 10px; color: var(--color-ink); line-height: 1.3;
   cursor: pointer; border-radius: 4px; transition: color 0.2s;
 }
-.c3 .ttl:hover { color: var(--color-accent); text-decoration: underline; }
+.c3 .ttl:hover { color: var(--rc); text-decoration: underline; }
 .c3 .meta { display: flex; align-items: center; gap: 9px; }
 .pri-meter { display: inline-flex; gap: 3px; }
 .pri-meter i { width: 14px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
-.pri-meter i.lit { background: linear-gradient(90deg, var(--color-accent), var(--color-alive)); box-shadow: 0 0 6px color-mix(in srgb, var(--color-alive) 50%, transparent); }
+.pri-meter i.lit { background: var(--rc); box-shadow: 0 0 6px color-mix(in srgb, var(--rc) 50%, transparent); }
 .c3 .pri { font: 600 10px/1 var(--font-mono); color: var(--color-ink-2); }
 .c3 .focus {
   position: absolute; right: 15px; top: 15px;
-  font: 700 9px/1 var(--font-mono); letter-spacing: 0.2em; color: var(--color-alive);
+  font: 700 9px/1 var(--font-mono); letter-spacing: 0.2em; color: var(--rc);
   opacity: 0; transition: opacity 0.3s;
 }
 
@@ -487,11 +497,11 @@ onBeforeUnmount(() => {
 .c3 .ai { margin-top: 11px; border-top: 1px solid var(--color-line); padding-top: 10px; }
 .c3 .ai .h {
   display: flex; align-items: center; gap: 6px;
-  font: 700 9px/1 var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--color-alive);
+  font: 700 9px/1 var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--rc);
 }
-.c3 .ai .h .d { width: 6px; height: 6px; border-radius: 50%; background: var(--color-alive); box-shadow: 0 0 8px var(--color-alive); animation: deck-ping 2s ease-in-out infinite; }
+.c3 .ai .h .d { width: 6px; height: 6px; border-radius: 50%; background: var(--rc); box-shadow: 0 0 8px var(--rc); animation: deck-ping 2s ease-in-out infinite; }
 .c3 .ai .why { font-size: 12.5px; color: var(--color-ink); margin: 7px 0 4px; line-height: 1.5; }
-.c3 .ai .act { font-size: 11.5px; color: var(--color-alive); line-height: 1.45; }
+.c3 .ai .act { font-size: 11.5px; color: var(--rc); line-height: 1.45; }
 .c3 .acts { display: flex; gap: 8px; margin-top: 12px; }
 .c3 .gbtn {
   flex: 1 1 0; padding: 9px 6px; border-radius: 10px; cursor: pointer;
@@ -510,17 +520,17 @@ onBeforeUnmount(() => {
 
 .c3.is-active {
   cursor: default; width: 468px; padding: 18px 20px 18px 23px;
-  background: linear-gradient(155deg, #11231d 0%, #0c1420 100%);
-  border-color: color-mix(in srgb, var(--color-alive) 48%, transparent);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--rc) 16%, #141b29) 0%, #0c1420 100%);
+  border-color: color-mix(in srgb, var(--rc) 48%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-alive) 44%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--rc) 44%, transparent),
     0 30px 80px -20px rgba(0, 8, 16, 0.82),
-    0 0 64px -4px color-mix(in srgb, var(--color-alive) 55%, transparent),
+    0 0 64px -4px color-mix(in srgb, var(--rc) 55%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 .c3.is-active .focus { opacity: 1; }
 .c3.is-active .ttl { font-family: var(--font-display); font-size: 19px; letter-spacing: -0.01em; }
-.c3.is-active .tag { color: var(--color-alive); border-color: color-mix(in srgb, var(--color-alive) 38%, transparent); background: color-mix(in srgb, var(--color-alive) 14%, transparent); }
+.c3.is-active .tag { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 38%, transparent); background: color-mix(in srgb, var(--rc) 14%, transparent); }
 .c3.is-active .only-active { display: block; }
 
 .deck-chip {

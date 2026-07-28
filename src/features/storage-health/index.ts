@@ -3,7 +3,6 @@ import { notify } from '@/features/feedback/store'
 
 const APP_KEY_PREFIX = 'hao123-'
 const CHAT_HISTORY_KEY = 'hao123-chat-history'
-const BRIEFING_KEY = 'hao123-morning-briefing'
 const INSIGHT_KEY = 'hao123-inbox-insight'
 const CHAT_PANEL_SIZE_KEY = 'hao123-chat-panel-size'
 
@@ -232,7 +231,6 @@ function cleanupLocalStorageCaches(targetBytes = ASSUMED_LOCAL_STORAGE_QUOTA_BYT
 
   const removableCaches = [
     { key: INSIGHT_KEY, label: '清理收件箱洞察缓存', at: cacheGeneratedAt(INSIGHT_KEY) },
-    { key: BRIEFING_KEY, label: '清理每日晨报缓存', at: cacheGeneratedAt(BRIEFING_KEY) },
     { key: CHAT_PANEL_SIZE_KEY, label: '清理聊天面板尺寸缓存', at: 0 },
   ]
     .filter((item) => localStorage.getItem(item.key) !== null)

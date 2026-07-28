@@ -1,7 +1,7 @@
 /**
  * Chat 助手 · 行动流提示词
  *
- * 这些 prompt 用在首页的主动 AI 入口：风险徽标、状态条、洞察卡、晨报深聊。
+ * 这些 prompt 用在首页的主动 AI 入口：风险徽标、状态条、洞察卡。
  * 目标不是「打开聊天随便问一句」，而是让小吴进入接手模式：
  * 先解释优先级，再给今天的处理方案，最后明确列出可继续执行的动作。
  */
@@ -144,21 +144,4 @@ export function buildInsightActionFlowPrompt(insight: ActionFlowInsight, items: 
   ]
     .filter(Boolean)
     .join('\n')
-}
-
-export function buildBriefingActionFlowPrompt(content: string): string {
-  return [
-    '我看完了今日简报，请你不要只是继续聊天，而是把简报接成今天的行动流。',
-    '',
-    '# 今日简报正文',
-    content || '（当前没有简报正文）',
-    '',
-    '# 接手要求',
-    [
-      '请先提炼今天最该先抓的 1 件事。',
-      '然后给出今天的处理顺序，按「先处理 / 顺手推进 / 可以推迟」分组。',
-      `最后给出你可以继续接手的动作选项：${['生成同步话术', '拆本地跟进待办', ...(kbEnabled ? ['查知识库'] : []), '查看禅道详情'].join('、')}。`,
-      '任何会写入本地待办或改变外部状态的动作，都先问我确认。',
-    ].join('\n'),
-  ].join('\n')
 }
