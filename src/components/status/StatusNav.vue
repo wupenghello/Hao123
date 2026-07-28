@@ -125,7 +125,7 @@ function onLocalClick(app?: string): void {
 }
 
 .status-nav-list {
-  display: flex;
+  display: none;
   align-items: stretch;
   gap: 2px;
   min-width: 0;

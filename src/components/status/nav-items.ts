@@ -7,6 +7,19 @@
  *
  * `icon` 存的是 mdi 图标名后缀（不含 `mdi/` 前缀），由各组件用各自的图标映射渲染。
  */
+import type { Component } from 'vue'
+import IconAccount from '~icons/mdi/account-supervisor-circle-outline'
+import IconCart from '~icons/mdi/cart-outline'
+import IconStore from '~icons/mdi/storefront-outline'
+import IconDashboard from '~icons/mdi/view-dashboard-outline'
+import IconDatabase from '~icons/mdi/database-outline'
+import IconRocket from '~icons/mdi/rocket-launch-outline'
+import IconTag from '~icons/mdi/tag-multiple-outline'
+import IconTruck from '~icons/mdi/truck-fast-outline'
+import IconCloudUpload from '~icons/mdi/cloud-upload-outline'
+import IconList from '~icons/mdi/format-list-bulleted-type'
+import IconApi from '~icons/mdi/api'
+import IconDots from '~icons/mdi/dots-horizontal-circle-outline'
 export type EnvKey = 'dev' | 'test' | 'pre'
 export type EnvLinks = Partial<Record<EnvKey, string>>
 
@@ -127,4 +140,23 @@ export function envEntries(envs: EnvLinks): EnvEntry[] {
   return envMeta
     .map(({ key }) => ({ key, url: envs[key] }))
     .filter((env): env is EnvEntry => !!env.url)
+}
+
+
+// 图标名后缀 → 组件（与 icon 字段对应；Dock / NavRail 共用，避免各自维护漂移）
+export const iconMap: Record<string, Component> = {
+  'account-supervisor-circle-outline': IconAccount,
+  'cart-outline': IconCart,
+  'storefront-outline': IconStore,
+  'view-dashboard-outline': IconDashboard,
+  'database-outline': IconDatabase,
+  'rocket-launch-outline': IconRocket,
+  'tag-multiple-outline': IconTag,
+  'truck-fast-outline': IconTruck,
+  'cloud-upload-outline': IconCloudUpload,
+  'format-list-bulleted-type': IconList,
+  'api': IconApi,
+}
+export function iconOf(item: NavItem): Component {
+  return iconMap[item.icon] ?? IconDots
 }

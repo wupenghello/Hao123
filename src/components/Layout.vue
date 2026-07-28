@@ -2,7 +2,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
-import NavRail from '@/components/status/NavRail.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
 import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
@@ -44,8 +43,6 @@ onUnmounted(() => stopStorageHealthMonitor())
       <WelcomePage />
     </main>
 
-    <!-- 悬浮侧边导航（宽屏主力；窄屏自动隐藏回退顶栏） -->
-    <NavRail />
 
     <!-- 助手入口：常驻卡通伙伴（小吴桌宠，Live2D 渲染，默认右下角） -->
     <CompanionPet />
@@ -89,11 +86,5 @@ onUnmounted(() => stopStorageHealthMonitor())
   border-radius: 999px;
   background: var(--color-accent);
   box-shadow: 0 0 12px rgba(0, 217, 255, 0.6);
-}
-/* 宽屏：悬浮 NavRail（收起 50px + 左 14px + 间距）占住左侧，主内容右移避免被遮 */
-@media (min-width: 1080px) {
-  .layout-main {
-    padding-left: 78px;
-  }
 }
 </style>
