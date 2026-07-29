@@ -111,9 +111,13 @@ const nodes = computed<VizNode[]>(() => {
     })
   }
 
-  // j 弧面副卡（默认）：24 张迷你副卡在卡堆下方排成向两侧后退翘起的 3D 弧线
+  // j 弧面副卡（默认）：24 张迷你副卡在卡堆下方排成向两侧后退翘起的 3D 弧线（循环）
   return items.map((it, i) => {
-    const p = i - active
+    const n = items.length
+    // 循环偏移：取环上最短距离，让首尾相连（激活首项时左侧露出末尾副卡，反之亦然）
+    let p = i - active
+    if (p > n / 2) p -= n
+    else if (p <= -n / 2) p += n
     const x = p * 58
     const z = -(Math.abs(p) ** 1.35) * 16 - 150
     const ry = Math.max(-58, Math.min(58, -p * 9))
