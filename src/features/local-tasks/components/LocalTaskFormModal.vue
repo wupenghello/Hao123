@@ -13,7 +13,7 @@
  *   - 关闭/重开 → revoke 所有本地预览 URL，重置三个列表
  */
 import { ref, watch, nextTick } from 'vue'
-import type { LocalTask, LocalTaskPri, LocalTaskInput, LocalTaskSource, LocalTaskFormPayload } from '../types'
+import type { LocalTask, LocalTaskPri, LocalTaskSource, LocalTaskFormPayload } from '../types'
 import { getAttachmentBlob } from '../attachments'
 import { isImageMime, formatFileSize, MAX_ATTACHMENT_SIZE } from '../util'
 import IconClose from '~icons/mdi/close'
@@ -22,18 +22,12 @@ import IconUpload from '~icons/mdi/cloud-upload-outline'
 import IconFile from '~icons/mdi/file-document-outline'
 import IconDownload from '~icons/mdi/download'
 import IconClipboardCheck from '~icons/mdi/clipboard-check-outline'
-import IconLinkVariant from '~icons/mdi/link-variant'
 
 const props = defineProps<{
   /** 是否打开 */
   open: boolean
   /** 编辑目标；null = 新建 */
   task: LocalTask | null
-  /**
-   * 一键导入禅道后的预填载荷（页面级把 ZentaoImportModal 的结果传进来）。
-   * 仅新建态生效：非空且 open 时把字段灌入表单，交用户确认后再提交。
-   */
-  prefill?: { input: LocalTaskInput; source?: LocalTaskSource } | null
 }>()
 
 /** 提交载荷：表单字段 + 新增文件 + 待移除附件 id（类型见 types.ts，供面板与弹窗共用） */
@@ -41,8 +35,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [value: boolean]
   submit: [payload: LocalTaskFormPayload]
-  /** 请求打开「导入禅道」输入台（由页面级承接，弹出层级更高的 ZentaoImportModal） */
-  'request-import': []
 }>()
 
 /** 当前任务的导入来源（新建可由禅道导入预填；编辑时沿用原值），随提交回吐 */
@@ -112,13 +104,6 @@ watch(
         const blob = await getAttachmentBlob(att.id)
         if (blob) existingImageUrls.value[att.id] = trackUrl(URL.createObjectURL(blob))
       }
-    } else if (props.prefill) {
-      // 新建 · 由禅道导入预填：灌入字段 + 记住来源，交用户确认后再提交
-      title.value = props.prefill.input.title
-      note.value = props.prefill.input.note ?? ''
-      pri.value = props.prefill.input.pri
-      deadline.value = props.prefill.input.deadline ?? ''
-      source.value = props.prefill.source
     } else {
       title.value = ''
       note.value = ''
@@ -130,21 +115,6 @@ watch(
     titleRef.value?.focus()
   },
   { immediate: true },
-)
-
-// 导入结果晚于表单打开到达（先开表单 → 用户去导入台粘贴 → 回填）：
-// prefill 变化且表单开着、非编辑态时把字段灌进来。
-watch(
-  () => props.prefill,
-  (pf) => {
-    if (!pf || !props.open || props.task) return
-    title.value = pf.input.title
-    note.value = pf.input.note ?? ''
-    pri.value = pf.input.pri
-    deadline.value = pf.input.deadline ?? ''
-    source.value = pf.source
-    nextTick(() => titleRef.value?.focus())
-  },
 )
 
 // ============ 文件选择（点击 / 拖放）============
@@ -298,16 +268,6 @@ const PRI_HINT: Record<number, string> = { 1: '紧急', 2: '高', 3: '中', 4: '
                 <h3 class="lt-title">{{ task ? '编辑本地待办' : '新建本地待办' }}</h3>
                 <p class="lt-subtitle">标题、优先级、截止日和附件都会保存在本机工作台。</p>
               </div>
-              <button
-                v-if="!task"
-                type="button"
-                class="lt-import-btn"
-                title="粘贴禅道链接，自动读取任务 / Bug 详情填入"
-                @click="emit('request-import')"
-              >
-                <IconLinkVariant class="w-3.5 h-3.5" />
-                导入禅道
-              </button>
               <button class="lt-icon-btn" title="关闭" @click="close">
                 <IconClose class="w-4 h-4" />
               </button>

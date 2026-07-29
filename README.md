@@ -181,7 +181,6 @@ Git 写操作、删除任务等高风险动作在产品上应要求用户确认�
 - `hao123-local-tasks`
 - `hao123-local-clear-celebrated-date`
 - `hao123-morning-briefing`
-- `hao123-inbox-insight`
 - `hao123-onboarding-done`
 
 更改默认数据或调试缓存问题时，可能需要清理对应 key。

@@ -19,7 +19,7 @@ export interface InsightLike {
   action?: string
 }
 
-/** 洞察签名：清单结构变了才重弹（与 inbox-insight 同口径） */
+/** 洞察签名：清单结构变了才重弹 */
 export function insightSignature(insights: InsightLike[]): string {
   return insights.map((i) => `${i.kind ?? 'x'}:${i.title}`).join('|')
 }

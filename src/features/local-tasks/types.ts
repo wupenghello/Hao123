@@ -13,7 +13,7 @@ export type LocalTaskPri = 1 | 2 | 3 | 4
 /**
  * 导入来源：一键从禅道任务 / Bug 导入本地待办时记录出处。
  * 仅结构化保存 kind/id/url，本模块不因此依赖禅道特性模块——
- * 点击回看禅道详情由页面级（UnifiedInbox）编排。
+ * 点击回看禅道详情由页面级（首页）编排。
  */
 export interface LocalTaskSource {
   /** 来源类型 */

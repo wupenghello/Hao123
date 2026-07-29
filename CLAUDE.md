@@ -20,7 +20,7 @@ No test framework is configured yet.
 
 All persistent state uses `useStorage<T>(key, default)` (`src/composables/useStorage.ts`) — a reactive `ref` backed by `localStorage` with deep watch. Pinia stores wrap these refs.
 
-**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）, `hao123-inbox-insight`（收件箱洞察 LLM 文案，按日 + 检测签名缓存）. When changing default data, users may need to clear these keys to see updates.
+**localStorage keys:** `hao123-weather-city-coord`, `hao123-weather-city-name`, `hao123-weather-mode`, `hao123-zentao-sid`（禅道会话 ID）, `hao123-chat-history`（对话历史）, `hao123-chat-feedback`（反馈统计 {up, down, regenerations}）, `hao123-local-tasks`（本地任务列表）. When changing default data, users may need to clear these keys to see updates.
 
 ### Component hierarchy
 
@@ -30,9 +30,9 @@ App.vue (router-view)
        ├─ status/StatusBar.vue   (顶部状态栏外壳：固定高度，三栏插槽)
        │    ↑ 通过具名插槽注入内容，Layout.vue 填充 #right(WeatherWidget + StatusTime)
        │    ↑ 可用插槽：#left / #center / #right
-       └─ <main> 主内容区：渲染 <WelcomePage />（工作台首页，主角是统一收件箱 <UnifiedInbox />）
+       └─ <main> 主内容区：渲染 <WelcomePage />（工作台首页，主角是 3D 数据收件箱 <InboxDeck />）
 
-`WeatherWidget` 来自天气特性模块 `@/features/weather`；`UnifiedInbox` 是首页级组件（聚合禅道指派项 + 本地待办为一条清单，见下节）；外部只从各自 barrel 引入，不触达模块内部路径。
+`WeatherWidget` 来自天气特性模块 `@/features/weather`；`InboxDeck` 是首页主角组件（3D 卡堆形式的统一收件箱，见下节）；外部只从各自 barrel 引入，不触达模块内部路径。
 ```
 
 ### 天气模块（`src/features/weather/`，自包含特性模块）
@@ -154,7 +154,6 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 | `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果回灌前按字段裁剪（`clipForModel`：单字符串字段 4KB、整体 16KB 上限，递归裁剪保持**合法 JSON**，关键字段 title/url/metrics 与尾部 sources 完整保留）；**例外**：`git.show`/`git.diff` 的 diff 已在工具侧按行边界裁剪（~100KB 上限），`clipForModel` 不再二次裁剪、完整 diff 直达模型（用户要求 diff 不截断）；`ui__render` 始终下发（不再因 reach/zentao 自动 UI 卡而剥离，否则对比选型的 data-table 指令无法落地）；`activity.result` 内存持有完整结果供活动卡解析、持久化前裁剪控制体积；abort / retry / 重新生成；👍/👎 反馈统计 |
 | `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide **共享**，in-flight 去重（并发只发一次禅道请求） |
 | `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次） |
-| `inbox-insight.ts` | **收件箱洞察（LLM 主动开口）**：基于 `insights` 模块的**确定性检测**（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞），命中才让 LLM 加工成一句自然提醒 + 具体建议（`useInboxInsight`，`hao123-inbox-insight` 按日 + 检测签名缓存）；LLM 未配置时组件侧回退检测模板 |
 | `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口，带连通性色点） |
 
 **连通性（`connectivity.ts`，解决「连不上大模型」缺乏提示）：** 与 `configured`（env 有没有配 Key，静态）正交的**运行期可达性**状态机：`healthy / checking / unreachable`。核心约定：
@@ -162,7 +161,7 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 - **状态分层语义**——`store.error`（红条）= 真·业务错误（解析失败 / 工具异常 / 4xx 鉴权）；`connectivity`（琥珀条 / Launcher 色点）= 网络可达性问题。`store.ts` 的 catch 用 `classifyError(e)` 拆分：网络类（offline / proxy / provider / auth / unknown）走 `markUnreachable`，不污染红条；非网络类走 `store.error`。
 - **复用真实调用结果作信号**（不空探测）：provider 每次成功 → `markSuccess`；网络错误 → `markUnreachable(reason)`。避免每次进站烧 token 探活。
 - **只在需要时主动 probe**：失败后指数退避自动重试（5s → 10s → 30s 封顶）；用户点「重试」立即 probe。probe 是 `max_tokens:1` 的最小 ping + 5s 超时，**故意不走** `fetchWithRetry` 的 1+2+4s 三次退避（要快速反馈，不白等）。
-- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块（`inbox-insight` / `welcome-guide`）+ `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
+- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块（`welcome-guide`）+ `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
 - **离线优先**：`navigator.onLine===false` 直接 `unreachable('offline')`、跳过任何 fetch；监听 `window` 的 `online`/`offline` 事件自动翻转。
 - **根因 → 文案**：offline / proxy（dev server 没起）/ provider（5xx 超时）/ auth（401/403）四类不同中文文案 + 行动指引。
 - **已知不可达时 `send()` 先 probe 短路**：避免用户发消息后白等 fetchWithRetry 的 7s 退避；不通则挂起，恢复后 `onRecover` 自动续答。
@@ -179,13 +178,13 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 | 路径 | 职责 |
 |---|---|
 | `types.ts` | `WorkItem`（归一化工作项）/ `Prediction`（风险预测，含 `why` 可解释理由 + `action` 行动建议）/ `InsightSummary`（列表级汇总）/ `RiskLevel` |
-| `predict.ts` | 预测引擎（纯函数）：`predictItem`（单条取最强一档风险）+ `summarize`（汇总成状态条数据）+ 时间工具 `deadlineDays` / `parseZentaoTime`；截止日按本地零点比较，规避 UTC 误判 |
-| `composable.ts` | `useInboxInsights`：把禅道任务 / Bug / 本地待办三类 store 归一化为 `WorkItem[]`（含 `thread` 需求线标签）→ 跑预测 → 暴露 `predictions`（`${kind}-${id}` → `Prediction` 查表，与 UnifiedInbox 行 key 同口径）+ `summary` + `insights`（深度洞察） |
+| `predict.ts` | 预测引擎（纯函数）：`predictItem`（单条取最强一档风险）+ `summarize`（汇总成 summary：风险计数 + headline）+ 时间工具 `deadlineDays` / `parseZentaoTime`；截止日按本地零点比较，规避 UTC 误判 |
+| `composable.ts` | `useInboxInsights`：把禅道任务 / Bug / 本地待办三类 store 归一化为 `WorkItem[]`（含 `thread` 需求线标签）→ 跑预测 → 暴露 `predictions`（`${kind}-${id}` → `Prediction` 查表，与首页 InboxDeck 卡片 key 同口径）+ `summary` + `insights`（深度洞察） |
 | `detect.ts` | 深度洞察检测（纯函数）：`detectInsights` 扫工作项找出值得小吴**主动开口**的模式——同根因（同线索任务+Bug）/ Bug 集中 / 多项逾期 / 负载 / 高优停滞；按优先级排序、至多 2 条（克制）；命中才有洞察，不命中不渲染、不发 LLM |
 
 **预测口径：** 逾期（截止日早于今天）> 临期（今天 / 明天到期）> 停滞（未推进状态 + 超 5 天无变动 + 够分量），一条至多命中一档。每个预测必带一句 `why`（可解释性红线，避免「玄学噪音」）与一句用户口吻的 `action`。停滞只在「够分量」的项上触发（Bug `active` 即算；任务 / 本地要求 pri ≤ 3），避免低优积压刷屏。
 
-**洞察（Step 3）：** `detect.ts` 的检测是确定性的（可靠、即时、不烧 token），命中才发 LLM；`chat/inbox-insight.ts` 的 `useInboxInsight` 把检测结果交给 LLM 加工成「小吴的洞察」自然提醒 + 具体建议（按日 + 检测签名缓存，签名变化才重生成）。LLM 未配置时回退检测模板文案。
+**深度洞察：** `detect.ts` 的检测是确定性的（可靠、即时、不烧 token），命中才产出洞察；检测结果喂给桌宠 `companion` 的 ambient 气泡（签名变化才弹，见 `companion/speech.ts`）与首页，不命中不渲染（克制）。
 
 ### Agent Reach 外部调研模块（`src/features/reach/`，自包含特性模块）
 
@@ -214,17 +213,17 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 所有 spawn 命令带超时 + SIGTERM→SIGKILL 两级终止；出站 fetch 带 timeout 防止挂起。
 
-### 首页统一收件箱（`src/components/UnifiedInbox.vue`）
+### 首页（`src/components/WelcomePage.vue` + `src/components/InboxDeck.vue`）
 
-首页主角：把「指派给我的禅道任务 / Bug」与「本地待办」**整合进一条清单**（`UnifiedInbox`），用类型徽标（任务 / Bug / 本地）区分来源。排序与 AI 增强分层：
+首页是发光深色「指挥舱」构图：极简报头（问候 + 一句话情报 + 一句温度）／左数据柱（指派任务 / 待修 Bug / 本地待办，count-up）／中间 3D 数据收件箱（`InboxDeck`，绝对主角）／底部发光 `Dock`（合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。旧六卡 bento 全部移除，视觉零继承旧设计。
 
-- **主排序：** 「紧急 → 优先级 → 截止日期」（`sortKey`），紧急项左侧玫红描边。
-- **「小吴已就绪」状态条：** 顶部一条 AI 主动风险概况（N 逾期 · N 临期 · N 停滞 + 点题建议），数据来自 `useInboxInsights().summary`；LLM 已配置时整条可点 → 带概况让小吴排出处理顺序（无对话框，AI 先动）。
-- **行内风险徽标：** 每条有风险的工作项显示预测徽标（逾期 / 临期 / 停滞，`why` 走 tooltip），LLM 已配置时整枚可点 → 带上下文「交给小吴」跟进（`chat.show()` + `chat.send(action)`）。取代了原先静态的「逾期」徽标。
-- **「小吴的洞察」卡：** `detect.ts` 检测到值得主动一说的模式（同根因 / Bug 集中 / 多项逾期 / 负载 / 高优停滞，至多 2 条）时，在状态条下方主动开口——LLM 已配置则由 `useInboxInsight` 生成自然提醒 + 建议（按日 + 签名缓存，可手动「重新分析」），未配置则回退检测模板；「让小吴展开」带上下文深聊。无模式不渲染（克制）。
-- **需求线分组：** 同属一条需求 / 项目的禅道项（≥2 项）自动归入可折叠的彩色分组头（`threadOf` 按 storyTitle → projectName → productName / executionName 取线索；`threadColor` 按名 hash 取稳定配色），组间按各自最强项的紧急度排序、组内保持紧急度序——既「连成线」又不打乱「紧急优先」；本地待办与单条不成线的项并入「其他」流。
+**InboxDeck（3D 卡堆收件箱）：** 把「指派给我的禅道任务 / Bug」与「本地待办」归一化成浮在空间里、可翻动的 3D 玻璃卡堆（数据经 `useInboxInsights`）：
 
-禅道任务为只读来源——详情弹窗仅查看，底部只有「在禅道中打开」（开始 / 完成 / 记录工时等状态流转与写操作回禅道原生界面完成），工作台不改禅道。禅道 Bug 仍只读（点击行 → 详情弹窗）。本地项可交互（圆点勾选完成、点标题编辑、悬停出删除二次确认、附件指示）。新建按钮创建本地待办（禅道任务只能流转状态、不能新建）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `ZentaoInbox.vue` / `LocalTaskPanel.vue` 已并入此组件并移除。
+- **卡边色 / 聚焦辉光 = 风险预测等级**（逾期 / 临期 / 停滞 / 正常）；卡堆顺序 = 推荐处理序（风险严重度 → 优先级 → 截止日），非朴素列表序；默认聚焦 = 小吴挑的「此刻最该清的」（首条逾期，否则队首）。
+- **主角卡动作 = 真实能力：** 禅道任务 / Bug → 只读详情弹窗（`TaskDetailModal` / `BugDetailModal`，底部仅「在禅道中打开」）；本地项 → 编辑 / 完成；全部 → 「交给小吴」（`chat.show()` + `chat.send()`）；顶栏「+ 新建」创建本地待办。
+- **交互：** 滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点顶部圆点 翻动队列；标题可点直接看详情。承担原 `UnifiedInbox` 的数据拉取触发 + 详情 / 编辑弹窗宿主。
+
+禅道是只读来源（开始 / 完成 / 记录工时等状态流转回禅道原生界面完成，工作台不改禅道）；本地项可交互（勾选完成、编辑、删除二次确认、附件）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `UnifiedInbox.vue` / `ZentaoInbox.vue` / `LocalTaskPanel.vue` 均已移除。
 
 ### Git 仓库信息模块（`src/features/git/`，自包含特性模块）
 
@@ -242,7 +241,7 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 **仪表盘功能：** 概览（**仓库健康判断可点交给小吴** + 统计 + 色彩 legend + 最近提交 + 分支快照 + 远端 + 回滚 Reset）/ 分支（搜索 + 创建 + 删除 + 切换 + 合并 + 检出远端）/ 提交（日志 + diff + **revert/cherry-pick** + `--grep` 搜索 + **reflog 操作历史**）/ 变更（复选框暂存/取消暂存/**放弃修改**/**blame** + 批量操作 + **conventional 前缀 + 多行 + 复用上条** 的 commit 栏）/ 标签（**创建 / 编辑面板**：annotated/轻量显式选择 + 指向 commit 的下拉选择器 + 多行发版说明 + 实时查重/合法性校验；编辑通过本地重建 tag 实现，编辑前读取完整附注说明，已推送 tag 默认可勾选“保存后同步更新远端”；**搜索 + 日期/语义化排序**，版本排序时自动按主版本号折叠分组（v1.x / v2.x，组可折叠）；点行展开详情：metadata + **自上一 tag 以来的提交** + 操作栏（**复制检出命令** / **删远端 tag**）；**单 tag 推送 / 检出 / 编辑 / 删除 / 更新远端**；每条带 `onRemote` 同步状态、`remoteOutdated` 待更新徽标 + latest 徽标；**「让小吴写发版说明」**带提交列表交给 LLM；**推送全部**只推远端缺失的 tag，不覆盖远端已有 tag） / Stash（创建/删除/推送标签 + stash 暂存/恢复/弹出/丢弃；远端已移至概览）。所有危险操作（删除分支/标签/丢弃 stash/**放弃修改/hard reset**）通过统一确认栏二次确认；**Pull/Push 确认前预览**即将进/出的 commit 列表；**切换分支警告工作区脏、删除分支警告未合并**。
 
-**AI 接入（ambient，对齐 UnifiedInbox 范式）：** LLM 已配置（`useChatStore().configured`）时——仓库健康判断整块可点 + 「让小吴排一下」、冲突态顶部条出「让小吴帮我理冲突」、每个 diff 盒底部出「让小吴解释这段 diff」，均带上下文 `chat.show()` + `chat.send()`；未配置时不渲染入口（不破坏纯展示体验）。
+**AI 接入（ambient，对齐首页收件箱范式）：** LLM 已配置（`useChatStore().configured`）时——仓库健康判断整块可点 + 「让小吴排一下」、冲突态顶部条出「让小吴帮我理冲突」、每个 diff 盒底部出「让小吴解释这段 diff」，均带上下文 `chat.show()` + `chat.send()`；未配置时不渲染入口（不破坏纯展示体验）。
 
 **无障碍：** 弹窗有焦点 trap（打开聚焦首元素、Tab 闭环、关闭还焦）、Escape 分级关闭（More → 确认 → 弹窗）、遮罩点击智能关闭（浮层开着只关浮层）；`prefers-reduced-motion` 覆盖流光 / sheen / spin / 全部 transition。
 

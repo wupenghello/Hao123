@@ -1,7 +1,7 @@
 /**
  * Chat 助手 · 行动流提示词
  *
- * 这些 prompt 用在首页的主动 AI 入口：风险徽标、状态条、洞察卡。
+ * 这些 prompt 用在首页的主动 AI 入口：今日编排、洞察卡。
  * 目标不是「打开聊天随便问一句」，而是让小吴进入接手模式：
  * 先解释优先级，再给今天的处理方案，最后明确列出可继续执行的动作。
  */
@@ -78,18 +78,6 @@ function takeoverRules(extra = ''): string {
   ]
     .filter(Boolean)
     .join('\n')
-}
-
-export function buildInboxItemActionFlowPrompt(item: ActionFlowItem): string {
-  return [
-    '我点了收件箱里的一条风险工作项，请你直接接手。',
-    '',
-    '# 工作项上下文',
-    linesOfItem(item),
-    '',
-    '# 接手要求',
-    takeoverRules('如果它是禅道项，可以先查看详情；如果它是本地待办，围绕完成路径和跟进拆解来处理。'),
-  ].join('\n')
 }
 
 export function buildInboxPlanActionFlowPrompt(summary: ActionFlowSummary, items: ActionFlowItem[]): string {

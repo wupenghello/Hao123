@@ -3,7 +3,6 @@ import { notify } from '@/features/feedback/store'
 
 const APP_KEY_PREFIX = 'hao123-'
 const CHAT_HISTORY_KEY = 'hao123-chat-history'
-const INSIGHT_KEY = 'hao123-inbox-insight'
 const CHAT_PANEL_SIZE_KEY = 'hao123-chat-panel-size'
 
 const ASSUMED_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024
@@ -138,16 +137,6 @@ function safeJsonParse<T>(raw: string | null): T | null {
   }
 }
 
-function cacheGeneratedAt(key: string): number {
-  const data = safeJsonParse<{ generatedAt?: number; date?: string }>(localStorage.getItem(key))
-  if (typeof data?.generatedAt === 'number') return data.generatedAt
-  if (data?.date) {
-    const ts = new Date(data.date).getTime()
-    if (Number.isFinite(ts)) return ts
-  }
-  return 0
-}
-
 function compactChatHistoryValue(raw: string, targetBytes: number): { value: string; freedBytes: number; changed: boolean } {
   const parsed = safeJsonParse<StoredChatMessage[]>(raw)
   if (!Array.isArray(parsed)) return { value: raw, freedBytes: 0, changed: false }
@@ -230,7 +219,6 @@ function cleanupLocalStorageCaches(targetBytes = ASSUMED_LOCAL_STORAGE_QUOTA_BYT
   if (usage.bytes <= targetBytes) return result
 
   const removableCaches = [
-    { key: INSIGHT_KEY, label: '清理收件箱洞察缓存', at: cacheGeneratedAt(INSIGHT_KEY) },
     { key: CHAT_PANEL_SIZE_KEY, label: '清理聊天面板尺寸缓存', at: 0 },
   ]
     .filter((item) => localStorage.getItem(item.key) !== null)

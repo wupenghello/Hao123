@@ -82,7 +82,7 @@ export type InsightKind = 'root-cause' | 'bug-concentration' | 'overdue-cluster'
 
 /**
  * 一条深度洞察。检测是确定性的（可靠、即时、不烧 token），`title` / `detail` 即可直接展示；
- * LLM 可把 `detail` 加工成更自然的提醒 + 具体建议（见 chat/inbox-insight.ts）。
+ * `detail` 为展开素材（相关工作项），可直接展示或交给小吴展开。
  */
 export interface Insight {
   kind: InsightKind

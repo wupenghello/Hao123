@@ -9,7 +9,6 @@
  *  - stalled-key：高优（pri ≤ 2）却停滞。
  *
  * 确定性、即时：检测命中才有洞察，未命中不渲染（克制红线），也不产生任何 LLM 调用。
- * LLM 只在「已命中 + 已配置」时把 detail 加工成自然提醒（见 chat/inbox-insight.ts）。
  */
 import type { WorkItem, Prediction, Insight, InsightKind } from './types'
 

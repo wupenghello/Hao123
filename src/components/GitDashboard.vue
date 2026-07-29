@@ -505,7 +505,7 @@ const TAG_GROUP_COLORS = [
   { bg: 'rgba(244,63,94,0.10)', border: 'rgba(244,63,94,0.22)', text: 'rgb(251,113,133)' },
 ]
 
-/** 按分组名 hash 取稳定配色（对齐 UnifiedInbox threadColor 范式） */
+/** 按分组名 hash 取稳定配色（对齐收件箱需求线配色范式） */
 function groupColor(key: string) {
   let h = 0
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
