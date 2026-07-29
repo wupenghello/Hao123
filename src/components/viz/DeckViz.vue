@@ -125,7 +125,7 @@ const nodes = computed<VizNode[]>(() => {
       i,
       kind: it.kind,
       cls: cur ? 'tl cur' : 'tl',
-      style: `--tc:${colorOf(it.kind)};transform:translate(-50%,-50%) translateX(${x.toFixed(0)}px) translateY(166px) translateZ(${z.toFixed(0)}px) rotateY(${ry.toFixed(1)}deg)${cur ? ' scale(1.18) translateY(-8px)' : ''};opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${70 - Math.abs(p) * 2}`,
+      style: `--tc:${colorOf(it.kind)};transform:translate(-50%,-50%) translateX(${x.toFixed(0)}px) translateY(250px) translateZ(${z.toFixed(0)}px) rotateY(${ry.toFixed(1)}deg)${cur ? ' scale(1.18) translateY(-10px)' : ''};opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${70 - Math.abs(p) * 2}`,
     }
   })
 })
