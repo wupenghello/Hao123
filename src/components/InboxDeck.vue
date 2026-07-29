@@ -10,12 +10,14 @@
  *
  * 环绕 HUD（方案 B，取代原左数据柱 + 顶部圆点 chip）：计数不独立占栏，全部收拢到舞台——
  *   顶部大总数 + 风险概况 / 三颗来源「卫星」（数量 count-up + 风险构成迷你条）/
- *   外圈刻度环（一项一格可点跳卡、亮弧 = 进度、光点 = 当前位置）/ 右下位置读数。
- * 交互：滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点圆环刻度 翻动队列；标题可点直接看详情。
+ *   右下位置读数 / 全息底座刻度盘（与卡堆同处 3D 空间、独立倾斜垫在卡堆之下；
+ *   一项一格可点跳卡、亮弧 = 进度、光点 = 当前位置）。
+ * 交互：滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点底座刻度 翻动队列；标题可点直接看详情。
  * 本组件承担原 UnifiedInbox 的数据拉取触发 + 详情弹窗宿主，避免换视图丢能力。
  */
 import { computed, ref, watch, onMounted, onBeforeUnmount, type CSSProperties } from 'vue'
 import { useCountUp } from '@/composables/useCountUp'
+import { useDeckTheme } from '@/composables/useDeckTheme'
 import { useInboxInsights } from '@/features/insights'
 import type { WorkItem } from '@/features/insights'
 import { useChatStore } from '@/features/chat'
@@ -23,6 +25,7 @@ import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/fe
 import { useLocalTaskStore } from '@/features/local-tasks'
 import type { LocalTask, LocalTaskFormPayload } from '@/features/local-tasks'
 import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormModal.vue'
+import DeckViz from '@/components/viz/DeckViz.vue'
 
 type RiskKey = 'overdue' | 'due-soon' | 'stalled' | 'ok'
 const RISK: Record<RiskKey, { c: string; t: string }> = {
@@ -105,7 +108,10 @@ const deck = computed<DeckItem[]>(() => {
 
 const N = computed(() => deck.value.length)
 
-// ============ 环绕 HUD：大总数 / 风险概况 / 来源卫星 / 队列刻度环（全部由 deck 派生，与卡堆天然同步） ============
+// 队列可视化主题（f/g/h/i/j），由状态栏的 <DeckThemeSwitch> 切换，默认「j 弧面副卡」
+const { current: theme } = useDeckTheme()
+
+// ============ 环绕 HUD：大总数 / 风险概况 / 来源卫星（全部由 deck 派生，与卡堆天然同步） ============
 const SOURCE_META = [
   { key: 'task' as const, label: '指派任务', color: 'var(--color-alive)' },
   { key: 'bug' as const, label: '待修 Bug', color: 'var(--color-danger)' },
@@ -135,23 +141,6 @@ const hasRiskItems = computed(
   () => riskSummary.value.overdue + riskSummary.value['due-soon'] + riskSummary.value.stalled > 0,
 )
 
-// 刻度环几何：viewBox 760、r=330 的圆，一项一格，正上方起顺时针排
-const RING_C = 380
-const RING_R = 330
-function ringPoint(frac: number, r = RING_R) {
-  const a = frac * 2 * Math.PI - Math.PI / 2
-  return { x: +(RING_C + r * Math.cos(a)).toFixed(1), y: +(RING_C + r * Math.sin(a)).toFixed(1) }
-}
-const ringTicks = computed(() =>
-  deck.value.map((it, i) => {
-    const from = ringPoint(i / N.value, RING_R - 10)
-    const to = ringPoint(i / N.value, RING_R + 10)
-    return { key: it.key, i, x1: from.x, y1: from.y, x2: to.x, y2: to.y, past: i < active.value, cur: i === active.value }
-  }),
-)
-/** 进度弧百分比（pathLength=100 规约，dashoffset 过渡动画）+ 光点 = 弧末端 */
-const ringProgress = computed(() => (N.value ? ((active.value + 1) / N.value) * 100 : 0))
-const ringMarker = computed(() => ringPoint(N.value ? (active.value + 1) / N.value : 0))
 const active = ref(0)
 const interacted = ref(false)
 const sceneRef = ref<HTMLElement | null>(null)
@@ -359,6 +348,8 @@ onBeforeUnmount(() => {
   <div v-if="N" class="deck-root">
     <!-- 3D 舞台（.deck-drag 为拖拽跟手层：只承担跟手位移，与内层 drift 动画的 transform 互不占用） -->
     <div ref="sceneRef" class="deck-scene" :class="{ dragging }" @pointerdown="onDown">
+      <!-- 队列可视化：5 种真 3D 结构（轨道光珠 / 螺旋天梯 / 纵深回廊 / 全息晶柱 / 弧面副卡），按主题切换 -->
+      <DeckViz :items="deck" :active="active" :theme="theme" @jump="setActive" />
       <div class="deck-drag" :style="dragStyle">
       <div class="deck-stack">
         <div
@@ -406,26 +397,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 队列刻度环：一项一格（可点跳卡）· 亮弧 = 已翻过 · 光点 = 当前位置。
-         层级在舞台之上（刻度可点），但 pointer-events 只放给刻度线，其余区域穿透给拖拽 / 滚轮 -->
-    <svg class="deck-ring" viewBox="0 0 760 760" role="group" aria-label="队列导航">
-      <circle class="rg-base" cx="380" cy="380" r="330" />
-      <circle
-        class="rg-prog" cx="380" cy="380" r="330" pathLength="100"
-        transform="rotate(-90 380 380)" :style="{ '--p': ringProgress }"
-      />
-      <line
-        v-for="t in ringTicks"
-        :key="t.key"
-        class="rg-tick"
-        :class="{ past: t.past, cur: t.cur }"
-        :x1="t.x1" :y1="t.y1" :x2="t.x2" :y2="t.y2"
-        @click="setActive(t.i)"
-      />
-      <circle class="rg-mk-h" :cx="ringMarker.x" :cy="ringMarker.y" r="9" />
-      <circle class="rg-mk" :cx="ringMarker.x" :cy="ringMarker.y" r="4.5" />
-    </svg>
-
     <!-- 大总数 + 风险概况 -->
     <div class="deck-total">
       <b>{{ N }}</b>
@@ -437,9 +408,8 @@ onBeforeUnmount(() => {
     </div>
     <button type="button" class="deck-add" title="新建本地待办" @click="openCreate">+ 新建</button>
 
-    <!-- 三颗来源卫星（数量 count-up + 风险构成迷你条）+ 连接细线 -->
+    <!-- 三颗来源卫星（数量 count-up + 风险构成迷你条） -->
     <div class="deck-sats">
-      <i class="tether t1" /><i class="tether t2" /><i class="tether t3" />
       <div
         v-for="(s, i) in satellites"
         :key="s.key"
@@ -465,7 +435,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="deck-hint" :class="{ gone: interacted }">
-      滚轮 / 拖拽 / ↑↓ 翻动 · 点圆环刻度跳卡 · 点标题看详情 · <b>FOCUS</b> 卡可操作
+      滚轮 / 拖拽 / ↑↓ 翻动 · 点标题看详情 · <b>FOCUS</b> 卡可操作
     </div>
   </div>
 
@@ -627,32 +597,6 @@ onBeforeUnmount(() => {
 .c3.is-active .only-active { display: block; }
 
 /* ============ 环绕 HUD（方案 B） ============ */
-/* 刻度环：层级在舞台（z1）之上让刻度可点；pointer-events 只放给刻度线，其余穿透 */
-.deck-ring {
-  position: absolute; left: 50%; top: 50%; z-index: 2;
-  height: min(94%, 730px); aspect-ratio: 1 / 1;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-.deck-ring circle, .deck-ring line { fill: none; }
-.rg-base { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1.5; }
-.rg-prog {
-  stroke: var(--color-accent); stroke-width: 3.5; stroke-linecap: round;
-  stroke-dasharray: 100 100; stroke-dashoffset: calc(100 - var(--p, 0));
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 70%, transparent));
-  transition: stroke-dashoffset 0.5s var(--ease-out-expo);
-}
-.rg-tick {
-  stroke: rgba(255, 255, 255, 0.22); stroke-width: 5; stroke-linecap: round;
-  cursor: pointer; pointer-events: stroke;
-  transition: stroke 0.25s, stroke-width 0.25s;
-}
-.rg-tick.past { stroke: color-mix(in srgb, var(--color-accent) 45%, transparent); }
-.rg-tick:hover { stroke: rgba(255, 255, 255, 0.55); }
-.rg-tick.cur { stroke: #fff; stroke-width: 7; filter: drop-shadow(0 0 5px var(--color-accent)); }
-.rg-mk { fill: #fff; filter: drop-shadow(0 0 8px var(--color-accent)); transition: cx 0.5s var(--ease-out-expo), cy 0.5s var(--ease-out-expo); }
-.rg-mk-h { stroke: color-mix(in srgb, var(--color-accent) 60%, transparent); stroke-width: 1.5; transition: cx 0.5s var(--ease-out-expo), cy 0.5s var(--ease-out-expo); }
-
 /* 大总数 + 风险概况 */
 .deck-total {
   position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 5;
@@ -704,15 +648,6 @@ onBeforeUnmount(() => {
 .sat.s2 { right: 5%; top: 23%; }
 .sat.s3 { left: 9%; bottom: 12%; }
 
-/* 卫星 → 舞台 连接细线 */
-.tether {
-  position: absolute; z-index: 1; height: 1px; width: 140px; pointer-events: none;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), transparent);
-}
-.tether.t1 { left: 15.5%; top: 30%; transform: rotate(15deg); }
-.tether.t2 { right: 15.5%; top: 32%; transform: rotate(165deg); }
-.tether.t3 { left: 19%; bottom: 21%; transform: rotate(-14deg); }
-
 /* 当前位置读数 */
 .deck-pos { position: absolute; right: 9%; bottom: 14%; z-index: 5; text-align: center; pointer-events: none; }
 .deck-pos span { display: block; font: 500 9.5px var(--font-mono); letter-spacing: 0.22em; color: var(--color-ink-3); }
@@ -750,7 +685,6 @@ onBeforeUnmount(() => {
 
 /* 窄屏：卫星收拢为底部横排、细线隐藏、位置 / 新建贴角，避免绝对定位互相压盖 */
 @media (max-width: 1100px) {
-  .tether { display: none; }
   .deck-sats { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5; display: flex; gap: 10px; }
   .sat { position: static; min-width: 0; }
   .deck-pos { right: 16px; bottom: 12px; }
@@ -761,6 +695,6 @@ onBeforeUnmount(() => {
   .deck-stack { animation: none; }
   .c3 { transition: opacity 0.2s; }
   .c3 .ai .h .d { animation: none; }
-  .rg-prog, .rg-tick, .rg-mk, .rg-mk-h, .sat { transition: none; }
+  .hh-prog, .hh-tick, .hh-mk, .hh-mk-h, .sat { transition: none; }
 }
 </style>

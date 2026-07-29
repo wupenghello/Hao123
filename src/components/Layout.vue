@@ -3,6 +3,7 @@ import { onMounted, onUnmounted } from 'vue'
 import StatusBar from '@/components/status/StatusBar.vue'
 import StatusNav from '@/components/status/StatusNav.vue'
 import StatusTime from '@/components/status/StatusTime.vue'
+import DeckThemeSwitch from '@/components/status/DeckThemeSwitch.vue'
 import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
@@ -33,6 +34,7 @@ onUnmounted(() => stopStorageHealthMonitor())
         <StatusNav />
       </template>
       <template #right>
+        <DeckThemeSwitch />
         <WeatherWidget />
         <StatusTime />
       </template>
