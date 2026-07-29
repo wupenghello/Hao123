@@ -111,6 +111,9 @@ const N = computed(() => deck.value.length)
 // 队列可视化主题（f/g/h/i/j），由状态栏的 <DeckThemeSwitch> 切换，默认「j 弧面副卡」
 const { current: theme } = useDeckTheme()
 
+// 传给 DeckViz 的归一化工作项（含标题，供 J 弧面副卡显示序号 + 标题）
+const vizItems = computed(() => deck.value.map((d) => ({ kind: d.kind, title: d.title })))
+
 // ============ 环绕 HUD：大总数 / 风险概况 / 来源卫星（全部由 deck 派生，与卡堆天然同步） ============
 const SOURCE_META = [
   { key: 'task' as const, label: '指派任务', color: 'var(--color-alive)' },
@@ -349,7 +352,7 @@ onBeforeUnmount(() => {
     <!-- 3D 舞台（.deck-drag 为拖拽跟手层：只承担跟手位移，与内层 drift 动画的 transform 互不占用） -->
     <div ref="sceneRef" class="deck-scene" :class="{ dragging }" @pointerdown="onDown">
       <!-- 队列可视化：5 种真 3D 结构（轨道光珠 / 螺旋天梯 / 纵深回廊 / 全息晶柱 / 弧面副卡），按主题切换 -->
-      <DeckViz :items="deck" :active="active" :theme="theme" @jump="setActive" />
+      <DeckViz :items="vizItems" :active="active" :theme="theme" @jump="setActive" />
       <div class="deck-drag" :style="dragStyle">
       <div class="deck-stack">
         <div

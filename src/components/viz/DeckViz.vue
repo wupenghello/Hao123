@@ -15,7 +15,7 @@ import type { WorkItem } from '@/features/insights'
 import type { DeckThemeId } from '@/composables/useDeckTheme'
 
 interface Props {
-  items: { kind: WorkItem['kind'] }[]
+  items: { kind: WorkItem['kind']; title: string }[]
   active: number
   theme: DeckThemeId
 }
@@ -32,6 +32,7 @@ const colorOf = (kind: WorkItem['kind']) => KIND_COLOR[kind]
 interface VizNode {
   i: number
   kind: WorkItem['kind']
+  title: string
   style: string
   cls: string
   h?: number
@@ -55,6 +56,7 @@ const nodes = computed<VizNode[]>(() => {
       return {
         i,
         kind: it.kind,
+        title: it.title,
         cls: cur ? 'bd cur' : i < active ? 'bd past' : 'bd',
         style: `--bc:${colorOf(it.kind)};transform:rotateZ(${a.toFixed(1)}deg) translateX(360px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
       }
@@ -73,6 +75,7 @@ const nodes = computed<VizNode[]>(() => {
       return {
         i,
         kind: it.kind,
+        title: it.title,
         cls: cur ? 'bd cur' : i < active ? 'bd past' : 'bd',
         style: `--bc:${colorOf(it.kind)};transform:rotateY(${deg}deg) translateZ(360px) translateY(${y}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
       }
@@ -90,6 +93,7 @@ const nodes = computed<VizNode[]>(() => {
       return {
         i,
         kind: it.kind,
+        title: it.title,
         cls: i === 0 ? 'fr cur' : 'fr',
         style: `--fc:${colorOf(it.kind)};width:${w}px;transform:translate(-50%,-50%) translateY(${(-i * 30)}px) translateZ(${(-i * 150)}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${50 - i}`,
       }
@@ -104,6 +108,7 @@ const nodes = computed<VizNode[]>(() => {
       return {
         i,
         kind: it.kind,
+        title: it.title,
         cls: i === active ? 'pw cur' : 'pw',
         h,
         style: `--pc:${colorOf(it.kind)};transform:rotateY(${a.toFixed(1)}deg) translateZ(300px)`,
@@ -128,6 +133,7 @@ const nodes = computed<VizNode[]>(() => {
     return {
       i,
       kind: it.kind,
+      title: it.title,
       cls: cur ? 'tl cur' : 'tl',
       style: `--tc:${colorOf(it.kind)};transform:translate(-50%,-50%) translateX(${x.toFixed(0)}px) translateY(250px) translateZ(${z.toFixed(0)}px) rotateY(${ry.toFixed(1)}deg)${cur ? ' scale(1.18) translateY(-10px)' : ''};opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${70 - Math.abs(p) * 2}`,
     }
@@ -213,7 +219,8 @@ const onJump = (i: number) => emit('jump', i)
         @pointerdown="onNodePointerDown"
         @click="onJump(node.i)"
       >
-        <span>#{{ String(node.i + 1).padStart(2, '0') }}</span>
+        <span class="n">#{{ String(node.i + 1).padStart(2, '0') }}</span>
+        <span class="t" :title="node.title">{{ node.title }}</span>
       </div>
     </div>
   </div>
@@ -393,28 +400,46 @@ const onJump = (i: number) => emit('jump', i)
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 78px;
-  height: 100px;
+  width: 104px;
+  height: 70px;
   border-radius: 11px;
   pointer-events: auto;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 9px 7px 11px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--tc) 50%, var(--color-line));
   border-left: 3px solid var(--tc);
   background: linear-gradient(165deg, color-mix(in srgb, var(--tc) 12%, #131a28), #0c1220);
   box-shadow: 0 16px 34px -16px rgba(0, 8, 16, 0.8), 0 0 20px -8px color-mix(in srgb, var(--tc) 45%, transparent);
   transition: transform 0.5s var(--ease-out-expo), opacity 0.4s;
 }
-.tl span {
-  position: absolute;
-  left: 9px;
-  top: 8px;
-  font: 700 9.5px/1 var(--font-mono);
-  color: color-mix(in srgb, var(--tc) 85%, #fff);
+.tl .n {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--tc) 88%, #fff);
+}
+.tl .t {
+  font: 500 9.5px/1.25 var(--font-sans);
+  color: var(--color-ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
 }
 .tl.cur {
   border-color: color-mix(in srgb, var(--tc) 90%, transparent);
   background: linear-gradient(165deg, color-mix(in srgb, var(--tc) 26%, #131a28), #0c1220);
   box-shadow: 0 20px 44px -14px rgba(0, 8, 16, 0.9), 0 0 36px -4px color-mix(in srgb, var(--tc) 70%, transparent);
+}
+.tl.cur .n {
+  color: #fff;
+}
+.tl.cur .t {
+  color: var(--color-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {
