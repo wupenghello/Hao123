@@ -8,8 +8,7 @@ import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
-import { ChatCommandPalette, useChatHotkeys } from '@/features/chat'
-import { CompanionPet } from '@/features/companion'
+import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
 import {
   startStorageHealthMonitor,
   stopStorageHealthMonitor,
@@ -46,9 +45,8 @@ onUnmounted(() => stopStorageHealthMonitor())
       <WelcomePage />
     </main>
 
-
-    <!-- 助手入口：常驻卡通伙伴（小吴桌宠，Live2D 渲染，默认右下角） -->
-    <CompanionPet />
+    <!-- 助手入口：固定左下角小药丸（position:fixed，视口定位） -->
+    <ChatLauncher />
 
     <!-- 全局命令面板（Spotlight 式，Teleport 到 body，Alt+K 召唤） -->
     <ChatCommandPalette />

@@ -5,7 +5,7 @@
  * {@link WorkItem}，跑预测引擎，对外暴露：
  *  - `predictions`：以 `${kind}-${id}` 为 key 的预测表（与首页 InboxDeck 的卡片 key 同口径，
  *    供行内查表渲染风险徽标）；
- *  - `summary`：列表级汇总（风险计数 + headline，喂给桌宠 mood / 问候）。
+ *  - `summary`：列表级汇总（风险计数 + headline，供首页欢迎区 / 风险概况复用）。
  *
  * 与 dashboard-context 的区别：dashboard-context 是「喂给 LLM 的中文快照」（文本），
  * 这里是「喂给 UI 的结构化预测」（对象），互不替代。
