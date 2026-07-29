@@ -477,7 +477,7 @@ onBeforeUnmount(() => {
   cursor: grab;
   /* 整体上移 + 随视口缩放：大屏不至于过小、小屏不至于拥挤 */
   --deck-scale: clamp(0.62, 0.58 + 100vh * 0.00038, 1);
-  --deck-lift: clamp(7vh, 11vh, 84px);
+  --deck-lift: clamp(11vh, 16vh, 120px);
 }
 .deck-scene.dragging,
 .deck-scene.dragging * { cursor: grabbing; }
