@@ -603,7 +603,7 @@ onBeforeUnmount(() => {
 /* ============ 环绕 HUD（方案 B） ============ */
 /* 大总数 + 风险概况 */
 .deck-total {
-  position: absolute; top: 6px; left: 50%; transform: translateX(-50%) translateY(calc(-1 * var(--deck-lift, 0px))); z-index: 5;
+  position: absolute; top: -42px; left: 50%; transform: translateX(-50%) translateY(calc(-1 * var(--deck-lift, 0px))); z-index: 5;
   display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 13px;
   pointer-events: none; text-align: left;
 }
