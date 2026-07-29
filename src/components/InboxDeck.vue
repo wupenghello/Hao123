@@ -8,10 +8,14 @@
  *   - 默认聚焦 = 小吴挑的「此刻最该清的」（首条逾期，否则队首）——停在哪也是数据定的；
  *   - 主角卡上的动作 = 真实能力：禅道/Bug → 查看详情弹窗；本地 → 编辑/完成；全部 → 交给小吴。
  *
- * 交互：滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点顶部圆点 翻动队列；标题可点直接看详情。
+ * 环绕 HUD（方案 B，取代原左数据柱 + 顶部圆点 chip）：计数不独立占栏，全部收拢到舞台——
+ *   顶部大总数 + 风险概况 / 三颗来源「卫星」（数量 count-up + 风险构成迷你条）/
+ *   外圈刻度环（一项一格可点跳卡、亮弧 = 进度、光点 = 当前位置）/ 右下位置读数。
+ * 交互：滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点圆环刻度 翻动队列；标题可点直接看详情。
  * 本组件承担原 UnifiedInbox 的数据拉取触发 + 详情弹窗宿主，避免换视图丢能力。
  */
 import { computed, ref, watch, onMounted, onBeforeUnmount, type CSSProperties } from 'vue'
+import { useCountUp } from '@/composables/useCountUp'
 import { useInboxInsights } from '@/features/insights'
 import type { WorkItem } from '@/features/insights'
 import { useChatStore } from '@/features/chat'
@@ -100,6 +104,54 @@ const deck = computed<DeckItem[]>(() => {
 })
 
 const N = computed(() => deck.value.length)
+
+// ============ 环绕 HUD：大总数 / 风险概况 / 来源卫星 / 队列刻度环（全部由 deck 派生，与卡堆天然同步） ============
+const SOURCE_META = [
+  { key: 'task' as const, label: '指派任务', color: 'var(--color-alive)' },
+  { key: 'bug' as const, label: '待修 Bug', color: 'var(--color-danger)' },
+  { key: 'local' as const, label: '本地待办', color: 'var(--color-accent)' },
+]
+/** 每个来源一颗「卫星」：总数 + 风险构成（逾期 / 临期 / 停滞 / 正常）迷你条 */
+const satellites = computed(() =>
+  SOURCE_META.map((m) => {
+    const items = deck.value.filter((it) => it.kind === m.key)
+    const seg: Record<RiskKey, number> = { overdue: 0, 'due-soon': 0, stalled: 0, ok: 0 }
+    for (const it of items) seg[it.risk]++
+    return { ...m, total: items.length, seg }
+  }),
+)
+/** 卫星数字滚动（沿用旧左数据柱的 count-up 语言） */
+const satCountUp = {
+  task: useCountUp(() => deck.value.filter((it) => it.kind === 'task').length),
+  bug: useCountUp(() => deck.value.filter((it) => it.kind === 'bug').length),
+  local: useCountUp(() => deck.value.filter((it) => it.kind === 'local').length),
+}
+const riskSummary = computed(() => {
+  const r = { overdue: 0, 'due-soon': 0, stalled: 0 }
+  for (const it of deck.value) if (it.risk !== 'ok') r[it.risk]++
+  return r
+})
+const hasRiskItems = computed(
+  () => riskSummary.value.overdue + riskSummary.value['due-soon'] + riskSummary.value.stalled > 0,
+)
+
+// 刻度环几何：viewBox 760、r=330 的圆，一项一格，正上方起顺时针排
+const RING_C = 380
+const RING_R = 330
+function ringPoint(frac: number, r = RING_R) {
+  const a = frac * 2 * Math.PI - Math.PI / 2
+  return { x: +(RING_C + r * Math.cos(a)).toFixed(1), y: +(RING_C + r * Math.sin(a)).toFixed(1) }
+}
+const ringTicks = computed(() =>
+  deck.value.map((it, i) => {
+    const from = ringPoint(i / N.value, RING_R - 10)
+    const to = ringPoint(i / N.value, RING_R + 10)
+    return { key: it.key, i, x1: from.x, y1: from.y, x2: to.x, y2: to.y, past: i < active.value, cur: i === active.value }
+  }),
+)
+/** 进度弧百分比（pathLength=100 规约，dashoffset 过渡动画）+ 光点 = 弧末端 */
+const ringProgress = computed(() => (N.value ? ((active.value + 1) / N.value) * 100 : 0))
+const ringMarker = computed(() => ringPoint(N.value ? (active.value + 1) / N.value : 0))
 const active = ref(0)
 const interacted = ref(false)
 const sceneRef = ref<HTMLElement | null>(null)
@@ -305,24 +357,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="N" class="deck-root">
-    <!-- 顶部队列指示器：圆点可点跳 + 当前位置 + 推荐序 + 新建 -->
-    <div class="deck-chip">
-      <div class="dots">
-        <span
-          v-for="(it, i) in deck"
-          :key="it.key"
-          class="qd"
-          :class="{ on: i === active }"
-          :style="{ '--qc': it.kindColor }"
-          @click="setActive(i)"
-        />
-      </div>
-      <span class="sep" />
-      <span class="pos"><b>{{ String(active + 1).padStart(2, '0') }}</b> / {{ String(N).padStart(2, '0') }}</span>
-      <span class="sep" />
-      <button type="button" class="dk-add" title="新建本地待办" @click="openCreate">+ 新建</button>
-    </div>
-
     <!-- 3D 舞台（.deck-drag 为拖拽跟手层：只承担跟手位移，与内层 drift 动画的 transform 互不占用） -->
     <div ref="sceneRef" class="deck-scene" :class="{ dragging }" @pointerdown="onDown">
       <div class="deck-drag" :style="dragStyle">
@@ -372,8 +406,66 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- 队列刻度环：一项一格（可点跳卡）· 亮弧 = 已翻过 · 光点 = 当前位置。
+         层级在舞台之上（刻度可点），但 pointer-events 只放给刻度线，其余区域穿透给拖拽 / 滚轮 -->
+    <svg class="deck-ring" viewBox="0 0 760 760" role="group" aria-label="队列导航">
+      <circle class="rg-base" cx="380" cy="380" r="330" />
+      <circle
+        class="rg-prog" cx="380" cy="380" r="330" pathLength="100"
+        transform="rotate(-90 380 380)" :style="{ '--p': ringProgress }"
+      />
+      <line
+        v-for="t in ringTicks"
+        :key="t.key"
+        class="rg-tick"
+        :class="{ past: t.past, cur: t.cur }"
+        :x1="t.x1" :y1="t.y1" :x2="t.x2" :y2="t.y2"
+        @click="setActive(t.i)"
+      />
+      <circle class="rg-mk-h" :cx="ringMarker.x" :cy="ringMarker.y" r="9" />
+      <circle class="rg-mk" :cx="ringMarker.x" :cy="ringMarker.y" r="4.5" />
+    </svg>
+
+    <!-- 大总数 + 风险概况 -->
+    <div class="deck-total">
+      <b>{{ N }}</b>
+      <span>项在队列</span>
+      <em v-if="hasRiskItems">
+        <i class="c-danger">逾期 {{ riskSummary.overdue }}</i> · <i class="c-warn">临期 {{ riskSummary['due-soon'] }}</i> · <i class="c-steel">停滞 {{ riskSummary.stalled }}</i>
+      </em>
+      <em v-else class="c-alive">全部节奏正常</em>
+    </div>
+    <button type="button" class="deck-add" title="新建本地待办" @click="openCreate">+ 新建</button>
+
+    <!-- 三颗来源卫星（数量 count-up + 风险构成迷你条）+ 连接细线 -->
+    <div class="deck-sats">
+      <i class="tether t1" /><i class="tether t2" /><i class="tether t3" />
+      <div
+        v-for="(s, i) in satellites"
+        :key="s.key"
+        class="sat"
+        :class="`s${i + 1}`"
+        :style="{ '--c': s.color }"
+      >
+        <span class="lb"><i />{{ s.label }}</span>
+        <b>{{ satCountUp[s.key].value }}</b>
+        <span class="mini">
+          <i v-if="s.seg.overdue" :style="{ flex: s.seg.overdue, background: 'var(--color-danger)' }" />
+          <i v-if="s.seg['due-soon']" :style="{ flex: s.seg['due-soon'], background: 'var(--color-warning)' }" />
+          <i v-if="s.seg.stalled" :style="{ flex: s.seg.stalled, background: 'var(--color-steel)' }" />
+          <i v-if="s.seg.ok" class="ok" :style="{ flex: s.seg.ok }" />
+        </span>
+      </div>
+    </div>
+
+    <!-- 当前位置读数 -->
+    <div class="deck-pos">
+      <span>当前位置</span>
+      <b>{{ String(active + 1).padStart(2, '0') }}<i>/{{ String(N).padStart(2, '0') }}</i></b>
+    </div>
+
     <div class="deck-hint" :class="{ gone: interacted }">
-      滚轮 / 拖拽 / ↑↓ 翻动 · 点标题看详情 · <b>FOCUS</b> 卡可操作
+      滚轮 / 拖拽 / ↑↓ 翻动 · 点圆环刻度跳卡 · 点标题看详情 · <b>FOCUS</b> 卡可操作
     </div>
   </div>
 
@@ -406,6 +498,7 @@ onBeforeUnmount(() => {
 .deck-scene {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: grid;
   place-items: center;
   perspective: 1500px;
@@ -533,25 +626,101 @@ onBeforeUnmount(() => {
 .c3.is-active .tag { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 38%, transparent); background: color-mix(in srgb, var(--rc) 14%, transparent); }
 .c3.is-active .only-active { display: block; }
 
-.deck-chip {
-  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5;
-  display: flex; align-items: center; gap: 11px;
-  padding: 6px 8px 6px 13px; border-radius: 999px;
-  background: rgba(4, 8, 16, 0.42); border: 1px solid var(--color-line);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  font: 500 10px/1 var(--font-mono); letter-spacing: 0.04em; color: var(--color-ink-2);
+/* ============ 环绕 HUD（方案 B） ============ */
+/* 刻度环：层级在舞台（z1）之上让刻度可点；pointer-events 只放给刻度线，其余穿透 */
+.deck-ring {
+  position: absolute; left: 50%; top: 50%; z-index: 2;
+  height: min(94%, 730px); aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
-.deck-chip .dots { display: flex; gap: 5px; align-items: center; }
-.deck-chip .qd { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); cursor: pointer; transition: all 0.3s; }
-.deck-chip .qd.on { width: 20px; border-radius: 4px; background: var(--qc, var(--color-alive)); box-shadow: 0 0 9px var(--qc, var(--color-alive)); }
-.deck-chip .sep { width: 1px; height: 12px; background: var(--color-line); }
-.deck-chip .pos b { color: var(--color-alive); }
-.deck-chip .dk-add {
-  border: 0; cursor: pointer; font: 600 10px/1 var(--font-mono); letter-spacing: 0.04em;
-  color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  padding: 5px 9px; border-radius: 999px; transition: background 0.2s, color 0.2s;
+.deck-ring circle, .deck-ring line { fill: none; }
+.rg-base { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1.5; }
+.rg-prog {
+  stroke: var(--color-accent); stroke-width: 3.5; stroke-linecap: round;
+  stroke-dasharray: 100 100; stroke-dashoffset: calc(100 - var(--p, 0));
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 70%, transparent));
+  transition: stroke-dashoffset 0.5s var(--ease-out-expo);
 }
-.deck-chip .dk-add:hover { background: color-mix(in srgb, var(--color-accent) 22%, transparent); color: var(--color-accent-strong); }
+.rg-tick {
+  stroke: rgba(255, 255, 255, 0.22); stroke-width: 5; stroke-linecap: round;
+  cursor: pointer; pointer-events: stroke;
+  transition: stroke 0.25s, stroke-width 0.25s;
+}
+.rg-tick.past { stroke: color-mix(in srgb, var(--color-accent) 45%, transparent); }
+.rg-tick:hover { stroke: rgba(255, 255, 255, 0.55); }
+.rg-tick.cur { stroke: #fff; stroke-width: 7; filter: drop-shadow(0 0 5px var(--color-accent)); }
+.rg-mk { fill: #fff; filter: drop-shadow(0 0 8px var(--color-accent)); transition: cx 0.5s var(--ease-out-expo), cy 0.5s var(--ease-out-expo); }
+.rg-mk-h { stroke: color-mix(in srgb, var(--color-accent) 60%, transparent); stroke-width: 1.5; transition: cx 0.5s var(--ease-out-expo), cy 0.5s var(--ease-out-expo); }
+
+/* 大总数 + 风险概况 */
+.deck-total {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 13px;
+  pointer-events: none; text-align: left;
+}
+.deck-total b {
+  grid-row: 1 / 3;
+  font: 700 46px/1 var(--font-display); letter-spacing: -0.03em; color: var(--color-ink);
+  text-shadow: 0 0 30px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+.deck-total span { font: 500 11px var(--font-mono); letter-spacing: 0.18em; color: var(--color-ink-2); }
+.deck-total em { margin-top: 4px; font: 500 10.5px var(--font-mono); font-style: normal; color: var(--color-ink-3); white-space: nowrap; }
+.deck-total em i { font-style: normal; }
+.c-danger { color: var(--color-danger); }
+.c-warn { color: var(--color-warning); }
+.c-steel { color: var(--color-steel); }
+.c-alive { color: var(--color-alive); }
+
+/* 新建入口 */
+.deck-add {
+  position: absolute; top: 16px; right: 22%; z-index: 5;
+  padding: 8px 13px; border-radius: 999px; cursor: pointer;
+  font: 600 10.5px var(--font-mono); color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 36%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  transition: background 0.2s, color 0.2s;
+}
+.deck-add:hover { background: color-mix(in srgb, var(--color-accent) 20%, transparent); color: var(--color-accent-strong); }
+
+/* 来源卫星（窄屏改底部横排，见媒体查询） */
+.deck-sats { display: contents; }
+.sat {
+  position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 5px; min-width: 118px;
+  padding: 11px 14px 12px; border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--color-accent)) 34%, var(--color-line));
+  background: linear-gradient(160deg, rgba(20, 27, 41, 0.92), rgba(14, 20, 34, 0.92));
+  box-shadow: 0 14px 34px -16px rgba(0, 8, 16, 0.8), 0 0 22px -8px color-mix(in srgb, var(--c, var(--color-accent)) 45%, transparent);
+  transition: transform 0.3s var(--ease-out-expo), border-color 0.3s;
+}
+.sat:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--c, var(--color-accent)) 55%, var(--color-line)); }
+.sat .lb { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--color-ink-2); }
+.sat .lb i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 9px var(--c); }
+.sat b { font: 700 27px/1 var(--font-display); letter-spacing: -0.01em; color: var(--color-ink); }
+.sat .mini { display: flex; gap: 2px; height: 3px; border-radius: 2px; overflow: hidden; }
+.sat .mini i { border-radius: 2px; }
+.sat .mini i.ok { background: color-mix(in srgb, var(--c) 55%, transparent); }
+.sat.s1 { left: 5%; top: 19%; }
+.sat.s2 { right: 5%; top: 23%; }
+.sat.s3 { left: 9%; bottom: 12%; }
+
+/* 卫星 → 舞台 连接细线 */
+.tether {
+  position: absolute; z-index: 1; height: 1px; width: 140px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), transparent);
+}
+.tether.t1 { left: 15.5%; top: 30%; transform: rotate(15deg); }
+.tether.t2 { right: 15.5%; top: 32%; transform: rotate(165deg); }
+.tether.t3 { left: 19%; bottom: 21%; transform: rotate(-14deg); }
+
+/* 当前位置读数 */
+.deck-pos { position: absolute; right: 9%; bottom: 14%; z-index: 5; text-align: center; pointer-events: none; }
+.deck-pos span { display: block; font: 500 9.5px var(--font-mono); letter-spacing: 0.22em; color: var(--color-ink-3); }
+.deck-pos b {
+  font: 700 36px/1.1 var(--font-display); letter-spacing: -0.02em; color: var(--color-ink);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+.deck-pos b i { font-style: normal; font-size: 16px; color: var(--color-ink-3); margin-left: 2px; }
 
 .deck-hint {
   position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%); z-index: 5;
@@ -579,9 +748,19 @@ onBeforeUnmount(() => {
 
 @keyframes deck-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
+/* 窄屏：卫星收拢为底部横排、细线隐藏、位置 / 新建贴角，避免绝对定位互相压盖 */
+@media (max-width: 1100px) {
+  .tether { display: none; }
+  .deck-sats { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5; display: flex; gap: 10px; }
+  .sat { position: static; min-width: 0; }
+  .deck-pos { right: 16px; bottom: 12px; }
+  .deck-add { right: 16px; top: 8px; }
+  .deck-hint { bottom: 108px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .deck-stack { animation: none; }
   .c3 { transition: opacity 0.2s; }
   .c3 .ai .h .d { animation: none; }
+  .rg-prog, .rg-tick, .rg-mk, .rg-mk-h, .sat { transition: none; }
 }
 </style>

@@ -32,7 +32,7 @@ App.vue (router-view)
        │    ↑ 可用插槽：#left / #center / #right
        └─ <main> 主内容区：渲染 <WelcomePage />（工作台首页，主角是 3D 数据收件箱 <InboxDeck />）
 
-`WeatherWidget` 来自天气特性模块 `@/features/weather`；`InboxDeck` 是首页主角组件（3D 卡堆形式的统一收件箱，见下节）；外部只从各自 barrel 引入，不触达模块内部路径。
+`WeatherWidget` 来自天气特性模块 `@/features/weather`；`InboxDeck` 是首页级组件（聚合禅道指派项 + 本地待办为可翻动的 3D 卡堆，见下节）；外部只从各自 barrel 引入，不触达模块内部路径。
 ```
 
 ### 天气模块（`src/features/weather/`，自包含特性模块）
@@ -213,17 +213,16 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 所有 spawn 命令带超时 + SIGTERM→SIGKILL 两级终止；出站 fetch 带 timeout 防止挂起。
 
-### 首页（`src/components/WelcomePage.vue` + `src/components/InboxDeck.vue`）
+### 首页 3D 收件箱（`src/components/InboxDeck.vue`）
 
-首页是发光深色「指挥舱」构图：极简报头（问候 + 一句话情报 + 一句温度）／左数据柱（指派任务 / 待修 Bug / 本地待办，count-up）／中间 3D 数据收件箱（`InboxDeck`，绝对主角）／底部发光 `Dock`（合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。旧六卡 bento 全部移除，视觉零继承旧设计。
+首页主角：把「指派给我的禅道任务 / Bug」与「本地待办」归一化为工作项（`useInboxInsights`），渲染成浮在空间里、可翻动的 3D 玻璃卡堆（`InboxDeck`；原清单形态的 `UnifiedInbox.vue` 已被其取代并移除，连同其独占依赖链）。边色 / 聚焦辉光 = 风险预测等级，来源色 = 禅道任务绿 / Bug 红 / 本地蓝。首页为**单栏构图**（方案 B「环绕 HUD」，2026-07-29 起）：左数据柱已撤，计数与进度全部收拢为舞台的环绕 HUD。分层：
 
-**InboxDeck（3D 卡堆收件箱）：** 把「指派给我的禅道任务 / Bug」与「本地待办」归一化成浮在空间里、可翻动的 3D 玻璃卡堆（数据经 `useInboxInsights`）：
+- **主排序：** 风险严重度 → 优先级 → 截止日（推荐处理序，非朴素列表序）；默认聚焦首条逾期，否则队首——停在哪也是数据定的；循环滚动（到头回转）。
+- **卡片即操作面：** 聚焦卡（FOCUS）揭示风险 / 截止 / 状态 + 「小吴的判断」（`why` 可解释 + `action` 建议，来自 `useInboxInsights` 预测表）+ 真实操作（禅道 / Bug → 查看详情弹窗；本地 → 编辑 / 完成；全部 → 交给小吴 `chat.show()` + `chat.send(action)`）。
+- **环绕 HUD（方案 B）：** 顶部大总数 + 风险概况（逾期 / 临期 / 停滞计数）／三颗来源「卫星」（任务绿 / Bug 红 / 本地蓝，count-up 数字 + 该类风险构成迷你条）／外圈刻度环（一项一格、可点跳卡、亮弧 = 已翻过进度、光点 = 当前位置；进度弧用 `pathLength="100"` + dashoffset 过渡）／右下位置读数（03/24 式）。卫星与刻度全部从 `deck` 派生，与卡堆天然同步；窄屏（≤1100px）卫星收拢为底部横排。
+- **交互：** 滚轮 / 上下拖拽（45% 阻尼橡皮筋跟手）/ ↑↓·PageUp·Down / Home·End / 点侧卡 / 点圆环刻度 翻动队列；拖拽位移超阈值吞掉尾迹点击；点标题直接看详情。
 
-- **卡边色 / 聚焦辉光 = 风险预测等级**（逾期 / 临期 / 停滞 / 正常）；卡堆顺序 = 推荐处理序（风险严重度 → 优先级 → 截止日），非朴素列表序；默认聚焦 = 小吴挑的「此刻最该清的」（首条逾期，否则队首）。
-- **主角卡动作 = 真实能力：** 禅道任务 / Bug → 只读详情弹窗（`TaskDetailModal` / `BugDetailModal`，底部仅「在禅道中打开」）；本地项 → 编辑 / 完成；全部 → 「交给小吴」（`chat.show()` + `chat.send()`）；顶栏「+ 新建」创建本地待办。
-- **交互：** 滚轮 / 上下拖拽 / ↑↓ / Home·End / 点侧卡 / 点顶部圆点 翻动队列；标题可点直接看详情。承担原 `UnifiedInbox` 的数据拉取触发 + 详情 / 编辑弹窗宿主。
-
-禅道是只读来源（开始 / 完成 / 记录工时等状态流转回禅道原生界面完成，工作台不改禅道）；本地项可交互（勾选完成、编辑、删除二次确认、附件）。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。原 `UnifiedInbox.vue` / `ZentaoInbox.vue` / `LocalTaskPanel.vue` 均已移除。
+禅道任务为只读来源——详情弹窗仅查看，底部只有「在禅道中打开」（开始 / 完成 / 记录工时等状态流转与写操作回禅道原生界面完成），工作台不改禅道。禅道 Bug 仍只读（点标题 → 详情弹窗）。本地项在聚焦卡上可直接 编辑 / 完成；「+ 新建」创建本地待办（禅道任务只能流转状态、不能新建）。详情 / 编辑弹窗（TaskDetailModal / BugDetailModal / LocalTaskFormModal）由 InboxDeck 挂载。`WelcomePage` 的 `dailySummary` / `hasUrgentItems` 已聚合三类来源。
 
 ### Git 仓库信息模块（`src/features/git/`，自包含特性模块）
 

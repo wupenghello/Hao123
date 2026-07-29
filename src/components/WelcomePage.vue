@@ -2,11 +2,11 @@
 /**
  * 工作台首页 —— 发光深色「指挥舱」构图（全量重做，非旧 bento 修补）。
  *
- * 解剖（对齐批准的 3D 概念）：
- *   极简报头（问候 + 一句话情报 + 一句温度）／左数据柱（指派/Bug/本地，count-up）／
- *   中间 3D 数据收件箱（InboxDeck，绝对主角）／
+ * 解剖（方案 B「环绕 HUD」改版）：
+ *   极简报头（问候 + 一句话情报 + 一句温度）／
+ *   中间 3D 数据收件箱（InboxDeck，绝对主角——总数 / 来源计数 / 队列进度收拢为舞台环绕 HUD）／
  *   底部发光 dock（Dock，合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。
- * 旧六卡 bento / 顶 WbscfServicesCard / 左 NavRail 全部移除——视觉零继承旧设计。
+ * 旧六卡 bento / 顶 WbscfServicesCard / 左 NavRail / 左数据柱全部移除——视觉零继承旧设计。
  */
 import { computed, ref, onMounted } from 'vue'
 import { useWeatherStore } from '@/features/weather'
@@ -14,7 +14,6 @@ import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
 import { setLocalStorageItem } from '@/features/storage-health'
-import { useCountUp } from '@/composables/useCountUp'
 import InboxDeck from '@/components/InboxDeck.vue'
 import Dock from '@/components/Dock.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
@@ -67,18 +66,6 @@ const hasUrgentItems = computed(() =>
   localStore.open.some((t) => isUrgentLocalTask(t)),
 )
 
-// 左数据柱
-const signals = computed(() => [
-  { key: 'task' as const, label: '指派任务', tone: 'cyan' },
-  { key: 'bug' as const, label: '待修 Bug', tone: 'rose' },
-  { key: 'local' as const, label: '本地待办', tone: 'teal' },
-])
-const signalValue = {
-  task: useCountUp(() => taskStore.assignedCount),
-  bug: useCountUp(() => bugStore.assignedCount),
-  local: useCountUp(() => localStore.openCount),
-}
-
 // 首次访问引导
 const isFirstVisit = ref(false)
 const showOnboarding = ref(false)
@@ -105,15 +92,8 @@ function finishOnboarding() {
       <p class="ht-whisper">{{ whisper }}</p>
     </header>
 
-    <!-- 两栏：左数据柱 / 中 3D -->
+    <!-- 单栏：3D 舞台即主角，计数 / 进度收拢为舞台环绕 HUD（InboxDeck 内部承担） -->
     <div class="home-grid">
-      <aside class="home-left stagger">
-        <div v-for="(s, i) in signals" :key="s.key" class="lt" :data-tone="s.tone" :style="{ '--i': i }">
-          <span class="lt-v tnum">{{ signalValue[s.key].value }}</span>
-          <span class="lt-k">{{ s.label }}</span>
-        </div>
-      </aside>
-
       <section class="home-center">
         <InboxDeck />
       </section>
@@ -220,42 +200,11 @@ function finishOnboarding() {
   flex: 1 1 auto;
   min-height: 0; /* 允许在 flex 列里收缩到比内容矮，首屏才撑不出滚动条 */
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   /* 行高锁定为容器实高（min 0 可收缩）：两栏随视口伸缩，而非按内容反推页面高度 */
   grid-template-rows: minmax(0, 1fr);
   gap: 16px;
 }
-.home-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.lt {
-  position: relative;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 15px 16px;
-  border-radius: 15px;
-  border: 1px solid color-mix(in srgb, var(--tile-c, var(--color-accent)) 22%, var(--color-line));
-  background:
-    radial-gradient(120px 80px at 88% -10%, color-mix(in srgb, var(--tile-c, var(--color-accent)) 16%, transparent), transparent 70%),
-    linear-gradient(160deg, #141b29, #0e1422);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 16px 40px -22px rgba(0, 8, 16, 0.7);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  transition: transform 0.3s var(--ease-out-expo), border-color 0.3s, box-shadow 0.3s;
-}
-.lt:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--tile-c, var(--color-accent)) 46%, var(--color-line));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 22px 48px -20px rgba(0, 8, 16, 0.8), 0 0 26px -10px color-mix(in srgb, var(--tile-c, var(--color-accent)) 50%, transparent);
-}
-.lt[data-tone='cyan'] { --tile-c: var(--color-accent); }
-.lt[data-tone='rose'] { --tile-c: var(--color-danger); }
-.lt[data-tone='teal'] { --tile-c: var(--color-alive); }
-.lt-v {
-  font-family: var(--font-display);
-  font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
-  color: var(--color-ink);
-  text-shadow: 0 0 20px color-mix(in srgb, var(--tile-c, var(--color-accent)) 30%, transparent);
-}
-.lt-k { font-size: 11px; letter-spacing: 0.02em; color: var(--color-ink-2); }
-
 .home-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 
 /* 首次访问入口 */
@@ -276,8 +225,6 @@ function finishOnboarding() {
 @media (max-width: 980px) {
   .home { padding-bottom: 104px; overflow-y: auto; } /* 窄屏堆叠布局内容必超视口，退回容器内滚动 */
   .home-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; min-height: 100%; }
-  .home-left { flex-direction: row; }
-  .lt { flex: 1 1 0; }
   .home-center { min-height: 540px; overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) {
