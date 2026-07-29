@@ -130,28 +130,38 @@ function finishOnboarding() {
   overflow: hidden;
   color: var(--color-ink);
 }
-/* 单一柔光顶晕 + 极淡遮罩网格（取代旧逐卡纹理；克制、不抢 3D） */
+/* 静态底层：柔光顶晕 + 极淡遮罩网格（克制、不抢 3D，全程静态不被带晃） */
 .home::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
     radial-gradient(820px 360px at 50% -8%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 62%),
     radial-gradient(620px 420px at 86% 108%, color-mix(in srgb, var(--color-alive) 8%, transparent), transparent 60%);
+  background-size: 46px 46px, 46px 46px, auto, auto;
+  -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
+  mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
 }
+/* 呼吸光晕层：在静态底层之上缓慢漂移 + 亮度呼吸，给场景一个「活的大气」 */
 .home::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.5;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 46px 46px;
-  -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
-  mask-image: radial-gradient(circle at 50% 42%, black, transparent 76%);
+  z-index: 0;
+  background:
+    radial-gradient(760px 340px at 50% -6%, color-mix(in srgb, var(--color-accent) 4%, transparent), transparent 65%),
+    radial-gradient(560px 380px at 88% 110%, color-mix(in srgb, var(--color-alive) 3%, transparent), transparent 62%);
+  animation: home-breath 10s ease-in-out infinite;
+}
+@keyframes home-breath {
+  0%   { background-position: 50% -6%, 88% 110%; opacity: 0.82; }
+  35%  { background-position: 47% -3%, 91% 106%; opacity: 1; }
+  65%  { background-position: 53% -9%, 85% 112%; opacity: 0.9; }
+  100% { background-position: 50% -6%, 88% 110%; opacity: 0.82; }
 }
 
 /* 报头 */
@@ -229,6 +239,7 @@ function finishOnboarding() {
 }
 @media (prefers-reduced-motion: reduce) {
   .ht-urg { animation: none; }
+  .home::after { animation: none; }
   .lt, .home-onboard { transition: none; }
 }
 </style>

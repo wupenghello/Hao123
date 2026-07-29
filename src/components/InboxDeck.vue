@@ -497,11 +497,11 @@ onBeforeUnmount(() => {
   height: 480px;
   transform-style: preserve-3d;
   transform: rotateX(15deg) rotateY(-21deg) rotateZ(1.5deg);
-  animation: deck-drift 24s ease-in-out infinite alternate;
+  animation: deck-drift 12s ease-in-out infinite alternate;
 }
 @keyframes deck-drift {
-  from { transform: rotateX(15deg) rotateY(-21deg) rotateZ(1.5deg); }
-  to { transform: rotateX(12deg) rotateY(-15deg) rotateZ(-0.5deg); }
+  from { transform: rotateX(15deg) rotateY(-21deg) rotateZ(1.5deg) translateY(-8px); }
+  to { transform: rotateX(9deg) rotateY(-15deg) rotateZ(-2.5deg) translateY(8px); }
 }
 
 .c3 {
@@ -553,8 +553,21 @@ onBeforeUnmount(() => {
 .c3 .pri { font: 600 10px/1 var(--font-mono); color: var(--color-ink-2); }
 .c3 .focus {
   position: absolute; right: 15px; top: 15px;
+  display: inline-flex; align-items: center; gap: 5px;
   font: 700 9px/1 var(--font-mono); letter-spacing: 0.2em; color: var(--rc);
   opacity: 0; transition: opacity 0.3s;
+}
+/* FOCUS 标签脉动 LED：与 card-breath 同频（4.5s），给小吴「正在监视」的潜意识信号 */
+.c3 .focus::before {
+  content: '';
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 6px var(--rc);
+  animation: focus-led 3s ease-in-out infinite;
+}
+@keyframes focus-led {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 .c3 .only-active { display: none; }
@@ -594,6 +607,25 @@ onBeforeUnmount(() => {
     0 30px 80px -20px rgba(0, 8, 16, 0.82),
     0 0 64px -4px color-mix(in srgb, var(--rc) 55%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  animation: card-breath 3s ease-in-out infinite;
+}
+/* 主动态呼吸：闲置时辉光缓慢「充放」，给主角卡一个活着的心跳；
+   与 deck-drift（12s）周期互质，避免形成可感知的拍频 */
+@keyframes card-breath {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rc) 44%, transparent),
+      0 30px 80px -20px rgba(0, 8, 16, 0.82),
+      0 0 52px -4px color-mix(in srgb, var(--rc) 45%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rc) 44%, transparent),
+      0 30px 80px -20px rgba(0, 8, 16, 0.82),
+      0 0 72px -4px color-mix(in srgb, var(--rc) 70%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
 }
 .c3.is-active .focus { opacity: 1; }
 .c3.is-active .ttl { font-family: var(--font-display); font-size: 19px; letter-spacing: -0.01em; }
@@ -688,6 +720,8 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .deck-stack { animation: none; }
   .c3 { transition: opacity 0.2s; }
+  .c3.is-active { animation: none; }
+  .c3 .focus::before { animation: none; }
   .c3 .ai .h .d { animation: none; }
   .hh-prog, .hh-tick, .hh-mk, .hh-mk-h, .sat { transition: none; }
 }
