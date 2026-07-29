@@ -408,10 +408,11 @@ onBeforeUnmount(() => {
     </div>
     <button type="button" class="deck-add" title="新建本地待办" @click="openCreate">+ 新建</button>
 
-    <!-- 三颗来源卫星（数量 count-up + 风险构成迷你条） -->
+    <!-- 三颗来源卫星（数量 count-up + 风险构成迷你条）；数量为 0 的来源不显示 -->
     <div class="deck-sats">
       <div
         v-for="(s, i) in satellites"
+        v-show="s.total > 0"
         :key="s.key"
         class="sat"
         :class="`s${i + 1}`"
