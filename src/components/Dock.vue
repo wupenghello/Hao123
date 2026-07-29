@@ -118,28 +118,31 @@ function hasMenu(item: NavItem): boolean {
 </template>
 
 <style scoped>
+/* 底部发光 dock —— 深色玻璃拟态，与 .dk-card / .sat / .deck-total 同口径：
+   高不透明玻璃底 + accent 辉光边框 + 顶部高光，匹配项目「唯一交互主色 accent」规范 */
 .dock {
   position: fixed;
   left: 50%;
-  bottom: 12px;
+  bottom: 16px;
   transform: translateX(-50%);
   z-index: 38;
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: 4px;
   max-width: calc(100vw - 32px);
-  padding: 5px 7px;
-  border-radius: 16px;
+  padding: 8px 10px;
+  border-radius: 20px;
   overflow: visible;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
-  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, rgba(255, 255, 255, 0.12));
+  background: linear-gradient(180deg, rgba(16, 24, 40, 0.92), rgba(8, 13, 22, 0.96));
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-line));
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 18px 48px -16px rgba(0, 8, 16, 0.8),
-    0 0 32px -10px color-mix(in srgb, var(--color-accent) 24%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  backdrop-filter: blur(18px) saturate(160%);
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 60px -20px rgba(0, 8, 16, 0.85),
+    0 0 44px -12px color-mix(in srgb, var(--color-accent) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
 }
 
 .dk-item {
@@ -152,11 +155,11 @@ function hasMenu(item: NavItem): boolean {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  width: 44px;
-  padding: 5px 3px 4px;
+  gap: 4px;
+  width: 58px;
+  padding: 8px 4px 6px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: var(--color-ink-2);
   text-decoration: none;
@@ -168,12 +171,13 @@ function hasMenu(item: NavItem): boolean {
 }
 .dk-btn:hover,
 .dk-item:focus-within > .dk-btn {
-  transform: translateY(-6px) scale(1.12);
+  transform: translateY(-9px) scale(1.16);
   color: var(--color-ink);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: 0 0 18px -6px color-mix(in srgb, var(--color-accent) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
-.dk-ic { width: 18px; height: 18px; flex-shrink: 0; transition: color 0.2s, filter 0.2s; }
-.dk-btn:hover .dk-ic { color: var(--color-accent); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 55%, transparent)); }
+.dk-ic { width: 22px; height: 22px; flex-shrink: 0; transition: color 0.2s, filter 0.2s; }
+.dk-btn:hover .dk-ic { color: var(--color-accent-strong); filter: drop-shadow(0 0 8px color-mix(in srgb, var(--color-accent) 60%, transparent)); }
 .dk-btn.is-run { color: var(--color-alive); }
 .dk-btn.is-run .dk-ic { color: var(--color-alive); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-alive) 55%, transparent)); }
 .dk-lb { font-size: 9.5px; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; }
@@ -187,6 +191,7 @@ function hasMenu(item: NavItem): boolean {
   font: 700 8px/1 var(--font-mono); letter-spacing: 0.06em;
   padding: 2px 4px; border-radius: 4px;
   color: var(--color-accent-contrast); background: var(--color-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 50%, transparent);
 }
 
 /* 向上飞出菜单 */
