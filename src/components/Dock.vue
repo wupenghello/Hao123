@@ -121,25 +121,22 @@ function hasMenu(item: NavItem): boolean {
 .dock {
   position: fixed;
   left: 50%;
-  bottom: 16px;
+  bottom: 12px;
   transform: translateX(-50%);
   z-index: 38;
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: 3px;
   max-width: calc(100vw - 32px);
-  padding: 8px 10px;
-  border-radius: 20px;
-  /* 不能给 overflow-x: auto —— CSS 规范下 overflow-y: visible 会被一并算成 auto，
-     向上飞出的二级菜单（.dk-fly, bottom: 100%）会被 dock 自身裁掉；
-     窄屏适配改走下方媒体查询缩窄图标，不换横向滚动 */
+  padding: 5px 7px;
+  border-radius: 16px;
   overflow: visible;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
   border: 1px solid color-mix(in srgb, var(--color-accent) 22%, rgba(255, 255, 255, 0.12));
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 24px 64px -18px rgba(0, 8, 16, 0.8),
-    0 0 40px -10px color-mix(in srgb, var(--color-accent) 24%, transparent),
+    0 18px 48px -16px rgba(0, 8, 16, 0.8),
+    0 0 32px -10px color-mix(in srgb, var(--color-accent) 24%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
@@ -155,11 +152,11 @@ function hasMenu(item: NavItem): boolean {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 58px;
-  padding: 8px 4px 6px;
+  gap: 3px;
+  width: 44px;
+  padding: 5px 3px 4px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   color: var(--color-ink-2);
   text-decoration: none;
@@ -171,11 +168,11 @@ function hasMenu(item: NavItem): boolean {
 }
 .dk-btn:hover,
 .dk-item:focus-within > .dk-btn {
-  transform: translateY(-9px) scale(1.16);
+  transform: translateY(-6px) scale(1.12);
   color: var(--color-ink);
   background: rgba(255, 255, 255, 0.06);
 }
-.dk-ic { width: 22px; height: 22px; flex-shrink: 0; transition: color 0.2s, filter 0.2s; }
+.dk-ic { width: 18px; height: 18px; flex-shrink: 0; transition: color 0.2s, filter 0.2s; }
 .dk-btn:hover .dk-ic { color: var(--color-accent); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 55%, transparent)); }
 .dk-btn.is-run { color: var(--color-alive); }
 .dk-btn.is-run .dk-ic { color: var(--color-alive); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-alive) 55%, transparent)); }

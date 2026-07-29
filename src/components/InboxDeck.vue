@@ -433,10 +433,6 @@ onBeforeUnmount(() => {
       <span>当前位置</span>
       <b>{{ String(active + 1).padStart(2, '0') }}<i>/{{ String(N).padStart(2, '0') }}</i></b>
     </div>
-
-    <div class="deck-hint" :class="{ gone: interacted }">
-      滚轮 / 拖拽 / ↑↓ 翻动 · 点标题看详情 · <b>FOCUS</b> 卡可操作
-    </div>
   </div>
 
   <!-- 空态：克制、不空洞 -->
@@ -472,16 +468,20 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   perspective: 1500px;
-  perspective-origin: 50% 45%;
+  perspective-origin: 50% 42%;
   touch-action: none;
   cursor: grab;
+  /* 整体上移 + 随视口缩放：大屏不至于过小、小屏不至于拥挤 */
+  --deck-scale: clamp(0.62, 0.58 + 100vh * 0.00038, 1);
+  --deck-lift: clamp(7vh, 11vh, 84px);
 }
 .deck-scene.dragging,
 .deck-scene.dragging * { cursor: grabbing; }
 /* 拖拽跟手层：translateY 跟手位移；preserve-3d 把舞台透视链透传给内层卡堆 */
 .deck-drag {
   transform-style: preserve-3d;
-  transform: translateY(var(--drag-y, 0px));
+  transform: translateY(calc(var(--drag-y, 0px) - var(--deck-lift, 0px))) scale(var(--deck-scale, 1));
+  transform-origin: center top;
 }
 /* 非按压态才带弹簧回位（翻页瞬间 / 松手归零）；按压中禁用过渡，避免跟手延迟 */
 .deck-scene:not(.dragging) .deck-drag {
@@ -599,7 +599,7 @@ onBeforeUnmount(() => {
 /* ============ 环绕 HUD（方案 B） ============ */
 /* 大总数 + 风险概况 */
 .deck-total {
-  position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 5;
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%) translateY(calc(-1 * var(--deck-lift, 0px))); z-index: 5;
   display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 13px;
   pointer-events: none; text-align: left;
 }
@@ -619,6 +619,7 @@ onBeforeUnmount(() => {
 /* 新建入口 */
 .deck-add {
   position: absolute; top: 16px; right: 22%; z-index: 5;
+  transform: translateY(calc(-1 * var(--deck-lift, 0px)));
   padding: 8px 13px; border-radius: 999px; cursor: pointer;
   font: 600 10.5px var(--font-mono); color: var(--color-accent);
   border: 1px solid color-mix(in srgb, var(--color-accent) 36%, transparent);
@@ -637,19 +638,19 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 34px -16px rgba(0, 8, 16, 0.8), 0 0 22px -8px color-mix(in srgb, var(--c, var(--color-accent)) 45%, transparent);
   transition: transform 0.3s var(--ease-out-expo), border-color 0.3s;
 }
-.sat:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--c, var(--color-accent)) 55%, var(--color-line)); }
+.sat:hover { transform: translateY(calc(-3px - var(--deck-lift, 0px))); border-color: color-mix(in srgb, var(--c, var(--color-accent)) 55%, var(--color-line)); }
 .sat .lb { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--color-ink-2); }
 .sat .lb i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 9px var(--c); }
 .sat b { font: 700 27px/1 var(--font-display); letter-spacing: -0.01em; color: var(--color-ink); }
 .sat .mini { display: flex; gap: 2px; height: 3px; border-radius: 2px; overflow: hidden; }
 .sat .mini i { border-radius: 2px; }
 .sat .mini i.ok { background: color-mix(in srgb, var(--c) 55%, transparent); }
-.sat.s1 { left: 5%; top: 19%; }
-.sat.s2 { right: 5%; top: 23%; }
+.sat.s1 { left: 5%; top: calc(19% - var(--deck-lift, 0px) / 9); }
+.sat.s2 { right: 5%; top: calc(23% - var(--deck-lift, 0px) / 9); }
 .sat.s3 { left: 9%; bottom: 12%; }
 
 /* 当前位置读数 */
-.deck-pos { position: absolute; right: 9%; bottom: 14%; z-index: 5; text-align: center; pointer-events: none; }
+.deck-pos { position: absolute; right: 9%; bottom: 14%; z-index: 5; text-align: center; pointer-events: none; transform: translateY(calc(-1 * var(--deck-lift, 0px))); }
 .deck-pos span { display: block; font: 500 9.5px var(--font-mono); letter-spacing: 0.22em; color: var(--color-ink-3); }
 .deck-pos b {
   font: 700 36px/1.1 var(--font-display); letter-spacing: -0.02em; color: var(--color-ink);
@@ -657,16 +658,6 @@ onBeforeUnmount(() => {
 }
 .deck-pos b i { font-style: normal; font-size: 16px; color: var(--color-ink-3); margin-left: 2px; }
 
-.deck-hint {
-  position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%); z-index: 5;
-  padding: 7px 14px; border-radius: 999px; white-space: nowrap;
-  background: rgba(4, 8, 16, 0.42); border: 1px solid var(--color-line);
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.06em; color: var(--color-ink-2);
-  transition: opacity 0.6s;
-}
-.deck-hint b { color: var(--color-alive); }
-.deck-hint.gone { opacity: 0; pointer-events: none; }
 
 .deck-empty { position: relative; width: 100%; height: 100%; min-height: 360px; display: grid; place-content: center; gap: 10px; text-align: center; }
 .deck-empty .de-ring {
@@ -689,7 +680,6 @@ onBeforeUnmount(() => {
   .sat { position: static; min-width: 0; }
   .deck-pos { right: 16px; bottom: 12px; }
   .deck-add { right: 16px; top: 8px; }
-  .deck-hint { bottom: 108px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .deck-stack { animation: none; }

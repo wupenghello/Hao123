@@ -228,6 +228,8 @@ const onJump = (i: number) => emit('jump', i)
   display: grid;
   place-items: center;
   pointer-events: none;
+  transform: translateY(calc(-1 * var(--deck-lift, 0px))) scale(var(--deck-scale, 1));
+  transform-origin: center top;
 }
 .viz-f,
 .viz-g,
