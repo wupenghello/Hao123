@@ -17,10 +17,13 @@
  *     <template #footer>…</template>       // 可选
  *   </DetailModal>
  */
-import { watch, onUnmounted, ref } from 'vue'
+import { watch, onUnmounted, ref, computed } from 'vue'
 import IconLoading from '~icons/mdi/loading'
 import IconClose from '~icons/mdi/close'
 import IconAlert from '~icons/mdi/alert-circle-outline'
+import IconPlus from '~icons/mdi/plus'
+import IconMinus from '~icons/mdi/minus'
+import IconRefresh from '~icons/mdi/refresh'
 
 /**
  * body 滚动锁的全局引用计数：多个 DetailModal（任务详情、Bug 详情等）可能同时存在，
@@ -72,19 +75,118 @@ function close() {
  * 用事件委托——点击主体时若命中 <img> 就打开大图预览层。
  */
 const preview = ref<string | null>(null)
+/** 预览缩放倍率（1 = 适应视口） */
+const zoom = ref(1)
+/** 预览拖拽平移偏移（像素） */
+const panX = ref(0)
+const panY = ref(0)
+/** 拖拽进行中 */
+const dragging = ref(false)
+let dragStartX = 0
+let dragStartY = 0
+let dragStartPanX = 0
+let dragStartPanY = 0
+
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 8
+const ZOOM_STEP = 0.25
+
+/** 当前是否处于放大状态（可拖拽平移） */
+const isZoomedIn = computed(() => zoom.value > 1.001)
+
+/** 预览图最终变换 */
+const previewTransform = computed(
+  () => `translate(${panX.value}px, ${panY.value}px) scale(${zoom.value})`,
+)
+
+function resetZoom() {
+  zoom.value = 1
+  panX.value = 0
+  panY.value = 0
+}
+
+function zoomIn() {
+  zoom.value = Math.min(MAX_ZOOM, +(zoom.value + ZOOM_STEP).toFixed(2))
+}
+
+function zoomOut() {
+  zoom.value = Math.max(MIN_ZOOM, +(zoom.value - ZOOM_STEP).toFixed(2))
+}
+
 function onBodyClick(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (target?.tagName === 'IMG') {
     const src = (target as HTMLImageElement).src
-    if (src) preview.value = src
+    if (src) {
+      preview.value = src
+      resetZoom()
+    }
   }
+}
+
+/** 滚轮缩放（以视口中心为锚） */
+function onPreviewWheel(e: WheelEvent) {
+  e.preventDefault()
+  if (e.deltaY < 0) zoomIn()
+  else if (e.deltaY > 0) zoomOut()
+}
+
+/** 拖拽开始：仅放大态有意义 */
+function onPreviewMouseDown(e: MouseEvent) {
+  if (!isZoomedIn.value) return
+  e.preventDefault()
+  dragging.value = true
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+  dragStartPanX = panX.value
+  dragStartPanY = panY.value
+}
+
+function onPreviewMouseMove(e: MouseEvent) {
+  if (!dragging.value) return
+  panX.value = dragStartPanX + (e.clientX - dragStartX)
+  panY.value = dragStartPanY + (e.clientY - dragStartY)
+}
+
+function onPreviewMouseUp() {
+  dragging.value = false
+}
+
+/** 双击：在 1x 和 2x 之间切换 */
+function onPreviewDblClick(e: MouseEvent) {
+  e.stopPropagation()
+  if (isZoomedIn.value) resetZoom()
+  else {
+    zoom.value = 2
+    panX.value = 0
+    panY.value = 0
+  }
+}
+
+function closePreview() {
+  preview.value = null
+  resetZoom()
 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     // Esc 优先关闭图片预览，再关闭详情
-    if (preview.value) preview.value = null
+    if (preview.value) closePreview()
     else close()
+    return
+  }
+  // 预览开启时的快捷键
+  if (preview.value) {
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault()
+      zoomIn()
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault()
+      zoomOut()
+    } else if (e.key === '0') {
+      e.preventDefault()
+      resetZoom()
+    }
   }
 }
 
@@ -113,7 +215,7 @@ watch(
         unlockScroll()
         holdingLock = false
       }
-      preview.value = null
+      if (preview.value) closePreview()
     }
   },
   { immediate: true },
@@ -214,16 +316,72 @@ onUnmounted(() => {
     >
       <div
         v-if="preview"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm cursor-zoom-out"
-        @click="preview = null"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm overflow-hidden"
+        @wheel.prevent="onPreviewWheel"
+        @mousedown.self="closePreview"
       >
-        <img :src="preview" class="dm-preview-img" @click.stop />
+        <!-- 预览图：缩放 + 平移；放大态可拖拽 -->
+        <img
+          :src="preview"
+          class="dm-preview-img max-w-none max-h-none select-none"
+          :class="isZoomedIn ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'"
+          :style="{ transform: previewTransform }"
+          draggable="false"
+          @mousedown.stop="onPreviewMouseDown"
+          @mousemove="onPreviewMouseMove"
+          @mouseup="onPreviewMouseUp"
+          @mouseleave="onPreviewMouseUp"
+          @dblclick="onPreviewDblClick"
+        />
+
+        <!-- 顶部工具栏：缩放控制 + 关闭 -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-xl bg-slate-900/70 backdrop-blur border border-white/10 shadow-lg">
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+            :disabled="zoom <= MIN_ZOOM"
+            title="缩小 (-)"
+            @click="zoomOut"
+          >
+            <IconMinus class="w-4 h-4" />
+          </button>
+          <button
+            class="min-w-[3.5rem] h-7 px-2 flex items-center justify-center rounded-lg text-[11px] tabular-nums text-white/80 hover:bg-white/10 transition-colors"
+            title="重置缩放 (0)"
+            @click="resetZoom"
+          >
+            {{ Math.round(zoom * 100) }}%
+          </button>
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+            :disabled="zoom >= MAX_ZOOM"
+            title="放大 (+)"
+            @click="zoomIn"
+          >
+            <IconPlus class="w-4 h-4" />
+          </button>
+          <div class="w-px h-4 bg-white/15 mx-0.5" />
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            title="重置"
+            @click="resetZoom"
+          >
+            <IconRefresh class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <!-- 关闭按钮 -->
         <button
-          class="absolute top-5 right-5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg p-2 transition-colors"
-          @click="preview = null"
+          class="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-xl bg-slate-900/70 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition-colors shadow-lg"
+          title="关闭 (Esc)"
+          @click="closePreview"
         >
-          <IconClose class="w-6 h-6" />
+          <IconClose class="w-5 h-5" />
         </button>
+
+        <!-- 底部提示 -->
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-slate-900/60 backdrop-blur border border-white/10 text-[11px] text-white/50 pointer-events-none">
+          滚轮缩放 · 拖拽平移 · 双击 2× · Esc 关闭
+        </div>
       </div>
     </Transition>
   </Teleport>
@@ -233,16 +391,25 @@ onUnmounted(() => {
 /* 卡片视觉基座已抽到全局 src/style.css 的 .hud-panel / .hud-corners / .hud-sheen /
    .hud-accent-bar，本组件只保留预览图等专属样式，避免重复定义导致漂移。 */
 
-/* 图片预览大图：固定上限 + 百分比，二者取小，避免超出视口或拉伸失真 */
+/* 图片预览大图：以视口为基准的基准尺寸，再经 transform: scale() 缩放。
+   初始（1x）即适应视口；放大后超出部分由父级 overflow:hidden 裁切，配合拖拽平移浏览。 */
 .dm-preview-img {
-  max-width: min(1100px, 92vw);
-  max-height: 90vh;
-  width: auto;
-  height: auto;
+  --base-w: min(1100px, 92vw);
+  --base-h: 90vh;
+  max-width: var(--base-w);
+  max-height: var(--base-h);
+  width: var(--base-w);
+  height: var(--base-h);
   object-fit: contain;
   border-radius: 10px;
   box-shadow: 0 24px 70px -12px rgba(0, 0, 0, 0.6);
-  cursor: default;
+  transform-origin: center center;
+  transition: transform 0.12s ease-out;
+  will-change: transform;
+}
+/* 拖拽中去掉过渡，跟手 */
+.dm-preview-img.cursor-grabbing {
+  transition: none;
 }
 
 </style>
