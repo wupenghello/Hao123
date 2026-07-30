@@ -108,6 +108,28 @@ const deck = computed<DeckItem[]>(() => {
 
 const N = computed(() => deck.value.length)
 
+// 空态占位卡：「单卡聚焦」—— 1 张聚焦大卡 + 2 张淡退，与有数据时同一套 3D 卡堆几何。
+// 对齐 mockup 方案 B：聚焦卡 alive 绿染色 + 辉光呼吸，背景卡依次退后缩小。
+const GHOST_Z = [140, -120, -240]
+const ghostCards = computed(() => GHOST_Z.map((z, i) => ({ z, i })))
+function ghostStyle(idx: number): CSSProperties {
+  const off = idx - 0
+  const abs = Math.abs(off)
+  const z = GHOST_Z[idx]
+  // 聚焦卡大且慢呼吸，背景卡依次退后、缩小、淡出
+  const ty = off === 0 ? 0 : off * 90
+  const ry = off === 0 ? 0 : off * 3
+  const sc = off === 0 ? 1.07 : 1 - abs * 0.05
+  const op = off === 0 ? 1 : abs === 1 ? 0.55 : 0.28
+  return {
+    opacity: op,
+    filter: 'none',
+    pointerEvents: 'none',
+    transform: `translate(-50%,-50%) translateY(${ty}px) translateZ(${z}px) rotateY(${ry}deg) scale(${sc})`,
+    zIndex: 100 - abs,
+  } as CSSProperties
+}
+
 // 队列可视化主题（f/g/h/i/j），由状态栏的 <DeckThemeSwitch> 切换，默认「j 弧面副卡」
 const { current: theme } = useDeckTheme()
 
@@ -439,12 +461,32 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- 空态：克制、不空洞 -->
-  <div v-else class="deck-empty">
-    <div class="de-ring" />
-    <div class="de-t">收件箱已清空</div>
-    <div class="de-s">小吴待命 · 有新指派会在这里立起来</div>
-    <button type="button" class="gbtn" style="margin-top:14px" @click="openCreate">+ 新建本地待办</button>
+  <!-- 空态：「单卡聚焦」—— 复用同一套 3D 倾斜卡堆（deck-drift 刚体翻动 + translateZ 视差），
+       只把卡面换成 3 张占位卡。1 张聚焦大卡 alive 绿染色 + 辉光呼吸，2 张淡退背景卡。
+       3D 感完全来自「大平面在不同 Z 层同步翻动产生的视差」——与有数据时是同一个机制。 -->
+  <div v-else class="deck-root is-empty">
+    <div ref="sceneRef" class="deck-scene" :class="{ dragging }">
+      <div class="deck-drag" :style="dragStyle">
+        <div class="deck-stack">
+          <div v-for="(g, idx) in ghostCards" :key="idx" class="c3 ghost" :class="{ 'is-active': idx === 0 }" :style="ghostStyle(idx)" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 大总数 0 + 全部就绪 -->
+    <div class="deck-total">
+      <b>0</b>
+      <span>项在队列</span>
+      <em class="c-alive">全部就绪，小吴待命中</em>
+    </div>
+
+    <!-- 说明文字：纯文字 + 按钮，无背景板，不抢卡堆的视差 -->
+    <div class="de-overlay">
+      <div class="de-led" aria-hidden="true" />
+      <div class="de-t">收件箱已清空</div>
+      <div class="de-s">小吴待命 · 有新指派会在这里立起来</div>
+      <button type="button" class="gbtn" @click="openCreate">+ 新建本地待办</button>
+    </div>
   </div>
 
   <!-- 详情 / 编辑弹窗宿主（原 UnifiedInbox 承担，换视图后由本组件挂载，避免丢能力） -->
@@ -692,21 +734,138 @@ onBeforeUnmount(() => {
   font: 700 36px/1.1 var(--font-display); letter-spacing: -0.02em; color: var(--color-ink);
   text-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
-.deck-pos b i { font-style: normal; font-size: 16px; color: var(--color-ink-3); margin-left: 2px; }
+/* 空态：3D 卡堆上移，与下方文字区隔开 */
+.is-empty .deck-scene {
+  align-items: flex-start;
+  padding-top: 90px;
+}
+.is-empty .deck-total {
+  top: 36px;
+}
 
 
-.deck-empty { position: relative; width: 100%; height: 100%; min-height: 360px; display: grid; place-content: center; gap: 10px; text-align: center; }
-.deck-empty .de-ring {
-  width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--color-alive) 40%, transparent);
-  box-shadow: 0 0 30px -4px color-mix(in srgb, var(--color-alive) 45%, transparent), inset 0 0 18px -6px color-mix(in srgb, var(--color-alive) 40%, transparent);
+/* ============ 空态：单卡聚焦（方案 B）—— 复用同一套 3D 倾斜卡堆，3 张占位卡 ============
+   聚焦卡 alive 绿染色 + 亮色左边框辉光 + 呼吸动画，暗示「这里在等一张卡立起来」。
+   背景卡 2 张依次退后、缩小、淡出，与有数据时同一套 deck-drift 翻动几何。 */
+.c3.ghost {
+  padding: 18px 20px 18px 22px;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--color-alive) 18%, #141b29) 0%, #0c1420 100%);
+  border: 1px solid color-mix(in srgb, var(--color-alive) 30%, rgba(255, 255, 255, 0.1));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-alive) 24%, transparent),
+    0 26px 68px -18px rgba(8, 16, 16, 0.82),
+    0 0 44px -6px color-mix(in srgb, var(--color-alive) 45%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  pointer-events: none;
 }
-.deck-empty .de-t { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--color-ink); }
-.deck-empty .de-s { font-size: 12.5px; color: var(--color-ink-2); }
-.deck-empty .gbtn {
-  padding: 9px 16px; border-radius: 10px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--color-accent) 36%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); font: 600 12px/1 var(--font-mono);
+/* 亮色左边框辉光：对齐有数据卡的 .edge，alive 青绿渐变 */
+.c3.ghost::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 17px 0 0 17px;
+  background: linear-gradient(180deg, var(--color-alive), var(--color-accent));
+  box-shadow: 0 0 16px var(--color-alive);
+  pointer-events: none;
 }
+/* 占位卡面：几道「示意条」，模拟卡片有内容但为空 */
+.c3.ghost::after {
+  content: '';
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 16px;
+  bottom: 16px;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0 65%, transparent 65%) top 0 / 100% 12px no-repeat,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 42%, transparent 42%) top 24px / 100% 7px no-repeat,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 100%, transparent 100%) top 40px / 100% 7px no-repeat;
+  pointer-events: none;
+}
+/* 聚焦占位卡：呼吸辉光，暗示「等待一张卡立起来」 */
+.c3.ghost.is-active {
+  animation: ghost-breath 4.5s ease-in-out infinite;
+}
+@keyframes ghost-breath {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--color-alive) 30%, rgba(255, 255, 255, 0.1));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-alive) 24%, transparent),
+      0 26px 68px -18px rgba(8, 16, 16, 0.82),
+      0 0 44px -6px color-mix(in srgb, var(--color-alive) 45%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--color-alive) 50%, rgba(255, 255, 255, 0.1));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-alive) 40%, transparent),
+      0 26px 68px -18px rgba(8, 16, 16, 0.82),
+      0 0 70px -4px color-mix(in srgb, var(--color-alive) 70%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+}
+
+/* 空态说明文字：纯文字 + 按钮，无背景板，漂浮在 3D 卡堆下方 */
+.de-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  pointer-events: none;
+  width: max-content;
+  max-width: 90vw;
+}
+.de-led {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-alive);
+  box-shadow: 0 0 12px var(--color-alive);
+  animation: ghost-led 3s ease-in-out infinite;
+}
+@keyframes ghost-led {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+.de-t {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--color-alive) 20%, transparent);
+}
+.de-s {
+  font-size: 12.5px;
+  color: var(--color-ink-2);
+  margin-bottom: 2px;
+}
+.de-overlay .gbtn {
+  pointer-events: auto;
+  padding: 9px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: 600 12px/1 var(--font-mono);
+  color: var(--color-accent-contrast);
+  background: linear-gradient(180deg, var(--color-accent-strong), var(--color-accent));
+  border: 1px solid transparent;
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--color-accent) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: filter 0.2s, box-shadow 0.2s, transform 0.12s;
+}
+.de-overlay .gbtn:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--color-accent) 80%, transparent), 0 0 18px -4px color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+.de-overlay .gbtn:active { transform: scale(0.97); }
 
 @keyframes deck-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
