@@ -22,7 +22,8 @@ import { useInboxInsights } from '@/features/insights'
 import type { WorkItem } from '@/features/insights'
 import { useChatStore } from '@/features/chat'
 import { useTaskStore, useBugStore, TaskDetailModal, BugDetailModal } from '@/features/zentao'
-import { useLocalTaskStore } from '@/features/local-tasks'
+import { useLocalTaskStore, MAX_ATTACHMENT_SIZE } from '@/features/local-tasks'
+import { useFeedback } from '@/features/feedback'
 import type { LocalTask, LocalTaskFormPayload } from '@/features/local-tasks'
 import LocalTaskFormModal from '@/features/local-tasks/components/LocalTaskFormModal.vue'
 import DeckViz from '@/components/viz/DeckViz.vue'
@@ -70,6 +71,7 @@ interface DeckItem {
 
 const { workItems, predictions } = useInboxInsights()
 const chat = useChatStore()
+const feedback = useFeedback()
 const taskStore = useTaskStore()
 const bugStore = useBugStore()
 const localStore = useLocalTaskStore()
@@ -108,27 +110,6 @@ const deck = computed<DeckItem[]>(() => {
 
 const N = computed(() => deck.value.length)
 
-// 空态占位卡：「单卡聚焦」—— 1 张聚焦大卡 + 2 张淡退，与有数据时同一套 3D 卡堆几何。
-// 对齐 mockup 方案 B：聚焦卡 alive 绿染色 + 辉光呼吸，背景卡依次退后缩小。
-const GHOST_Z = [140, -120, -240]
-const ghostCards = computed(() => GHOST_Z.map((z, i) => ({ z, i })))
-function ghostStyle(idx: number): CSSProperties {
-  const off = idx - 0
-  const abs = Math.abs(off)
-  const z = GHOST_Z[idx]
-  // 聚焦卡大且慢呼吸，背景卡依次退后、缩小、淡出
-  const ty = off === 0 ? 0 : off * 90
-  const ry = off === 0 ? 0 : off * 3
-  const sc = off === 0 ? 1.07 : 1 - abs * 0.05
-  const op = off === 0 ? 1 : abs === 1 ? 0.55 : 0.28
-  return {
-    opacity: op,
-    filter: 'none',
-    pointerEvents: 'none',
-    transform: `translate(-50%,-50%) translateY(${ty}px) translateZ(${z}px) rotateY(${ry}deg) scale(${sc})`,
-    zIndex: 100 - abs,
-  } as CSSProperties
-}
 
 // 队列可视化主题（f/g/h/i/j），由状态栏的 <DeckThemeSwitch> 切换，默认「j 弧面副卡」
 const { current: theme } = useDeckTheme()
@@ -274,6 +255,101 @@ function handoff(it: DeckItem) {
     void chat.send(it.action)
   } catch {
     /* 小吴未就绪时静默，不破坏 3D 视图 */
+  }
+}
+function openChat() {
+  try {
+    chat.show()
+  } catch {
+    /* 小吴未就绪时静默，不破坏 3D 视图 */
+  }
+}
+
+// ============ 空态卡槽交互：点击新建 / 拖放创建 ============
+// 「把今天的事丢进来」不是装饰：点卡槽开新建弹窗；拖文字 / 文件进来直接立成一张本地卡。
+const dropHot = ref(false)
+let dropDepth = 0
+function onDropEnter() {
+  dropDepth++
+  dropHot.value = true
+}
+function onDropLeave() {
+  dropDepth = Math.max(0, dropDepth - 1)
+  if (dropDepth === 0) dropHot.value = false
+}
+function onDropOver(e: DragEvent) {
+  e.preventDefault()
+  dropHot.value = true
+}
+async function onDrop(e: DragEvent) {
+  e.preventDefault()
+  dropHot.value = false
+  dropDepth = 0
+  const files = Array.from(e.dataTransfer?.files ?? [])
+  const text = (e.dataTransfer?.getData('text/plain') ?? '').trim()
+  // 与新建弹窗同一套边界：单文件 ≤ MAX_ATTACHMENT_SIZE，超限跳过；全部超限则不建空附件卡
+  const valid = files.filter((f) => f.size <= MAX_ATTACHMENT_SIZE)
+  const skipped = files.length - valid.length
+  let created = false
+  let createdId = ''
+  let progressToast: number | null = null
+  if (valid.length) {
+    const task = localStore.add({ title: text || '拖入的附件', pri: 3 })
+    if (task) {
+      created = true
+      createdId = task.id
+      // 多文件 / 大体量文件写入耗时，先亮进度 toast；单文件秒写不闪进度
+      const totalBytes = valid.reduce((sum, f) => sum + f.size, 0)
+      if (valid.length > 1 || totalBytes > 2 * 1024 * 1024) {
+        progressToast = feedback.info({
+          title: '正在写入附件…',
+          message: `0 / ${valid.length}`,
+          duration: 0,
+        })
+      }
+      try {
+        for (let i = 0; i < valid.length; i++) {
+          await localStore.addAttachment(task.id, valid[i])
+          if (progressToast !== null) {
+            feedback.updateToast(progressToast, { message: `${i + 1} / ${valid.length}` })
+          }
+        }
+      } catch { /* 附件落库失败不阻塞建卡 */ }
+    }
+  } else if (text) {
+    const t = localStore.add({ title: text.slice(0, 100), pri: 3 })
+    created = !!t
+    createdId = t?.id ?? ''
+  } else if (!skipped) {
+    openCreate()
+    return
+  }
+  // 拖入成功：自动翻到新卡堆顶部（聚焦刚立起来的那张卡）
+  if (created && createdId) {
+    const idx = deck.value.findIndex((it) => it.kind === 'local' && it.id === createdId)
+    if (idx >= 0) setActive(idx)
+  }
+  // 进度 toast 无论是否混有超限文件都要收尾成成功态，避免 duration:0 永久停留
+  if (progressToast !== null) {
+    feedback.updateToast(progressToast, {
+      title: '已立成一张本地卡',
+      message: text ? `「${text.slice(0, 18)}${text.length > 18 ? '…' : ''}」` : `附件已就位（${valid.length} 个）`,
+      tone: 'success',
+      duration: 4200,
+    })
+  }
+  if (skipped) {
+    feedback.warning({
+      title: `${skipped} 个文件超过 ${Math.round(MAX_ATTACHMENT_SIZE / 1024 / 1024)}MB，已跳过`,
+      message: '单个附件上限 25MB，超大文件建议放网盘后把链接写进备注。'
+    })
+  } else if (!created && !progressToast) {
+    // 既没建卡也没亮进度（纯文字拖入失败兜底），无事发生
+  } else if (created && progressToast === null) {
+    feedback.success({
+      title: '已立成一张本地卡',
+      message: text ? `「${text.slice(0, 18)}${text.length > 18 ? '…' : ''}」` : '文件已作为附件挂上',
+    })
   }
 }
 
@@ -461,31 +537,54 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- 空态：「单卡聚焦」—— 复用同一套 3D 倾斜卡堆（deck-drift 刚体翻动 + translateZ 视差），
-       只把卡面换成 3 张占位卡。1 张聚焦大卡 alive 绿染色 + 辉光呼吸，2 张淡退背景卡。
-       3D 感完全来自「大平面在不同 Z 层同步翻动产生的视差」——与有数据时是同一个机制。 -->
+  <!-- 空态：方案 B「漂浮空卡槽」—— 复用同一套 3D 倾斜卡堆（deck-drift + translateZ 视差），
+       卡面换成 3 张「掏空的卡槽」：聚焦槽 alive 绿边框 + 发光上沿 + 上升光柱 + 虚线投放区，
+       暗示「新指派会在这里立起来」。背景槽依次退后、淡出。 -->
   <div v-else class="deck-root is-empty">
     <div ref="sceneRef" class="deck-scene" :class="{ dragging }">
       <div class="deck-drag" :style="dragStyle">
         <div class="deck-stack">
-          <div v-for="(g, idx) in ghostCards" :key="idx" class="c3 ghost" :class="{ 'is-active': idx === 0 }" :style="ghostStyle(idx)" />
+          <div class="floor" aria-hidden="true" />
+          <div class="slot s1" aria-hidden="true" />
+          <div class="slot s2" aria-hidden="true" />
+          <div
+            class="slot top"
+            :class="{ hot: dropHot }"
+            role="button"
+            tabindex="0"
+            aria-label="把今天的事丢进来，新建本地待办"
+            @click="openCreate"
+            @keydown.enter.prevent="openCreate"
+            @keydown.space.prevent="openCreate"
+            @dragenter.prevent="onDropEnter"
+            @dragover.prevent="onDropOver"
+            @dragleave="onDropLeave"
+            @drop.prevent="onDrop"
+          >
+            <span class="rim" aria-hidden="true" />
+            <div class="beam" aria-hidden="true" />
+            <span class="slot-tag"><i />Empty slot · 待接收</span>
+            <div class="drop">
+              <span class="drop-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </span>
+              <p class="drop-t">把今天的事丢进来</p>
+              <p class="drop-s">{{ dropHot ? '松手 · 立成一张卡' : '点击新建 · 或拖入文字 / 文件' }}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 大总数 0 + 全部就绪 -->
-    <div class="deck-total">
-      <b>0</b>
-      <span>项在队列</span>
-      <em class="c-alive">全部就绪，小吴待命中</em>
-    </div>
-
-    <!-- 说明文字：纯文字 + 按钮，无背景板，不抢卡堆的视差 -->
+    <!-- 说明文字 + 双按钮：纯文字，无背景板，不抢卡槽的视差 -->
     <div class="de-overlay">
       <div class="de-led" aria-hidden="true" />
       <div class="de-t">收件箱已清空</div>
-      <div class="de-s">小吴待命 · 有新指派会在这里立起来</div>
-      <button type="button" class="gbtn" @click="openCreate">+ 新建本地待办</button>
+      <div class="de-s">小吴待命 · 有新指派会<b>在这里立起来</b></div>
+      <div class="de-actions">
+        <button type="button" class="gbtn primary" @click="openCreate">+ 新建本地待办</button>
+        <button type="button" class="gbtn ghost" @click="openChat">叫小吴聊聊</button>
+      </div>
     </div>
   </div>
 
@@ -734,92 +833,204 @@ onBeforeUnmount(() => {
   font: 700 36px/1.1 var(--font-display); letter-spacing: -0.02em; color: var(--color-ink);
   text-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
-/* 空态：3D 卡堆上移，与下方文字区隔开 */
+/* 空态：卡槽堆整体上移 + 降低抬升量，给下方标题 / 按钮留出呼吸空间 */
 .is-empty .deck-scene {
   align-items: flex-start;
-  padding-top: 90px;
-}
-.is-empty .deck-total {
-  top: 36px;
+  padding-top: 56px;
+  --deck-lift: clamp(4vh, 7vh, 56px);
 }
 
 
-/* ============ 空态：单卡聚焦（方案 B）—— 复用同一套 3D 倾斜卡堆，3 张占位卡 ============
-   聚焦卡 alive 绿染色 + 亮色左边框辉光 + 呼吸动画，暗示「这里在等一张卡立起来」。
-   背景卡 2 张依次退后、缩小、淡出，与有数据时同一套 deck-drift 翻动几何。 */
-.c3.ghost {
-  padding: 18px 20px 18px 22px;
-  background: linear-gradient(155deg, color-mix(in srgb, var(--color-alive) 18%, #141b29) 0%, #0c1420 100%);
-  border: 1px solid color-mix(in srgb, var(--color-alive) 30%, rgba(255, 255, 255, 0.1));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-alive) 24%, transparent),
-    0 26px 68px -18px rgba(8, 16, 16, 0.82),
-    0 0 44px -6px color-mix(in srgb, var(--color-alive) 45%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  pointer-events: none;
-}
-/* 亮色左边框辉光：对齐有数据卡的 .edge，alive 青绿渐变 */
-.c3.ghost::before {
-  content: '';
+/* ============ 空态：方案 B「漂浮空卡槽」—— 复用同一套 3D 倾斜卡堆（deck-drift + translateZ 视差），
+   卡面换成 3 张「掏空的卡槽」：聚焦槽 alive 绿边框 + 发光上沿 + 上升光柱 + 虚线投放区，
+   暗示「新指派会在这里立起来」；背景槽 2 张依次退后、淡出。 ============ */
+/* 地面呼吸光圈：垫在卡槽下方，给「悬浮」一个锚点 */
+.floor {
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 17px 0 0 17px;
-  background: linear-gradient(180deg, var(--color-alive), var(--color-accent));
-  box-shadow: 0 0 16px var(--color-alive);
+  left: 50%;
+  bottom: -34px;
+  width: 460px;
+  height: 130px;
+  transform: translateX(-50%) translateZ(-160px);
+  background: radial-gradient(50% 50% at 50% 50%, rgba(52, 245, 163, 0.13), transparent 70%);
+  animation: floor-breathe 3.8s ease-in-out infinite;
   pointer-events: none;
 }
-/* 占位卡面：几道「示意条」，模拟卡片有内容但为空 */
-.c3.ghost::after {
-  content: '';
+@keyframes floor-breathe {
+  0%, 100% { opacity: 0.5; transform: translateX(-50%) translateZ(-160px) scale(1); }
+  50%      { opacity: 1;    transform: translateX(-50%) translateZ(-160px) scale(1.08); }
+}
+
+.slot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 300px;
+  height: 420px;
+  margin: -210px 0 0 -150px;
+  border-radius: 22px;
+  border: 1px solid var(--color-line-hair);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 26px 60px -26px rgba(0, 8, 16, 0.7);
+  pointer-events: none;
+}
+.slot.s1 { transform: translateZ(-90px) rotateX(12deg) translateY(52px); opacity: 0.38; }
+.slot.s2 { transform: translateZ(-40px) rotateX(7deg) translateY(26px); opacity: 0.62; }
+.slot.top {
+  transform: translateZ(30px) rotateX(2deg);
+  border-color: rgba(52, 245, 163, 0.34);
+  background: linear-gradient(160deg, rgba(52, 245, 163, 0.07), rgba(255, 255, 255, 0.02) 58%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(52, 245, 163, 0.16),
+    0 0 64px -8px rgba(52, 245, 163, 0.38),
+    0 30px 70px -26px rgba(0, 8, 16, 0.8);
+  animation: slot-float 4.6s ease-in-out infinite;
+}
+@keyframes slot-float {
+  0%, 100% { transform: translateZ(30px) rotateX(2deg); }
+  50%      { transform: translateZ(46px) rotateX(2deg); }
+}
+
+/* 上沿发光边 */
+.slot .rim {
+  position: absolute;
+  top: -1px;
+  left: 20px;
+  right: 20px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(52, 245, 163, 0.85), transparent);
+  animation: rim-glow 2.8s ease-in-out infinite;
+}
+@keyframes rim-glow {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
+/* 等待光柱 */
+.slot .beam {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 2px;
+  height: 96px;
+  margin-left: -1px;
+  background: linear-gradient(transparent, rgba(52, 245, 163, 0.8));
+  border-radius: 2px;
+  animation: beam-rise 2.4s ease-in-out infinite;
+}
+@keyframes beam-rise {
+  0%, 100% { opacity: 0.25; transform: scaleY(0.72); transform-origin: bottom; }
+  50%      { opacity: 1;    transform: scaleY(1);    transform-origin: bottom; }
+}
+
+/* 顶部标签 */
+.slot .slot-tag {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 9.5px/1 var(--font-mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+}
+.slot .slot-tag i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-alive);
+  box-shadow: 0 0 6px var(--color-alive);
+  animation: led-pulse 2.4s ease-in-out infinite;
+}
+
+/* 虚线投放区 */
+.slot .drop {
   position: absolute;
   left: 22px;
   right: 22px;
-  top: 16px;
-  bottom: 16px;
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0 65%, transparent 65%) top 0 / 100% 12px no-repeat,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 42%, transparent 42%) top 24px / 100% 7px no-repeat,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 100%, transparent 100%) top 40px / 100% 7px no-repeat;
-  pointer-events: none;
+  top: 58px;
+  bottom: 78px;
+  border: 1.5px dashed rgba(52, 245, 163, 0.3);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(52, 245, 163, 0.025);
 }
-/* 聚焦占位卡：呼吸辉光，暗示「等待一张卡立起来」 */
-.c3.ghost.is-active {
-  animation: ghost-breath 4.5s ease-in-out infinite;
+.drop-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(52, 245, 163, 0.38);
+  background: rgba(52, 245, 163, 0.06);
+  display: grid;
+  place-items: center;
+  color: var(--color-alive);
 }
-@keyframes ghost-breath {
-  0%, 100% {
-    border-color: color-mix(in srgb, var(--color-alive) 30%, rgba(255, 255, 255, 0.1));
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-alive) 24%, transparent),
-      0 26px 68px -18px rgba(8, 16, 16, 0.82),
-      0 0 44px -6px color-mix(in srgb, var(--color-alive) 45%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  }
-  50% {
-    border-color: color-mix(in srgb, var(--color-alive) 50%, rgba(255, 255, 255, 0.1));
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-alive) 40%, transparent),
-      0 26px 68px -18px rgba(8, 16, 16, 0.82),
-      0 0 70px -4px color-mix(in srgb, var(--color-alive) 70%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  }
+.drop-icon svg { width: 22px; height: 22px; }
+.drop-t { font-size: 16px; font-weight: 600; color: var(--color-ink); letter-spacing: 0.02em; }
+.drop-s { font-size: 11px; color: var(--color-ink-3); font-family: var(--font-mono); letter-spacing: 0.06em; }
+
+/* 空态卡槽交互：hover 预亮 + 拖放热区（hot）——「把今天的事丢进来」是真可点的 */
+.slot.top { cursor: pointer; pointer-events: auto; transition: border-color 0.3s, box-shadow 0.3s, background 0.3s; }
+.slot.top:hover {
+  border-color: rgba(52, 245, 163, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(52, 245, 163, 0.24),
+    0 0 84px -8px rgba(52, 245, 163, 0.5),
+    0 30px 70px -26px rgba(0, 8, 16, 0.8);
+}
+.slot.top .drop { transition: border-color 0.3s, background 0.3s, box-shadow 0.3s; }
+.slot.top:hover .drop {
+  border-color: rgba(52, 245, 163, 0.55);
+  background: rgba(52, 245, 163, 0.06);
+  box-shadow: inset 0 0 24px rgba(52, 245, 163, 0.08);
+}
+.slot.top .drop-icon { transition: transform 0.3s var(--ease-out-expo), border-color 0.3s, box-shadow 0.3s; }
+.slot.top:hover .drop-icon { transform: translateY(-2px) scale(1.07); }
+.slot.top:focus-visible { outline: 2px solid rgba(52, 245, 163, 0.6); outline-offset: 3px; }
+.slot.top.hot {
+  border-color: rgba(52, 245, 163, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 2px rgba(52, 245, 163, 0.3),
+    0 0 110px -6px rgba(52, 245, 163, 0.6),
+    0 30px 70px -26px rgba(0, 8, 16, 0.8);
+}
+.slot.top.hot .drop {
+  border-color: rgba(52, 245, 163, 0.85);
+  background: rgba(52, 245, 163, 0.09);
+  box-shadow: inset 0 0 32px rgba(52, 245, 163, 0.14);
+}
+.slot.top.hot .drop-icon {
+  transform: translateY(-2px) scale(1.12);
+  border-color: var(--color-alive);
+  animation: drop-ready 1.1s ease-in-out infinite;
+}
+@keyframes drop-ready {
+  0%, 100% { box-shadow: 0 0 12px rgba(52, 245, 163, 0.3); }
+  50%      { box-shadow: 0 0 26px rgba(52, 245, 163, 0.6); }
 }
 
-/* 空态说明文字：纯文字 + 按钮，无背景板，漂浮在 3D 卡堆下方 */
+/* 空态说明文字：纯文字 + 双按钮，无背景板，漂浮在 3D 卡槽下方 */
 .de-overlay {
   position: absolute;
   left: 50%;
-  bottom: 8%;
+  bottom: 6%;
   transform: translateX(-50%);
   z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   text-align: center;
   pointer-events: none;
   width: max-content;
@@ -830,15 +1041,11 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: var(--color-alive);
   box-shadow: 0 0 12px var(--color-alive);
-  animation: ghost-led 3s ease-in-out infinite;
-}
-@keyframes ghost-led {
-  0%, 100% { opacity: 0.4; transform: scale(0.85); }
-  50%      { opacity: 1;   transform: scale(1.15); }
+  animation: led-pulse 3s ease-in-out infinite;
 }
 .de-t {
   font-family: var(--font-display);
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--color-ink);
@@ -847,25 +1054,51 @@ onBeforeUnmount(() => {
 .de-s {
   font-size: 12.5px;
   color: var(--color-ink-2);
-  margin-bottom: 2px;
+}
+.de-s b { color: var(--color-ink); font-weight: 600; }
+.de-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
 }
 .de-overlay .gbtn {
   pointer-events: auto;
-  padding: 9px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 18px;
   border-radius: 10px;
   cursor: pointer;
   font: 600 12px/1 var(--font-mono);
+  border: 1px solid transparent;
+  transition: filter 0.2s, box-shadow 0.2s, transform 0.12s, color 0.2s, background 0.2s, border-color 0.2s;
+}
+.de-overlay .gbtn.primary {
   color: var(--color-accent-contrast);
   background: linear-gradient(180deg, var(--color-accent-strong), var(--color-accent));
-  border: 1px solid transparent;
   box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--color-accent) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  transition: filter 0.2s, box-shadow 0.2s, transform 0.12s;
 }
-.de-overlay .gbtn:hover {
+.de-overlay .gbtn.primary:hover {
   filter: brightness(1.08);
   box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--color-accent) 80%, transparent), 0 0 18px -4px color-mix(in srgb, var(--color-accent) 60%, transparent);
 }
+.de-overlay .gbtn.ghost {
+  color: var(--color-ink-2);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-line);
+  box-shadow: none;
+}
+.de-overlay .gbtn.ghost:hover {
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.09);
+}
 .de-overlay .gbtn:active { transform: scale(0.97); }
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
 
 @keyframes deck-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
@@ -883,5 +1116,6 @@ onBeforeUnmount(() => {
   .c3 .focus::before { animation: none; }
   .c3 .ai .h .d { animation: none; }
   .hh-prog, .hh-tick, .hh-mk, .hh-mk-h, .sat { transition: none; }
+  .floor, .slot.top, .slot .rim, .slot .beam, .slot .slot-tag i, .slot.top.hot .drop-icon, .de-led { animation: none; }
 }
 </style>
