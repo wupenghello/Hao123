@@ -43,3 +43,7 @@ promptfoo_results*
 # OPRO 自动优化产物（每次跑 eval:optimize 结果不同，可随时再生）
 eval/prompts/briefing.system.opro.txt
 .promptfoo/
+
+# 开发副产物（预览截图、拖放测试夹具、方案对比 mockup）
+.preview-*
+mockups/
