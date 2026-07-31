@@ -8,15 +8,13 @@
  *   底部发光 dock（Dock，合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条）。
  * 旧六卡 bento / 顶 WbscfServicesCard / 左 NavRail / 左数据柱全部移除——视觉零继承旧设计。
  */
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useWeatherStore } from '@/features/weather'
 import { useTaskStore, useBugStore } from '@/features/zentao'
 import { isUrgentTask, isUrgentBug } from '@/features/zentao/shared/ui'
 import { useLocalTaskStore, isUrgentLocalTask } from '@/features/local-tasks'
-import { setLocalStorageItem } from '@/features/storage-health'
 import InboxDeck from '@/components/InboxDeck.vue'
 import Dock from '@/components/Dock.vue'
-import OnboardingGuide from '@/components/OnboardingGuide.vue'
 
 const weather = useWeatherStore()
 const taskStore = useTaskStore()
@@ -65,18 +63,6 @@ const hasUrgentItems = computed(() =>
   bugStore.assigned.some((b) => isUrgentBug(b)) ||
   localStore.open.some((t) => isUrgentLocalTask(t)),
 )
-
-// 首次访问引导
-const isFirstVisit = ref(false)
-const showOnboarding = ref(false)
-onMounted(() => {
-  isFirstVisit.value = !localStorage.getItem('hao123-onboarding-done')
-})
-function finishOnboarding() {
-  setLocalStorageItem('hao123-onboarding-done', '1')
-  showOnboarding.value = false
-  isFirstVisit.value = false
-}
 </script>
 
 <template>
@@ -101,17 +87,6 @@ function finishOnboarding() {
 
     <!-- 底部发光 dock：合并原左 icon 栏 + 顶 dev 导航 + 顶 dev 服务条 -->
     <Dock />
-
-    <!-- 首次访问引导 + 入口 -->
-    <OnboardingGuide v-if="showOnboarding" @done="finishOnboarding" />
-    <button
-      v-if="isFirstVisit && !showOnboarding"
-      type="button"
-      class="home-onboard"
-      @click="showOnboarding = true"
-    >
-      <span class="ho-led" aria-hidden="true" />快速设置
-    </button>
   </div>
 </template>
 
@@ -217,21 +192,6 @@ function finishOnboarding() {
 }
 .home-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 
-/* 首次访问入口 */
-.home-onboard {
-  position: fixed; right: 22px; bottom: 22px; z-index: 40;
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 38px; padding: 0 14px; border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 16%, rgba(8, 13, 22, 0.84)), rgba(8, 13, 22, 0.72));
-  color: var(--color-ink); font-size: 13px; font-weight: 600; cursor: pointer;
-  box-shadow: 0 14px 36px -12px color-mix(in srgb, var(--color-accent) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  -webkit-backdrop-filter: blur(12px) saturate(130%); backdrop-filter: blur(12px) saturate(130%);
-  transition: transform 0.18s var(--ease-out-expo), border-color 0.18s;
-}
-.home-onboard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--color-accent) 52%, transparent); }
-.ho-led { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); }
-
 @media (max-width: 980px) {
   .home { padding-bottom: 104px; overflow-y: auto; } /* 窄屏堆叠布局内容必超视口，退回容器内滚动 */
   .home-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; min-height: 100%; }
@@ -240,6 +200,6 @@ function finishOnboarding() {
 @media (prefers-reduced-motion: reduce) {
   .ht-urg { animation: none; }
   .home::after { animation: none; }
-  .lt, .home-onboard { transition: none; }
+  .lt { transition: none; }
 }
 </style>
