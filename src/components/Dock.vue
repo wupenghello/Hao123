@@ -3,7 +3,7 @@
  * Dock —— 底部「码头」导航：把原左 icon 栏 + 顶栏 dev 导航 + 顶 dev 服务条
  * 三处冗余合并为单一发光 dock（macOS 式 magnify + 向上飞出环境菜单）。
  *
- * 数据源 nav-items.ts（唯一）；wbscf 本地启动复用 useWbscfServices。
+ * 数据源 nav-items.ts（唯一）；wbscf 本地启动 / 停止复用 useWbscfServices。
  * 门控：仅 dev + 配置了 wbscf-web 根目录时实例化轮询 composable，
  * 否则生产/未配置不空轮询 /wbscf/services（条件稳定，composable 不挂载即无副作用）。
  */
@@ -13,6 +13,7 @@ import { useWbscfServices, wbscfServices } from '@/features/wbscf'
 import IconPlay from '~icons/mdi/play-circle-outline'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
+import IconStop from '~icons/mdi/stop-circle-outline'
 
 const devEnabled = import.meta.env.DEV && !!import.meta.env.VITE_WBSCF_WEB_ROOT?.trim()
 // 条件在组件生命周期内恒定 → 不会触发 hook 顺序问题；未启用时不实例化、不轮询
@@ -60,6 +61,15 @@ function localTitle(app?: string): string {
 }
 function onLocalClick(app?: string): void {
   if (devEnabled && app) wbscf?.startOrOpen(app)
+  closeMenu()
+}
+/** 可停止：运行中 / 启动中即可停（ours 杀进程树；外部启动的按端口杀，composable 停前二次确认） */
+function canStop(app?: string): boolean {
+  const st = app ? statusOf(app) : undefined
+  return !!st && (st.running || st.booting)
+}
+function onStopClick(app?: string): void {
+  if (devEnabled && app) void wbscf?.stopService(app)
   closeMenu()
 }
 function hasMenu(item: NavItem): boolean {
@@ -123,6 +133,17 @@ function hasMenu(item: NavItem): boolean {
             <IconPlay v-else class="dk-ei dim" />
             <span class="dk-host">localhost:{{ portOf(item.local) }}</span>
             <span v-if="isBooting(item.local)" class="dk-state">启动中…</span>
+          </button>
+          <button
+            v-if="canStop(item.local)"
+            type="button"
+            class="dk-env dk-stop"
+            title="停止本地服务（外部启动的需确认）"
+            role="menuitem"
+            @click="onStopClick(item.local)"
+          >
+            <IconStop class="dk-ei stop" />
+            <span class="dk-host">停止服务</span>
           </button>
           <div v-if="showLocal(item.local)" class="dk-sep" aria-hidden="true" />
           <template v-for="(g, gi) in envGroupsOf(item)" :key="g.label ?? `g-${gi}`">
@@ -265,6 +286,7 @@ function hasMenu(item: NavItem): boolean {
 .dk-ei.dim { color: var(--color-ink-3); }
 .dk-ei.run { color: var(--color-alive); }
 .dk-ei.boot { color: var(--color-warning); }
+.dk-ei.stop { color: var(--color-danger); }
 .dk-spin, .spin { animation: dk-spin 0.9s linear infinite; }
 @keyframes dk-spin { to { transform: rotate(360deg); } }
 .dk-local {
@@ -274,6 +296,8 @@ function hasMenu(item: NavItem): boolean {
 .dk-local:hover, .dk-env:hover { background: rgba(255, 255, 255, 0.08); color: var(--color-ink); }
 .dk-local.is-run { background: color-mix(in srgb, var(--color-alive) 12%, transparent); color: var(--color-alive); }
 .dk-local.is-boot { color: var(--color-warning); }
+/* 停止入口：danger 色表「破坏性」动作，与环境链接的默认墨色区分；hover 才着色，不喧宾夺主 */
+.dk-stop:hover { background: color-mix(in srgb, var(--color-danger) 15%, transparent); color: var(--color-danger); }
 .dk-host { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dk-state { color: var(--color-warning); font-size: 11px; white-space: nowrap; }
 .dk-grp { padding: 7px 10px 4px; font-size: 11px; font-weight: 600; color: color-mix(in srgb, var(--color-accent) 72%, transparent); white-space: nowrap; }

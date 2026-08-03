@@ -17,7 +17,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useFeedback } from '@/features/feedback'
 import type { WbscfServiceStatus } from './types'
-import { fetchWbscfReady, fetchWbscfServices, wbscfLaunchUrl } from './api'
+import { fetchWbscfReady, fetchWbscfServices, stopWbscfService, wbscfLaunchUrl } from './api'
 import { wbscfServices } from './config'
 import { LAUNCH_TIMEOUT_MS } from './llm-tools'
 
@@ -146,6 +146,62 @@ export function useWbscfServices() {
     void refresh()
   }
 
+  /** 停止本地 dev 服务（dev server 杀进程树 / 按端口杀占用进程，释放端口）：
+   *  ours 直接杀；外部启动的先二次确认（杀的不是工作台起的进程，属破坏性操作）再按端口杀。
+   *  停掉 → success 反馈；本来没跑 → 静默刷新状态。 */
+  async function stopService(app: string): Promise<void> {
+    const def = defOf(app)
+    if (!def) return
+    // 外部启动的服务：进程不是工作台起的，杀前确认，避免误杀用户自己终端里的进程
+    const st = statusOf(app)
+    if (st && !st.ours) {
+      const ok = await feedback.confirm({
+        tone: 'warning',
+        title: `停止 ${def.label}？`,
+        message: `localhost:${def.port} 不是工作台启动的，停止将结束占用该端口的进程。`,
+        confirmLabel: '停止',
+      })
+      if (!ok) return
+    }
+    // 用户主动停止：先掐掉该 app 的「启动中」快轮询与反馈，
+    // 避免停止之后启动 toast 又翻成「已就绪」。
+    stopLaunchPoll(app)
+    const startingId = launchFeedbackIds.get(app)
+    if (startingId) {
+      feedback.dismissToast(startingId)
+      launchFeedbackIds.delete(app)
+    }
+    try {
+      const resp = await stopWbscfService(app)
+      // 响应自带最新全量状态，直接更新，省一轮往返、入口色翻得更快
+      services.value = resp.services
+      if (resp.stopped) {
+        feedback.notify({
+          tone: 'success',
+          title: `${def.label} 已停止`,
+          message: `localhost:${def.port} 本地 dev 服务已关闭`,
+          duration: READY_DISMISS_MS,
+        })
+      } else if (resp.reason === 'external') {
+        feedback.notify({
+          tone: 'warning',
+          title: `停止 ${def.label} 失败`,
+          message: `localhost:${def.port} 由外部启动且定位不到占用进程，请到对应终端手动停止。`,
+          duration: READY_DISMISS_MS * 2,
+        })
+      }
+      // reason === 'not_running'：本来没在跑，无需提示
+    } catch {
+      feedback.notify({
+        tone: 'danger',
+        title: `停止 ${def.label} 失败`,
+        message: '/wbscf/stop 端点未响应，请检查 TodayOps dev 终端。',
+        duration: READY_DISMISS_MS * 2,
+      })
+    }
+    void refresh()
+  }
+
   function statusOf(app: string | undefined): WbscfServiceStatus | undefined {
     return app ? services.value.find((s) => s.app === app) : undefined
   }
@@ -183,5 +239,5 @@ export function useWbscfServices() {
     document.removeEventListener('visibilitychange', onVisibility)
   })
 
-  return { services, refresh, startOrOpen, statusOf }
+  return { services, refresh, startOrOpen, stopService, statusOf }
 }

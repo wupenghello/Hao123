@@ -114,14 +114,15 @@ App.vue (router-view)
 |---|---|
 | `config.ts` | 静态注册表 `wbscfServices`：app（account/buyer/seller/ops/erp）→ { label, script, port, base, url }；端口取自各 app 的 `apps/<app>/.env.development` 的 `VITE_PORT`（5661/5662/5663/5660/5668），前后端共用。刻意不读 `import.meta.env`（被根目录 Node 插件直接 import，env 读取放客户端 tools.ts） |
 | `types.ts` | `WbscfServiceStatus`（available/running/booting）+ `WbscfServicesResponse` 契约 |
-| `api.ts` | 浏览器侧 `fetchWbscfServices`（拉状态，非 2xx 抛错）+ `triggerWbscfLaunch`（`?json=1` 触发拉起并返回 JSON，供无手势的 LLM 路径）+ `wbscfLaunchUrl`（点击路径用：已在运行返回应用 URL，否则返回中转页地址） |
+| `api.ts` | 浏览器侧 `fetchWbscfServices`（拉状态，非 2xx 抛错）+ `triggerWbscfLaunch`（`?json=1` 触发拉起并返回 JSON，供无手势的 LLM 路径）+ `wbscfLaunchUrl`（点击路径用：已在运行返回应用 URL，否则返回中转页地址）+ `stopWbscfService`（停止服务：ours 杀进程树，外部启动的按端口杀占用进程） |
 | `composable.ts` | `useWbscfServices`：响应式 `services` + 自驱递归轮询（4s，切后台暂停；失败保留旧状态不清空）+ `startOrOpen`（点击手势内 `window.open`）+ `statusOf` + 启动 toast（`toasts` / `startLaunchPoll` / `closeToast`，1.2s 自驱轮询、就绪转绿自动消失、卸载清理全部定时器） |
-| `llm-tools.ts` | LLM 工具层 `wbscfToolDefs` + `callWbscfTool`（`wbscf.services` 查状态 / `wbscf.launch` 启动——后者长轮询可被 chat store 的 AbortSignal 中断；生产 404 降级为 `{enabled:false}`） |
+| `llm-tools.ts` | LLM 工具层 `wbscfToolDefs` + `callWbscfTool`（`wbscf.services` 查状态 / `wbscf.launch` 启动 / `wbscf.stop` 停止——启动长轮询可被 chat store 的 AbortSignal 中断；生产 404 降级为 `{enabled:false}`） |
 
 浏览器无法 spawn 进程，真正的拉起 / 探测由根目录 **`vite-plugin-wbscf.ts`**（dev server Node 侧，同 `vite-plugin-kb.ts` 模式）承担，`configureServer` 挂中间件：
 
 - `GET /wbscf/services`：读 `wbscf-web/package.json` 校验 `dev:*` 脚本是否存在（`available`），HTTP 探测 `localhost:port`（任意响应即视为就绪，`running`；探测结果 ~600ms 短缓存，避免多路轮询全量重复探测），综合返回 `{ enabled, root, services[] }`；
 - `GET /wbscf/launch?app=<app>`：`ensureStarted` 幂等拉起（本插件已拉起 / 外部已在运行 / 脚本不存在 / 根未配置 都不重复拉）后——`?json=1` 返回 JSON 状态（LLM/无手势路径），否则返回「拉起 + 等端口就绪 + `location.replace` 跳转」的中转 HTML（带硬墙钟超时，连接挂起也能到点报错；供前端点击 `window.open`）；
+- `GET /wbscf/stop?app=<app>`：停止服务——本插件拉起的 killTree 杀进程树，外部启动的按端口定位占用进程并结束（前端先二次确认），探测缓存即刻失效；定位不到 PID 返回 `stopped:false` + `reason:'external'`；
 - 拉起用 `VITE_WBSCF_PKG_MGR`（默认 `pnpm`）执行 `run <script>`，cwd=wbscf-web 根，stdio 继承到 TodayOps dev 终端；进程同时监听 `exit` 与 `error`（spawn 失败也复位 state，避免永久卡「启动中」）；TodayOps dev server 退出（含 SIGINT/SIGTERM）时连带收掉拉起的子进程树（Windows `taskkill /T /F`，非 Windows 杀进程组），避免孤儿 dev server。
 
 **仅 dev 生效**；是否把 wbscf 工具暴露给模型由 `chat/tools.ts` 的 `wbscfEnabled`（dev 且配了 `VITE_WBSCF_WEB_ROOT`）门控（对齐 `kbEnabled` 约定）——生产或未配置时不暴露工具、system prompt 也不宣称该能力。**环境变量：** `.env` 配 `VITE_WBSCF_WEB_ROOT`（wbscf-web 根目录，Windows 用正斜杠）+ 可选 `VITE_WBSCF_PKG_MGR`；改动后需重启 dev。未配置时入口隐藏，dev/test/pre 不受影响。`StatusNav.vue` 的 `navItems` 前 5 项带 `local`（app key）即自动渲染该入口。

@@ -1,8 +1,8 @@
 /**
  * wbscf-web 本地 dev 服务 · LLM 工具层（function-calling / tool-use）
  *
- * 与天气 / 禅道 / 知识库 / 本地待办工具层同构（复用 LlmToolDef 接口），把「查询 / 启动本地 dev 服务」
- * 以工具形式暴露给小吴：查状态、按需拉起。
+ * 与天气 / 禅道 / 知识库 / 本地待办工具层同构（复用 LlmToolDef 接口），把「查询 / 启动 / 停止本地 dev 服务」
+ * 以工具形式暴露给小吴：查状态、按需拉起、停止本工作台拉起的进程。
  *
  * 拉起与状态栏点击走同一条路径——dev server 的 /wbscf/launch（ensureStarted 幂等）：
  *   - 点击：在用户手势内 window.open 打开中转页（HTML，端口就绪后自动跳转到应用）；
@@ -13,8 +13,8 @@
  * 模型据此说明「当前不可用」而非收到一条报错。
  */
 import type { LlmToolDef, LlmTool } from '@/features/chat/llm/types'
-import { fetchWbscfReady, fetchWbscfServices, triggerWbscfLaunch } from './api'
-import type { WbscfServicesResponse } from './types'
+import { fetchWbscfReady, fetchWbscfServices, stopWbscfService, triggerWbscfLaunch } from './api'
+import type { WbscfServicesResponse, WbscfStopResponse } from './types'
 
 /** fetchWbscfServices 在生产（无 dev server，/wbscf/services 404）会抛错；
  *  统一降级为 { enabled:false }，让工具返回「当前不可用」而非 { error }。 */
@@ -36,6 +36,7 @@ interface ServiceStateItem {
   available: boolean
   running: boolean
   booting: boolean
+  ours: boolean
 }
 
 /** 从全量响应里取（过滤后的）精简服务列表；enabled:false 时返回 [] */
@@ -52,6 +53,7 @@ function pickServices(resp: WbscfServicesResp, app?: string): ServiceStateItem[]
       available: s.available,
       running: s.running,
       booting: s.booting,
+      ours: s.ours,
     }))
 }
 
@@ -63,7 +65,7 @@ const statusTool: LlmTool<{ app?: string }, unknown> = {
   name: 'wbscf.services',
   description:
     '查询 wbscf-web 代码库各子应用（账号中心 account / 买家中心 buyer / 卖家中心 seller / 运营管理 ops / ERP erp）的本地 dev 服务运行状态，' +
-    '返回每个服务的端口、本地访问地址、是否在运行（running）、是否启动中（booting）。' +
+    '返回每个服务的端口、本地访问地址、是否在运行（running）、是否启动中（booting）、是否由本工作台拉起（ours，仅 ours 可被停止）。' +
     '【适用】用户问本地服务相关——「account 起没起」「erp 在不在跑」「哪些本地服务开着」「本地访问地址是多少」等。' +
     '只读查询，不改变状态。生产环境无 dev server 时返回 enabled=false。',
   parameters: {
@@ -199,8 +201,87 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/** 停止确认轮询间隔（比启动短：killTree 是同步杀进程，端口通常秒级释放） */
+const STOP_POLL_MS = 800
+/** 停止确认轮询上限：不恋战，超时后如实回报，剩余交给下一次状态查询 */
+const STOP_TIMEOUT_MS = 8000
+
+/**
+ * 3. 停止 wbscf-web 某子应用的本地 dev 服务
+ * 本工作台拉起的杀进程树；外部启动的按端口定位占用进程并结束——工具路径没有确认弹窗，
+ * 模型须先向用户确认再调用（描述里已写明）。
+ */
+const stopTool: LlmTool<{ app: string }, unknown> = {
+  name: 'wbscf.stop',
+  description:
+    '停止 wbscf-web 某个子应用（account / buyer / seller / ops / erp）由本工作台拉起的本地 dev 服务，杀进程树并释放端口。' +
+    '工作台拉起的服务直接杀进程树；外部启动的服务（ours=false 表示外部启动）会按端口定位占用进程并结束——调用前必须先向用户确认。' +
+    '【适用】用户说「把 account 停了」「关掉 erp 本地服务」「把你刚才起的那个本地服务关掉」等。' +
+    '【不适用】只查状态用 wbscf.services；启动用 wbscf.launch。',
+  parameters: {
+    type: 'object',
+    properties: {
+      app: {
+        type: 'string',
+        description: '要停止的子应用（account / buyer / seller / ops / erp）',
+        enum: ['account', 'buyer', 'seller', 'ops', 'erp'],
+      },
+    },
+    required: ['app'],
+  },
+  async execute({ app }) {
+    let resp = await safeFetchServices()
+    if (!resp.enabled) {
+      return {
+        enabled: false,
+        note: '未配置 wbscf-web 代码库（VITE_WBSCF_WEB_ROOT），或当前无 dev server（生产环境）。',
+      }
+    }
+    const cur = pickServices(resp, app)[0]
+    if (!cur) return { enabled: true, action: 'unknown', note: `未知子应用：${app}` }
+    if (!cur.running && !cur.booting) {
+      return { enabled: true, action: 'not_running', note: `${cur.label} 本地服务没在运行，无需停止。`, ...cur }
+    }
+    // 外部启动（ours=false）的服务：工具路径没有确认弹窗，模型须先征得用户同意（见描述）
+    let sr: WbscfStopResponse
+    try {
+      sr = await stopWbscfService(app)
+    } catch (e) {
+      return { enabled: true, action: 'failed', note: `停止失败：${(e as Error)?.message || e}`, ...cur }
+    }
+    if (!sr.stopped) {
+      return {
+        enabled: true,
+        action: 'failed',
+        note: sr.reason === 'external'
+          ? `${cur.label} 本地服务（localhost:${cur.port}）由外部启动且定位不到占用进程，请告知用户到对应终端手动停止。`
+          : `${cur.label} 本地服务没在运行，无需停止。`,
+        ...cur,
+      }
+    }
+    // 短轮询确认端口确实释放（killTree 是同步杀，但 OS 释放端口可能滞后几百毫秒）
+    const deadline = Date.now() + STOP_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, STOP_POLL_MS))
+      resp = await safeFetchServices()
+      if (resp.enabled) {
+        const s = pickServices(resp, app)[0]
+        if (s && !s.running && !s.booting) {
+          return { enabled: true, action: 'stopped', note: `${cur.label} 本地 dev 服务已停止${sr.external ? '（外部启动，已按端口结束占用进程）' : ''}（localhost:${cur.port}）。`, ...s }
+        }
+      }
+    }
+    return {
+      enabled: true,
+      action: 'stopped',
+      note: `${cur.label} 进程已杀，但 localhost:${cur.port} 仍有响应，可能有其他进程占用该端口，建议用户核实。`,
+      ...cur,
+    }
+  },
+}
+
 /** 全部 wbscf 工具 */
-export const wbscfTools: LlmTool[] = [statusTool, launchTool]
+export const wbscfTools: LlmTool[] = [statusTool, launchTool, stopTool]
 
 /** 喂给 LLM 的工具声明（剥离 execute，可直接序列化） */
 export const wbscfToolDefs: LlmToolDef[] = wbscfTools.map(({ name, description, parameters }) => ({

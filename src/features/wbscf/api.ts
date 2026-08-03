@@ -2,7 +2,7 @@
  * wbscf-web 本地 dev 服务 · 浏览器侧 HTTP 客户端
  *
  * 浏览器无法直接 spawn 子进程，故由 vite-plugin-wbscf 在 dev server（Node）暴露
- * /wbscf/* 中间件：探测 / 拉起 / 停止 wbscf-web 的 dev 脚本。这里只做状态拉取与拉起触发。
+ * /wbscf/* 中间件：探测 / 拉起 / 停止 wbscf-web 的 dev 脚本。这里只做状态拉取、拉起触发与停止请求。
  *
  * 启动有两条路径，都命中同一个中转端点 /wbscf/launch（dev server 侧 ensureStarted 幂等拉起）：
  *   - 用户点击：在点击手势内 window.open 打开中转页（HTML，会轮询端口就绪后自动跳转到应用），
@@ -12,7 +12,7 @@
  *
  * 生产构建无 dev server，端点 404 → 调用方 catch 后降级为「不展示 localhost 入口」。
  */
-import type { WbscfServicesResponse } from './types'
+import type { WbscfServicesResponse, WbscfStopResponse } from './types'
 
 const BASE = '/wbscf'
 
@@ -43,6 +43,20 @@ export async function triggerWbscfLaunch(app: string): Promise<WbscfServicesResp
   })
   if (!res.ok) throw new Error(`/wbscf/launch -> ${res.status}`)
   return (await res.json()) as WbscfServicesResponse
+}
+
+/**
+ * 停止由 dev server 拉起的本地 dev 服务（Node 侧杀进程树、释放端口）。
+ * 只停本工作台拉起的服务：外部启动的返回 stopped:false + reason:'external'，
+ * 由调用方提示用户手动关闭；reason:'not_running' 表示本来就没在运行。
+ * 非 2xx（未知 app / 无 dev server）抛错。
+ */
+export async function stopWbscfService(app: string): Promise<WbscfStopResponse> {
+  const res = await fetch(`${BASE}/stop?app=${encodeURIComponent(app)}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`/wbscf/stop -> ${res.status}`)
+  return (await res.json()) as WbscfStopResponse
 }
 
 /** 跳转前的重型 ready 探测：端口已 listen 后，再等首个 HTTP 响应完成。 */

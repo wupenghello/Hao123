@@ -7,7 +7,9 @@
  *   - 暴露中间件：
  *       GET /wbscf/services          全部服务的 available / running / booting 状态；
  *       GET /wbscf/launch?app=<app>  返回一个「拉起 + 等就绪 + 跳转」的中转 HTML 页
- *                                    （已在运行则不重复拉、直接等跳转），供 window.open 打开。
+ *                                    （已在运行则不重复拉、直接等跳转），供 window.open 打开；
+ *       GET /wbscf/stop?app=<app>    停止服务：本插件拉起的杀进程树，外部启动的
+ *                                    按端口定位占用进程并结束（前端先二次确认）。
  *   - 拉起用配置的包管理器（VITE_WBSCF_PKG_MGR，默认 pnpm）执行 `run <script>`，
  *     cwd=wbscf-web 根；stdio 继承到 TodayOps dev 终端，方便看 Vite 启动横幅与报错；
  *   - 「是否在运行」用 HTTP 探测 localhost:port（任意响应即视为就绪），既覆盖本插件拉起
@@ -77,6 +79,51 @@ function killTree(st: ProcState): void {
   } catch {
     /* 进程可能已自行退出，忽略 */
   }
+}
+
+/**
+ * 找监听指定端口的进程 PID（停外部启动的服务用：没有进程句柄，只能按端口定位）。
+ * Windows 解析 netstat -ano；POSIX 用 lsof -t。找不到返回 []。
+ */
+function pidsOnPort(port: number): number[] {
+  try {
+    if (process.platform === 'win32') {
+      const out = spawnSync('netstat', ['-ano', '-p', 'TCP'], { windowsHide: true, encoding: 'utf-8' }).stdout ?? ''
+      const pids = new Set<number>()
+      for (const line of out.split(/\r?\n/)) {
+        // 形如："  TCP    0.0.0.0:5661    0.0.0.0:0    LISTENING    12345"
+        const cols = line.trim().split(/\s+/)
+        if (cols.length >= 5 && cols[0] === 'TCP' && cols[3] === 'LISTENING' && cols[1].endsWith(`:${port}`)) {
+          const pid = Number(cols[4])
+          if (Number.isInteger(pid) && pid > 0) pids.add(pid)
+        }
+      }
+      return [...pids]
+    }
+    const out = spawnSync('lsof', ['-t', '-i', `TCP:${port}`, '-s', 'TCP:LISTEN'], { encoding: 'utf-8' }).stdout ?? ''
+    return out.split(/\s+/).map(Number).filter((n) => Number.isInteger(n) && n > 0)
+  } catch {
+    return []
+  }
+}
+
+/** 结束占用端口的进程树（外部启动的服务）。找不到 PID 返回 false。 */
+function killExternalByPort(port: number): boolean {
+  const pids = pidsOnPort(port)
+  if (!pids.length) return false
+  for (const pid of pids) {
+    try {
+      if (process.platform === 'win32') {
+        // /T 连带端口占用进程所属整棵树（外部终端起的 vite 可能带 turbo 等子进程）
+        spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
+      } else {
+        process.kill(pid, 'SIGTERM')
+      }
+    } catch {
+      /* 进程可能已退出 */
+    }
+  }
+  return true
 }
 
 function sendJson(res: ServerResponse, code: number, data: unknown): void {
@@ -188,6 +235,7 @@ export function wbscfPlugin(options: WbscfPluginOptions): Plugin {
           available: scripts.has(svc.script),
           running,
           booting: ours && !running,
+          ours,
         }
       }),
     )
@@ -408,6 +456,38 @@ setInterval(function(){if(!stopped)xhr();},1500);
             }
             res.setHeader('content-type', 'text/html; charset=utf-8')
             res.end(launcherHtml(svc))
+            return
+          }
+
+          if (pathname === '/wbscf/stop' && req.method === 'GET') {
+            const svc = wbscfServices.find((s) => s.app === app)
+            if (!svc) {
+              sendJson(res, 400, { error: 'unknown app' })
+              return
+            }
+            let stopped = false
+            let external = false
+            let reason: 'external' | 'not_running' | undefined
+            if (isOurs(svc.app)) {
+              const st = states.get(svc.app)
+              if (st) killTree(st)
+              states.set(svc.app, { proc: null, pid: null })
+              stopped = true
+            } else if (await probePort(svc.port)) {
+              // 外部终端启动的服务：没有进程句柄，按端口定位占用进程并结束（前端点击路径已二次确认）
+              external = true
+              stopped = killExternalByPort(svc.port)
+              if (!stopped) reason = 'external' // 定位不到 PID（罕见）：报不可停，提示手动
+            } else {
+              reason = 'not_running'
+            }
+            if (stopped) {
+              // 探测缓存即刻标记已停：不必等最长 4s 缓存过期入口色才翻回去；
+              // 即使 OS 端口尚未完全释放，下一轮探测也会自校正为真实状态。
+              portProbeCache.set(svc.app, { running: false, at: Date.now() })
+              readyProbeCache.set(svc.app, { ready: false, at: Date.now() })
+            }
+            sendJson(res, 200, { stopped, external, reason, ...(await buildStatus()) })
             return
           }
 

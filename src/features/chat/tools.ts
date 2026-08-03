@@ -111,6 +111,7 @@ const TOOL_LABELS: Record<string, string> = {
   'local__delete': '删除本地待办',
   'wbscf__services': '查询本地服务状态',
   'wbscf__launch': '启动本地服务',
+  'wbscf__stop': '停止本地服务',
   'git__status': '查询 Git 仓库状态',
   'git__log': '查看 Git 提交日志',
   'git__show': '查看 commit 改动',

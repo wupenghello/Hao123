@@ -23,6 +23,8 @@ export interface WbscfServiceStatus {
   running: boolean
   /** 已由本插件拉起但端口尚未就绪（启动中） */
   booting: boolean
+  /** 进程是否由本 dev server 拉起（仅此部分可经 /wbscf/stop 停止；外部启动的只能打开） */
+  ours: boolean
 }
 
 /** GET /wbscf/services 响应 */
@@ -33,4 +35,14 @@ export interface WbscfServicesResponse {
   root: string
   /** 各子应用的服务状态 */
   services: WbscfServiceStatus[]
+}
+
+/** GET /wbscf/stop 响应：停止结果 + 最新全量状态（services 可直接用于前端刷新） */
+export interface WbscfStopResponse extends WbscfServicesResponse {
+  /** 是否真正停掉了（本工作台拉起的杀进程树；外部启动的按端口杀占用进程） */
+  stopped: boolean
+  /** 停掉的对象是否为外部启动的服务（按端口定位并结束） */
+  external?: boolean
+  /** stopped=false 的原因：external = 外部启动且定位占用进程失败（请手动停）/ not_running = 本来就没在运行 */
+  reason?: 'external' | 'not_running'
 }
