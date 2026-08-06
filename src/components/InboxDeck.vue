@@ -43,8 +43,12 @@ const KIND_COLOR: Record<WorkItem['kind'], string> = {
   local: 'var(--color-accent)',
 }
 const STATUS_LABEL: Record<string, string> = {
-  doing: '进行中', wait: '待办', active: '进行中', open: '待办',
+  doing: '进行中', wait: '未开始', active: '进行中', open: '待办',
   done: '完成', resolved: '已解决', closed: '已关闭',
+}
+/** 禅道任务「已开工」判定：doing（进行中）/ pause（已暂停）视为已开始；wait 未开始、终态不标 */
+function isTaskStarted(status: string): boolean {
+  return status === 'doing' || status === 'pause'
 }
 const RANK: Record<RiskKey, number> = { overdue: 3, 'due-soon': 2, stalled: 1, ok: 0 }
 
@@ -64,6 +68,8 @@ interface DeckItem {
   riskLabel: string
   /** 卡片主题色（按来源区分），驱动 --rc */
   kindColor: string
+  /** 已开工（禅道任务 doing/pause）：卡片边条 / 辉光叠琥珀，与未开始区分 */
+  started: boolean
   why: string
   action: string
   filled: number
@@ -94,6 +100,7 @@ const deck = computed<DeckItem[]>(() => {
       riskColor: RISK[risk].c,
       riskLabel: RISK[risk].t,
       kindColor: KIND_COLOR[w.kind],
+      started: w.kind === 'task' && isTaskStarted(w.status),
       why: p?.why ?? '当前无逾期 / 临期 / 停滞信号，按既有节奏推进即可。',
       action: p?.action ?? `帮我看一下「${w.title}」接下来怎么安排最合适。`,
       filled: Math.max(1, Math.min(4, 5 - w.pri)),
@@ -114,8 +121,8 @@ const N = computed(() => deck.value.length)
 // 队列可视化主题（f/g/h/i/j），由状态栏的 <DeckThemeSwitch> 切换，默认「j 弧面副卡」
 const { current: theme } = useDeckTheme()
 
-// 传给 DeckViz 的归一化工作项（含标题，供 J 弧面副卡显示序号 + 标题）
-const vizItems = computed(() => deck.value.map((d) => ({ kind: d.kind, title: d.title })))
+// 传给 DeckViz 的归一化工作项（含标题，供 J 弧面副卡显示序号 + 标题；started 供节点区分已开工）
+const vizItems = computed(() => deck.value.map((d) => ({ kind: d.kind, title: d.title, started: d.started })))
 
 // ============ 环绕 HUD：大总数 / 风险概况 / 来源卫星（全部由 deck 派生，与卡堆天然同步） ============
 const SOURCE_META = [
@@ -174,6 +181,7 @@ function itemStyle(idx: number): CSSProperties {
   if (abs > 2) {
     return {
       '--rc': it.kindColor,
+      ...(it.started ? { '--rc2': 'var(--color-warning)' } : {}),
       opacity: 0,
       filter: 'blur(4px)',
       pointerEvents: 'none',
@@ -190,6 +198,7 @@ function itemStyle(idx: number): CSSProperties {
   const bl = off === 0 ? 0 : abs === 1 ? 0.6 : 1.6
   return {
     '--rc': it.kindColor,
+    ...(it.started ? { '--rc2': 'var(--color-warning)' } : {}),
     opacity: op,
     filter: `blur(${bl}px)`,
     pointerEvents: off === 0 ? 'default' : 'auto',
@@ -457,7 +466,7 @@ onBeforeUnmount(() => {
           v-for="(it, idx) in deck"
           :key="it.key"
           class="c3"
-          :class="{ 'is-active': idx === active }"
+          :class="{ 'is-active': idx === active, 'is-started': it.started }"
           :style="itemStyle(idx)"
           @click="onCardClick(idx)"
         >
@@ -470,6 +479,7 @@ onBeforeUnmount(() => {
               <i v-for="n in 4" :key="n" :class="{ lit: n <= it.filled }" />
             </span>
             <span class="pri">P{{ it.pri }} · {{ it.statusText }}</span>
+            <span v-if="it.started" class="started-dot" title="已开始">已开始</span>
           </div>
 
           <!-- 数据 + 真实操作：仅聚焦卡揭示 -->
@@ -477,7 +487,7 @@ onBeforeUnmount(() => {
             <div class="dl">
               <div class="r"><span>风险</span><b :style="{ color: it.riskColor }">{{ it.riskLabel }}</b></div>
               <div class="r"><span>截止</span><b>{{ it.deadline }}</b></div>
-              <div class="r"><span>状态</span><b>{{ it.statusText }}</b></div>
+              <div class="r"><span>状态</span><b :class="{ 'is-started': it.started }">{{ it.statusText }}<template v-if="it.started"> · 已开始</template></b></div>
             </div>
             <div class="ai">
               <div class="h"><span class="d" />小吴的判断</div>
@@ -675,6 +685,13 @@ onBeforeUnmount(() => {
   background: var(--rc, var(--color-steel));
   box-shadow: 0 0 16px var(--rc, var(--color-steel));
 }
+/* 已开工：左缘叠一条琥珀色段（渐变收尾，避免切平口），辉光同步叠加，与未开始的纯来源绿区分 */
+.c3.is-started .edge {
+  background:
+    linear-gradient(180deg, var(--rc2, var(--color-warning)) 0%, var(--rc2, var(--color-warning)) 62%, transparent 62%),
+    var(--rc, var(--color-steel));
+  box-shadow: 0 0 16px var(--rc, var(--color-steel)), 0 0 12px var(--rc2, var(--color-warning));
+}
 .c3 .tag {
   display: inline-flex; align-items: center; gap: 6px;
   font: 600 10px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
@@ -691,7 +708,28 @@ onBeforeUnmount(() => {
 .pri-meter { display: inline-flex; gap: 3px; }
 .pri-meter i { width: 14px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
 .pri-meter i.lit { background: var(--rc); box-shadow: 0 0 6px color-mix(in srgb, var(--rc) 50%, transparent); }
+/* 已开工：优先级计量条顶格一段转琥珀，与边条同语言 */
+.c3.is-started .pri-meter i.lit:first-child { background: var(--color-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 50%, transparent); }
 .c3 .pri { font: 600 10px/1 var(--font-mono); color: var(--color-ink-2); }
+/* 「已开始」状态点：琥珀 LED + 描边胶囊，与状态文字同色系 */
+.c3 .started-dot {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 9.5px/1 var(--font-mono); color: var(--color-warning);
+  padding: 3px 7px; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+.c3 .started-dot::before {
+  content: '';
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--color-warning);
+  box-shadow: 0 0 6px var(--color-warning);
+  animation: started-pulse 2.4s ease-in-out infinite;
+}
+@keyframes started-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
 .c3 .focus {
   position: absolute; right: 15px; top: 15px;
   display: inline-flex; align-items: center; gap: 5px;
@@ -715,6 +753,7 @@ onBeforeUnmount(() => {
 .c3 .dl { display: flex; flex-direction: column; gap: 6px; margin: 13px 0 2px; font-size: 11.5px; color: var(--color-ink-2); }
 .c3 .dl .r { display: flex; justify-content: space-between; gap: 10px; }
 .c3 .dl .r b { color: var(--color-ink); font-weight: 600; }
+.c3 .dl .r b.is-started { color: var(--color-warning); }
 .c3 .ai { margin-top: 11px; border-top: 1px solid var(--color-line); padding-top: 10px; }
 .c3 .ai .h {
   display: flex; align-items: center; gap: 6px;
@@ -750,6 +789,15 @@ onBeforeUnmount(() => {
     inset 0 1px 0 rgba(255, 255, 255, 0.32);
   animation: card-breath 3s ease-in-out infinite;
 }
+/* 已开工主角卡：辉光叠一层琥珀，绿→琥珀的双色呼吸 */
+.c3.is-active.is-started {
+  border-color: color-mix(in srgb, var(--rc) 34%, var(--color-warning) 26%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--rc) 38%, var(--color-warning) 24%, transparent),
+    0 30px 80px -20px rgba(0, 8, 16, 0.82),
+    0 0 64px -4px color-mix(in srgb, var(--rc) 40%, var(--color-warning) 26%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
 /* 主动态呼吸：闲置时辉光缓慢「充放」，给主角卡一个活着的心跳；
    与 deck-drift（12s）周期互质，避免形成可感知的拍频 */
 @keyframes card-breath {
@@ -765,6 +813,26 @@ onBeforeUnmount(() => {
       0 0 0 1px color-mix(in srgb, var(--rc) 44%, transparent),
       0 30px 80px -20px rgba(0, 8, 16, 0.82),
       0 0 72px -4px color-mix(in srgb, var(--rc) 70%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+}
+/* 已开工主角卡的呼吸：琥珀在辉光里浮动，与 card-breath 同频 */
+.c3.is-active.is-started {
+  animation-name: card-breath-started;
+}
+@keyframes card-breath-started {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rc) 38%, var(--color-warning) 24%, transparent),
+      0 30px 80px -20px rgba(0, 8, 16, 0.82),
+      0 0 54px -4px color-mix(in srgb, var(--rc) 38%, var(--color-warning) 24%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--rc) 38%, var(--color-warning) 24%, transparent),
+      0 30px 80px -20px rgba(0, 8, 16, 0.82),
+      0 0 80px -4px color-mix(in srgb, var(--rc) 46%, var(--color-warning) 42%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.32);
   }
 }
@@ -1115,6 +1183,7 @@ onBeforeUnmount(() => {
   .c3.is-active { animation: none; }
   .c3 .focus::before { animation: none; }
   .c3 .ai .h .d { animation: none; }
+  .c3 .started-dot::before { animation: none; }
   .hh-prog, .hh-tick, .hh-mk, .hh-mk-h, .sat { transition: none; }
   .floor, .slot.top, .slot .rim, .slot .beam, .slot .slot-tag i, .slot.top.hot .drop-icon, .de-led { animation: none; }
 }

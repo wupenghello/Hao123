@@ -15,7 +15,7 @@ import type { WorkItem } from '@/features/insights'
 import type { DeckThemeId } from '@/composables/useDeckTheme'
 
 interface Props {
-  items: { kind: WorkItem['kind']; title: string }[]
+  items: { kind: WorkItem['kind']; title: string; started?: boolean }[]
   active: number
   theme: DeckThemeId
 }
@@ -27,12 +27,15 @@ const KIND_COLOR: Record<WorkItem['kind'], string> = {
   bug: 'var(--color-danger)',
   local: 'var(--color-accent)',
 }
-const colorOf = (kind: WorkItem['kind']) => KIND_COLOR[kind]
+/** 节点色：已开工的禅道任务转琥珀（与卡片边条同语言），未开始 / Bug / 本地保持来源色 */
+const colorOf = (kind: WorkItem['kind'], started?: boolean) =>
+  started ? 'var(--color-warning)' : KIND_COLOR[kind]
 
 interface VizNode {
   i: number
   kind: WorkItem['kind']
   title: string
+  started?: boolean
   style: string
   cls: string
   h?: number
@@ -57,8 +60,9 @@ const nodes = computed<VizNode[]>(() => {
         i,
         kind: it.kind,
         title: it.title,
+        started: it.started,
         cls: cur ? 'bd cur' : i < active ? 'bd past' : 'bd',
-        style: `--bc:${colorOf(it.kind)};transform:rotateZ(${a.toFixed(1)}deg) translateX(360px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
+        style: `--bc:${colorOf(it.kind, it.started)};transform:rotateZ(${a.toFixed(1)}deg) translateX(360px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
       }
     })
   }
@@ -76,8 +80,9 @@ const nodes = computed<VizNode[]>(() => {
         i,
         kind: it.kind,
         title: it.title,
+        started: it.started,
         cls: cur ? 'bd cur' : i < active ? 'bd past' : 'bd',
-        style: `--bc:${colorOf(it.kind)};transform:rotateY(${deg}deg) translateZ(360px) translateY(${y}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
+        style: `--bc:${colorOf(it.kind, it.started)};transform:rotateY(${deg}deg) translateZ(360px) translateY(${y}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px)`,
       }
     })
   }
@@ -94,8 +99,9 @@ const nodes = computed<VizNode[]>(() => {
         i,
         kind: it.kind,
         title: it.title,
+        started: it.started,
         cls: i === 0 ? 'fr cur' : 'fr',
-        style: `--fc:${colorOf(it.kind)};width:${w}px;transform:translate(-50%,-50%) translateY(${(-i * 30)}px) translateZ(${(-i * 150)}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${50 - i}`,
+        style: `--fc:${colorOf(it.kind, it.started)};width:${w}px;transform:translate(-50%,-50%) translateY(${(-i * 30)}px) translateZ(${(-i * 150)}px);opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${50 - i}`,
       }
     })
   }
@@ -109,9 +115,10 @@ const nodes = computed<VizNode[]>(() => {
         i,
         kind: it.kind,
         title: it.title,
+        started: it.started,
         cls: i === active ? 'pw cur' : 'pw',
         h,
-        style: `--pc:${colorOf(it.kind)};transform:rotateY(${a.toFixed(1)}deg) translateZ(300px)`,
+        style: `--pc:${colorOf(it.kind, it.started)};transform:rotateY(${a.toFixed(1)}deg) translateZ(300px)`,
       }
     })
   }
@@ -134,8 +141,9 @@ const nodes = computed<VizNode[]>(() => {
       i,
       kind: it.kind,
       title: it.title,
+      started: it.started,
       cls: cur ? 'tl cur' : 'tl',
-      style: `--tc:${colorOf(it.kind)};transform:translate(-50%,-50%) translateX(${x.toFixed(0)}px) translateY(250px) translateZ(${z.toFixed(0)}px) rotateY(${ry.toFixed(1)}deg)${cur ? ' scale(1.18) translateY(-10px)' : ''};opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${70 - Math.abs(p) * 2}`,
+      style: `--tc:${colorOf(it.kind, it.started)};transform:translate(-50%,-50%) translateX(${x.toFixed(0)}px) translateY(250px) translateZ(${z.toFixed(0)}px) rotateY(${ry.toFixed(1)}deg)${cur ? ' scale(1.18) translateY(-10px)' : ''};opacity:${op.toFixed(3)};filter:blur(${bl.toFixed(1)}px);z-index:${70 - Math.abs(p) * 2}`,
     }
   })
 })
@@ -214,7 +222,7 @@ const onJump = (i: number) => emit('jump', i)
         v-for="node in nodes"
         :key="node.i"
         class="tl"
-        :class="node.cls"
+        :class="[node.cls, { 'is-started': node.started }]"
         :style="node.style"
         @pointerdown="onNodePointerDown"
         @click="onJump(node.i)"
@@ -440,6 +448,19 @@ const onJump = (i: number) => emit('jump', i)
 }
 .tl.cur .t {
   color: var(--color-ink);
+}
+/* 已开工副卡：右上角一枚琥珀 LED 点（与卡堆「已开始」同语言） */
+.tl.is-started .n { position: relative; padding-right: 11px; }
+.tl.is-started .n::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  box-shadow: 0 0 6px var(--color-warning);
 }
 
 @media (prefers-reduced-motion: reduce) {
