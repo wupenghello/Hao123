@@ -15,6 +15,8 @@ import type { FeedbackCategory } from './types'
 const DB_NAME = 'hao123-chat-preferences'
 const DB_VERSION = 1
 const STORE = 'pairs'
+/** 偏好记录条数上限：超出时按 ts 裁掉最老的，防止 IDB 无限膨胀 */
+export const MAX_PREFERENCE_RECORDS = 500
 
 /** 偏好来源：点赞 / 点踩 / 重新生成（重新生成 = 老 rejected、新 chosen） */
 export type PreferenceSource = 'thumbs_up' | 'thumbs_down' | 'regenerate'
@@ -34,6 +36,8 @@ export interface PreferenceRecord {
   source: PreferenceSource
   /** 反馈归因分类（复用 chat 的 FeedbackCategory），便于看哪类能力偏好最集中 */
   category?: FeedbackCategory
+  /** 历史字段：旧版 👎 原因（已停止收集，旧记录中可能存在） */
+  reason?: string
   /** 到被评回答为止的对话上下文（已裁剪） */
   context: PreferenceContextMessage[]
   /** 被采纳的回答（👍 或重新生成的新回答） */
@@ -101,6 +105,7 @@ function genId(): string {
 /**
  * 写一条偏好记录。**吞错**：IDB 不可用 / 写失败只 console.warn，绝不抛进对话流。
  * 调用方 fire-and-forget 即可（store 里用 `void logPreference(...)`）。
+ * 写入后按 ts 裁掉超出 MAX_PREFERENCE_RECORDS 的最老记录（append-only 但总量有界）。
  */
 export async function logPreference(input: PreferenceInput): Promise<void> {
   try {
@@ -115,14 +120,32 @@ export async function logPreference(input: PreferenceInput): Promise<void> {
       model: input.model,
       provider: input.provider,
     }
-    const store = await getStore('readwrite')
-    await reqToPromise(store.put(record, record.id))
+    const db = await openDb()
+    const tx = db.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    // 注意：同一事务内的多个请求必须同步发起（不在中间 await），否则事务会在
+    // await 的 microtask 间隙自动提交（idle），后续 getAll/delete 将抛
+    // TransactionInactiveError 而被静默吞掉 → 裁剪不生效。
+    store.put(record, record.id)
+    const allReq = store.getAll()
+    allReq.onsuccess = () => {
+      const all = allReq.result as PreferenceRecord[]
+      if (all.length > MAX_PREFERENCE_RECORDS) {
+        const sorted = [...all].sort((a, b) => a.ts - b.ts)
+        const excess = sorted.length - MAX_PREFERENCE_RECORDS
+        for (const r of sorted.slice(0, excess)) store.delete(r.id)
+      }
+    }
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
   } catch (e) {
     console.warn('[preference-log] 写入失败，已忽略：', e)
   }
 }
 
-/** 取全部偏好记录（按 ts 升序），供导出 / 检视 */
+/** 取全部偏好记录（按 ts 升序），供 few-shot 召回 / 检视 */
 export async function getAllPreferences(): Promise<PreferenceRecord[]> {
   try {
     const store = await getStore('readonly')
@@ -132,30 +155,4 @@ export async function getAllPreferences(): Promise<PreferenceRecord[]> {
     console.warn('[preference-log] 读取失败，已返回空：', e)
     return []
   }
-}
-
-/** 当前记录条数（UI 展示用） */
-export async function countPreferences(): Promise<number> {
-  try {
-    const store = await getStore('readonly')
-    return await reqToPromise(store.count())
-  } catch {
-    return 0
-  }
-}
-
-/** 清空全部偏好记录 */
-export async function clearPreferences(): Promise<void> {
-  try {
-    const store = await getStore('readwrite')
-    await reqToPromise(store.clear())
-  } catch (e) {
-    console.warn('[preference-log] 清空失败，已忽略：', e)
-  }
-}
-
-/** 导出为 JSON 串（供下载 / 分享 / 离线清洗） */
-export async function exportPreferences(): Promise<string> {
-  const all = await getAllPreferences()
-  return JSON.stringify(all, null, 2)
 }

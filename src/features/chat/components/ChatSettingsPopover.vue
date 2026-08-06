@@ -1,12 +1,7 @@
 <script setup lang="ts">
-/** 对话设置 popover：5 个数值字段 + 偏好数据角（导出 / 清空两步确认）。 */
+/** 对话设置 popover：历史 token 预算 + 5 个数值字段（Agent 轮数 / 输出上限 / 图片限制 / 网页读取上限）。 */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useChatSettings } from '../settings'
-import {
-  countPreferences,
-  exportPreferences,
-  clearPreferences,
-} from '../preference-log'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -16,44 +11,31 @@ const { settings, update } = useChatSettings()
 /** 历史 token 预算以 K 为单位输入（写回 ×1024，遵循 settings.ts 口径） */
 const historyK = ref('')
 
-// 偏好数据
-const prefCount = ref(0)
-const prefOpen = ref(false)
-const clearConfirm = ref(false)
-
-async function refreshPrefCount() {
-  prefCount.value = await countPreferences()
-}
-
-async function doExport() {
-  const json = await exportPreferences()
-  if (!json) return
-  const blob = new Blob([json], { type: 'application/json' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `xiaowu-preferences-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
-}
-
-async function doClear() {
-  await clearPreferences()
-  clearConfirm.value = false
-  prefOpen.value = false
-  await refreshPrefCount()
-}
-
 // ── 关闭交互：外点 / Esc ──
 const rootEl = ref<HTMLElement | null>(null)
 
+/**
+ * 关闭前先把焦点所在的输入框提交（blur 触发 clamp 写回 settings）。
+ * 修复「改了数值直接点外面 / 按 Esc / 按 Enter → 数值悄悄丢失」：
+ * 原先只有 blur 才写回，用户输入后不点别处就关闭弹窗，改动会被静默丢弃。
+ */
+function commitFocusedInput() {
+  const el = document.activeElement
+  if (el instanceof HTMLInputElement && rootEl.value?.contains(el)) el.blur()
+}
+
 function onDocClick(e: MouseEvent) {
   if (!props.open) return
-  if (rootEl.value && !rootEl.value.contains(e.target as Node)) emit('close')
+  if (rootEl.value && !rootEl.value.contains(e.target as Node)) {
+    commitFocusedInput()
+    emit('close')
+  }
 }
 function onDocKeydown(e: KeyboardEvent) {
   if (!props.open) return
   if (e.key === 'Escape') {
     e.stopPropagation()
+    commitFocusedInput()
     emit('close')
   }
 }
@@ -69,12 +51,9 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.open,
-  async (o) => {
+  (o) => {
     if (!o) return
     historyK.value = String(Math.round(settings.value.maxHistoryTokens / 1024))
-    clearConfirm.value = false
-    prefOpen.value = false
-    await refreshPrefCount()
   },
 )
 
@@ -83,6 +62,7 @@ const FIELDS = [
   { key: 'maxRounds', label: 'Agent 循环轮数', min: 1, max: 200, step: 1, unit: '轮', read: (v: number) => String(v) },
   { key: 'maxOutputTokens', label: '单次输出上限', min: 256, max: 131072, step: 2048, unit: 'tok', read: (v: number) => String(v) },
   { key: 'maxImages', label: '图片数量上限', min: 0, max: 50, step: 1, unit: '张', read: (v: number) => String(v) },
+  { key: 'maxImageSizeMB', label: '单张图片上限', min: 1, max: 50, step: 1, unit: 'MB', read: (v: number) => String(v) },
   { key: 'readUrlMaxChars', label: '网页读取上限', min: 0, max: 100000, step: 2000, unit: '字', read: (v: number) => String(v) },
 ] as const
 
@@ -101,6 +81,11 @@ function clampHistoryK(): void {
   const v = Number.isNaN(n) ? settings.value.maxHistoryTokens : Math.max(1, Math.min(1024, Math.round(n))) * 1024
   update({ maxHistoryTokens: v })
   historyK.value = String(Math.round(v / 1024))
+}
+
+/** Enter = 确认输入：立即钳制写回（不必再点别处触发 blur） */
+function onEnterField(key: FieldKey, e: KeyboardEvent): void {
+  clampField(key, (e.target as HTMLInputElement).value)
 }
 </script>
 
@@ -122,6 +107,7 @@ function clampHistoryK(): void {
           type="text"
           inputmode="numeric"
           @blur="clampHistoryK"
+          @keydown.enter.prevent="clampHistoryK"
         />
         <span class="set-unit">K</span>
       </label>
@@ -133,32 +119,10 @@ function clampHistoryK(): void {
           inputmode="numeric"
           :value="f.read(settings[f.key])"
           @blur="clampField(f.key, ($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="onEnterField(f.key, $event)"
         />
         <span class="set-unit">{{ f.unit }}</span>
       </label>
-    </div>
-
-    <div class="set-pref">
-      <button type="button" class="set-pref-toggle" @click="prefOpen = !prefOpen">
-        <span>偏好数据 · {{ prefCount }} 条</span>
-        <svg viewBox="0 0 12 12" class="set-chevron" :class="{ 'is-open': prefOpen }" aria-hidden="true">
-          <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
-      <div v-if="prefOpen" class="set-pref-body">
-        <span class="set-pref-desc">👍/👎/重新生成积累的偏好对，用于迭代小吴的回答质量。</span>
-        <div class="set-pref-btns">
-          <button type="button" class="set-mini-btn" @click="doExport">导出 JSON</button>
-          <template v-if="!clearConfirm">
-            <button type="button" class="set-mini-btn is-danger" @click="clearConfirm = true">清空</button>
-          </template>
-          <template v-else>
-            <span class="set-pref-ask">确认清空？</span>
-            <button type="button" class="set-mini-btn is-danger" @click="doClear">确认</button>
-            <button type="button" class="set-mini-btn" @click="clearConfirm = false">取消</button>
-          </template>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -226,74 +190,5 @@ function clampHistoryK(): void {
   flex: 0 0 auto;
   font: 400 10.5px/1 var(--font-mono, ui-monospace, monospace);
   color: var(--color-ink-3);
-}
-.set-pref {
-  margin-top: 4px;
-  border-top: 1px solid var(--color-line);
-}
-.set-pref-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
-  color: var(--color-ink-3);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.set-pref-toggle:hover {
-  color: var(--color-ink-2);
-}
-.set-chevron {
-  width: 12px;
-  height: 12px;
-  transition: transform var(--duration-fast) var(--ease-out-quint);
-}
-.set-chevron.is-open {
-  transform: rotate(180deg);
-}
-.set-pref-body {
-  padding: 6px 8px 8px;
-  background: var(--color-base);
-  border-radius: 4px;
-}
-.set-pref-desc {
-  display: block;
-  color: var(--color-ink-3);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.set-pref-btns {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-.set-mini-btn {
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--color-line);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-ink-2);
-  font-size: 11px;
-  cursor: pointer;
-}
-.set-mini-btn:hover {
-  background: var(--color-raised);
-  color: var(--color-ink);
-}
-.set-mini-btn.is-danger {
-  color: var(--color-danger);
-}
-.set-mini-btn.is-danger:hover {
-  border-color: color-mix(in srgb, var(--color-danger) 50%, transparent);
-}
-.set-pref-ask {
-  color: var(--color-danger);
-  font-size: 11px;
 }
 </style>

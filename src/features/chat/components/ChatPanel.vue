@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 右侧停靠聊天面板壳：错误横幅 + 审批提示条 + 消息区 + 输入区。 */
-import { watch } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useChatStore } from '../store'
 import { useConnectivity } from '../connectivity'
 import ChatPanelHeader from './ChatPanelHeader.vue'
@@ -26,6 +26,55 @@ function onRetry() {
   void store.retryConnection()
 }
 
+// ── 面板宽度：左边缘拖拽缩放（持久化；范围 320–760px） ──
+const PANEL_W_KEY = 'hao123-chat-panel-size'
+const PANEL_W_MIN = 320
+const PANEL_W_MAX = 760
+
+const panelW = ref(400)
+function loadPanelW() {
+  try {
+    const raw = localStorage.getItem(PANEL_W_KEY)
+    if (raw) {
+      const n = Number(raw)
+      if (Number.isFinite(n)) panelW.value = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, n))
+    }
+  } catch { /* 忽略损坏的存储 */ }
+}
+function applyPanelW() {
+  document.documentElement.style.setProperty('--chat-panel-w', `${panelW.value}px`)
+}
+onMounted(() => {
+  loadPanelW()
+  applyPanelW()
+})
+
+let dragging = false
+let startX = 0
+let startW = 0
+function onResizeDown(e: PointerEvent) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  dragging = true
+  startX = e.clientX
+  startW = panelW.value
+  try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* 忽略 */ }
+}
+function onResizeMove(e: PointerEvent) {
+  if (!dragging) return
+  // 手柄在面板左边缘：向左拖（dx<0）→ 面板变宽
+  panelW.value = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, startW - (e.clientX - startX)))
+  applyPanelW()
+}
+function onResizeUp(e: PointerEvent) {
+  if (!dragging) return
+  dragging = false
+  try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* 忽略 */ }
+  try { localStorage.setItem(PANEL_W_KEY, String(panelW.value)) } catch { /* 忽略 */ }
+}
+onBeforeUnmount(() => {
+  if (dragging) dragging = false
+})
+
 /** 审批提示条点击 → 滚动定位到对应活动卡（approve/reject 前置回滚 + 目标消息滚入视野） */
 function locateApproval() {
   const first = store.pendingApprovals[0]
@@ -47,6 +96,16 @@ function locateApproval() {
 
 <template>
   <div class="panel">
+    <div
+      class="panel-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      title="拖动调整面板宽度"
+      @pointerdown="onResizeDown"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeUp"
+      @pointercancel="onResizeUp"
+    />
     <ChatPanelHeader @close="store.close()" />
 
     <!-- 连通性降级（网络可达性，琥珀；非业务错误） -->
@@ -87,11 +146,36 @@ function locateApproval() {
 
 <style scoped>
 .panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   background: var(--color-raised);
+}
+
+/* 左边缘拖拽手柄：调整面板宽度 */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+.panel-resizer:hover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.panel-resizer:active::after {
+  background: var(--color-accent);
 }
 
 /* ── 连通性降级 ── */

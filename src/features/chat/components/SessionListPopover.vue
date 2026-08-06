@@ -28,12 +28,12 @@ function relativeTime(ts: number): string {
 }
 
 function switchTo(id: string) {
-  store.switchSession(id)
+  void store.switchSession(id)
   emit('close')
 }
 
 function newSession() {
-  store.newSession()
+  void store.newSession()
   emit('close')
 }
 
@@ -68,7 +68,7 @@ function cancelDelete() {
   if (deleteTimer) clearTimeout(deleteTimer)
 }
 function doDelete(id: string) {
-  store.deleteSession(id)
+  void store.deleteSession(id)
   cancelDelete()
 }
 
@@ -265,13 +265,16 @@ watch(
   font: 400 10px/1 var(--font-mono, ui-monospace, monospace);
   color: var(--color-ink-3);
 }
+/* 操作按钮常驻显示（低存在感，hover 行时加深）——藏进 hover 里会被当成「没有删除功能」 */
 .sess-row-ops {
-  display: none;
+  display: flex;
   gap: 2px;
   flex: 0 0 auto;
+  opacity: 0.45;
+  transition: opacity var(--duration-fast) var(--ease-out-quint);
 }
 .sess-row:hover .sess-row-ops {
-  display: flex;
+  opacity: 1;
 }
 .sess-row-btn {
   display: grid;

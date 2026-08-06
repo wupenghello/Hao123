@@ -20,7 +20,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /** 停滞阈值：未变动超过这么多天，且仍处未推进状态，才视为「停滞」 */
 const STALL_DAYS = 5
 
-/** 状态码 → 中文（why / action 文案用；与 dashboard-context 的映射保持一致口径） */
+/** 状态码 → 中文（why / action 文案用；与聊天侧能力文案保持一致口径） */
 const STATUS_ZH: Record<string, string> = {
   wait: '未开始',
   doing: '进行中',

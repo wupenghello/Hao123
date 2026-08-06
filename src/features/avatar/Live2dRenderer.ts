@@ -90,6 +90,16 @@ export class AvatarRenderer {
         antialias: true,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true,
+        // 形象纯展示、不参与 PIXI 命中检测（交互都在外层 DOM 上）。
+        // PIXI 的 EventSystem 会在 document（pointermove，capture）与
+        // globalThis（pointerup，capture）上挂全局监听，页面上任何指针动作都会
+        // 触发对舞台的 hitTest；而 pixi-live2d-display（为 PIXI v6 设计）挂进场景的
+        // 子节点不全是标准 DisplayObject，hitTestMoveRecursive 调 isInteractive()
+        // 直接抛 "currentTarget.isInteractive is not a function"，鼠标一动就刷屏报错。
+        // 通过 eventFeatures 关闭 move/click/wheel：每个 handler 在 hitTest 之前有
+        // `if (!this.features.X) return;` 早返回，根本不做命中检测，从根源消除报错。
+        // 渲染与 ticker 不受影响（形象不需要任何 PIXI 交互）。
+        eventFeatures: { move: false, click: false, wheel: false },
       })
       this.container = new Container()
       this.app.stage.addChild(this.container)
@@ -118,6 +128,12 @@ export class AvatarRenderer {
       model.position.set(canvasW / 2, canvasH / 2)
 
       this.container.addChild(model as any)
+
+      // 双保险：把舞台与模型都设为非交互，避免 hitTest 递归进非标准子节点。
+      this.app.stage.eventMode = 'none'
+      this.app.stage.interactiveChildren = false
+      ;(model as any).eventMode = 'none'
+      ;(model as any).interactiveChildren = false
 
       // 初始化平滑参数
       this.initParam(PARAM.ANGLE_X)

@@ -16,19 +16,15 @@ const sessionOpen = ref(false)
 const settingsOpen = ref(false)
 
 function newSession() {
-  store.newSession()
+  void store.newSession()
   sessionOpen.value = false
 }
 </script>
 
 <template>
   <header class="p-head">
-    <div class="p-head-top">
-      <span class="p-eyebrow">SESSION</span>
-      <span class="p-time">{{ new Date(store.activeSession?.updatedAt ?? Date.now()).toTimeString().slice(0, 5) }}</span>
-    </div>
     <div class="p-head-main">
-      <button type="button" class="p-title" title="切换会话" @click="sessionOpen = !sessionOpen">
+      <button type="button" class="p-title" title="切换会话" @click.stop="sessionOpen = !sessionOpen">
         <span class="p-title-text">{{ store.currentSessionTitle }}</span>
         <svg viewBox="0 0 12 12" class="p-chevron" aria-hidden="true">
           <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -38,7 +34,7 @@ function newSession() {
         <button type="button" class="p-icon-btn" title="新建会话" @click="newSession">
           <IconPlus class="w-3.5 h-3.5" />
         </button>
-        <button type="button" class="p-icon-btn" title="对话设置" @click="settingsOpen = !settingsOpen">
+        <button type="button" class="p-icon-btn" title="对话设置" @click.stop="settingsOpen = !settingsOpen">
           <IconSettings class="w-3.5 h-3.5" />
         </button>
         <button type="button" class="p-icon-btn" title="收起面板" @click="emit('close')">
@@ -62,23 +58,8 @@ function newSession() {
 .p-head {
   position: relative;
   flex: 0 0 auto;
-  padding: 8px 12px 9px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--color-line);
-}
-.p-head-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 5px;
-}
-.p-eyebrow {
-  font: 700 10px/1 var(--font-mono, ui-monospace, monospace);
-  letter-spacing: 0.12em;
-  color: var(--color-ink-3);
-}
-.p-time {
-  font: 400 10px/1 var(--font-mono, ui-monospace, monospace);
-  color: var(--color-ink-3);
 }
 .p-head-main {
   display: flex;

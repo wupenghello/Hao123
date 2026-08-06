@@ -21,6 +21,8 @@ export interface ChatSettings {
   maxOutputTokens: number
   /** 用户一次最多可粘贴 / 拖入的图片张数 */
   maxImages: number
+  /** 单张图片大小上限（MB）；超大图转 base64 会撑爆请求体与历史预算 */
+  maxImageSizeMB: number
   /** reach.read_url 工具结果单字段最大字符数。用户明确要读全文，默认比通用 4000 宽松；0 = 不裁剪 */
   readUrlMaxChars: number
 }
@@ -35,7 +37,10 @@ export const CHAT_SETTINGS_DEFAULTS: ChatSettings = {
   maxRounds: 12,
   maxHistoryTokens: 120_000,
   maxOutputTokens: 8_192,
-  maxImages: 9,
+  // 与 CLAUDE.md 宣称一致：最多 4 张、单张 ≤5MB（base64 后体积膨胀 ~1.33 倍，
+  // 过大图片会撑爆请求体与历史 token 预算）
+  maxImages: 4,
+  maxImageSizeMB: 5,
   // read_url 是用户明确要"读全文"的场景，默认比通用字段上限（4000）宽松得多。
   // 让模型拿到接近完整的网页正文，才能分层呈现观点而非压缩成总结；0 表示不裁剪。
   readUrlMaxChars: 20_000,

@@ -86,20 +86,6 @@ const REACH_FOLLOW_UPS: { label: string; text: string }[] = [
 ]
 const showReachFollowUps = computed(() => props.isLastAssistant && usesExternalResearch.value && !props.streaming)
 
-/** 回答元信息：动作数 + 总耗时（供最终回答行展示，替代旧的「N 轮 · N 工具」） */
-const metaInfo = computed(() => {
-  const m = props.message
-  const group = m._loopGroup ? store.messages.filter((mm) => mm._loopGroup === m._loopGroup) : [m]
-  const acts = group.flatMap((mm) => mm.activities ?? [])
-  const done = acts.filter((a) => a.status === 'done')
-  const totalMs = done.reduce((sum, a) => sum + (a.duration ?? 0), 0)
-  return {
-    show: acts.length > 0,
-    tools: done.length,
-    total: totalMs ? (totalMs < 1000 ? `${totalMs}ms` : `${(totalMs / 1000).toFixed(1)}s`) : null,
-  }
-})
-
 function sendFollowUp(text: string) {
   void store.send(text)
 }
@@ -113,9 +99,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
     <div class="answer-top">
       <span v-if="message.feedback" class="answer-feedback-tag" :class="`is-${message.feedback}`">
         {{ message.feedback === 'up' ? '赞' : '踩' }}
-      </span>
-      <span v-if="metaInfo.show && !streaming" class="answer-meta">
-        {{ metaInfo.tools }} 个动作 · {{ metaInfo.total ?? '—' }}
       </span>
       <span class="answer-time">{{ fmtTime(message.ts) }}</span>
     </div>
@@ -131,11 +114,14 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
       v-html="mdHtml"
     />
 
-    <!-- JSON 泄漏提示（工具原始数据不回显） -->
+    <!-- JSON 泄漏提示（流式抑制中：生成中提示；已收尾且确为泄漏：隐藏 + 重答入口） -->
     <div v-if="isLeak && message.content.trim()" class="answer-leak" role="note">
       <span class="answer-leak-dot" aria-hidden="true" />
-      <span class="answer-leak-text">小吴把工具返回的原始数据直接贴出来了，这段不显示。</span>
+      <span class="answer-leak-text">
+        {{ streaming ? '小吴正在输出异常内容（原始数据），生成完成后会自动隐藏' : '小吴把工具返回的原始数据直接贴出来了，这段不显示。' }}
+      </span>
       <button
+        v-if="!streaming"
         type="button"
         class="answer-leak-link"
         title="让小吴把数据整理成易懂的回答"
@@ -238,10 +224,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
 .answer-feedback-tag.is-down {
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 14%, transparent);
-}
-.answer-meta {
-  font: 400 10px/1 var(--font-mono, ui-monospace, monospace);
-  color: var(--color-ink-3);
 }
 .answer-time {
   margin-left: auto;

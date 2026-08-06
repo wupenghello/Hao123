@@ -7,7 +7,8 @@
  *    供行内查表渲染风险徽标）；
  *  - `summary`：列表级汇总（风险计数 + headline，供首页欢迎区 / 风险概况复用）。
  *
- * 与 dashboard-context 的区别：dashboard-context 是「喂给 LLM 的中文快照」（文本），
+ * 与聊天模块工作台上下文（已移除）的区别：这里是「供 AI 评估与首页卡堆消费的归一化
+ * 工作项结构」，不是喂给 LLM 的中文快照。
  * 这里是「喂给 UI 的结构化预测」（对象），互不替代。
  */
 import { computed } from 'vue'

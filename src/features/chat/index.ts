@@ -8,7 +8,6 @@
  *   config.ts            公共配置（助手身份 + LLM 接入参数，env 驱动）
  *   types.ts             对话/工具调用消息类型
  *   tools.ts             聚合各模块工具声明 + provider 适配（OpenAI 兼容）+ 分发
- *   dashboard-context.ts 工作台上下文采集（天气+禅道+本地待办）
  *   llm/                 LLM 接入层（provider 无关抽象 + OpenAI 兼容实现），导出激活实例 `llm`
  *   store.ts             Pinia 状态层（useChatStore，含 agent 循环）
  *   preference-log.ts    偏好数据飞轮：👍/👎/重新生成 → (context,chosen,rejected) 偏好对，存 IndexedDB

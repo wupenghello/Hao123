@@ -1,12 +1,13 @@
 <script setup lang="ts">
-/** 输入栏：自增高 textarea + 图片粘贴/拖放 + 回合状态条（阶段/进度/实时耗时 + 停止↔继续）。 */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+/** 输入栏：自增高 textarea + 图片粘贴/拖放（VL 模型门控）+ 发送/停止。 */
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '../store'
 import { useChatSettings } from '../settings'
+import { validateImageAdd } from '../utils'
+import { currentModelSupportsVision } from '../vision-models'
 import IconSend from '~icons/mdi/send'
 import IconStop from '~icons/mdi/stop-circle-outline'
 import IconClose from '~icons/mdi/close'
-import IconPlay from '~icons/mdi/play'
 
 const store = useChatStore()
 const { settings } = useChatSettings()
@@ -21,66 +22,23 @@ const isMac = computed(() =>
 )
 const enterHint = computed(() => (isMac.value ? '⏎ 发送' : 'Enter 发送'))
 
+/** 当前激活模型是否支持视觉：不支持时禁用图片入口并引导换 VL 模型，
+ *  避免「发图必收模型错误红条」的必坏路径。 */
+const visionCapable = computed(() => currentModelSupportsVision())
+const hintLine = computed(() =>
+  `${enterHint.value} · Shift+Enter 换行 · ${visionCapable.value ? 'Ctrl+V 贴图' : '当前模型不支持图片'} · Esc 收起`,
+)
+
 const canSend = computed(() => text.value.trim().length > 0 || images.value.length > 0)
 
-// ── 回合状态条 ──
-/** 实时耗时（1s 间隔更新；不依赖 rAF，避免无头渲染/后台标签页不触发） */
-const elapsedSec = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
-function tick() {
-  if (!store.turnStart) { elapsedSec.value = 0; return }
-  elapsedSec.value = Math.floor((Date.now() - store.turnStart) / 1000)
-}
-function startTimer() {
-  stopTimer()
-  tick()
-  timer = setInterval(tick, 1000)
-}
-function stopTimer() {
-  if (timer) { clearInterval(timer); timer = null }
-}
-watch(() => store.streaming, (s) => (s ? startTimer() : (stopTimer(), tick())))
-onBeforeUnmount(stopTimer)
-
-/** 当前正在执行的工具 label（从 messages 派生：最新一条 running 活动） */
-const runningActLabel = computed(() => {
-  if (!store.streaming) return null
-  const acts = store.messages.flatMap((m) => m.activities ?? [])
-  for (let i = acts.length - 1; i >= 0; i--) {
-    if (acts[i].status === 'running') return acts[i].label
-  }
-  return null
-})
-
-/** 状态条主文案：阶段 + 进度 + 耗时 */
-const genText = computed(() => {
-  const phase = store.turnPhase
-  const sec = elapsedSec.value
-  const timeStr = sec < 1 ? '' : ` · ${sec}s`
-  switch (phase) {
-    case 'thinking':
-      return `思考中${timeStr}`
-    case 'working': {
-      const total = Math.max(1, store.turnActTotal)
-      const done = Math.min(store.turnActDone, total)
-      const act = runningActLabel.value ? ` · ${runningActLabel.value}` : ''
-      return `正在执行 ${done}/${total} 个动作${act}${timeStr}`
-    }
-    case 'composing':
-      return `正在组织回答 · 第 ${store.turnRound} 轮${timeStr}`
-    case 'aborted':
-      return '已停止 · 保留已生成的部分'
-    default:
-      return null
+/** 面板打开时聚焦输入框（用户召唤面板后可直接打字） */
+onMounted(() => {
+  const ta = taRef.value
+  if (ta) {
+    ta.focus()
+    if (ta.setSelectionRange) ta.setSelectionRange(ta.value.length, ta.value.length)
   }
 })
-
-/** 停止后显示「继续生成」（从半成品处续跑，不重复提问） */
-const showResume = computed(() => store.turnPhase === 'aborted')
-
-function onResume() {
-  void store.resumeAfterStop()
-}
 
 function autoGrow() {
   const ta = taRef.value
@@ -92,17 +50,27 @@ watch(text, () => nextTick(autoGrow))
 
 // ── 图片：粘贴 / 拖放 / 选择 ──
 function addFiles(files: FileList | File[]) {
-  const list = Array.from(files)
-  const imgs = list.filter((f) => f.type.startsWith('image/'))
-  if (!imgs.length) return
-  const limit = settings.value.maxImages
-  if (images.value.length + imgs.length > limit) {
-    imageErr.value = `最多同时上传 ${limit} 张图片`
-    setTimeout(() => (imageErr.value = ''), 3000)
+  if (!visionCapable.value) {
+    imageErr.value = '当前模型不支持识图，请先在模型设置中切换 VL 模型（如 qwen-vl-max / gpt-4o）'
+    setTimeout(() => (imageErr.value = ''), 5000)
     return
   }
-  for (const f of imgs) {
+  const v = validateImageAdd(Array.from(files), {
+    maxImages: settings.value.maxImages,
+    maxImageSizeMB: settings.value.maxImageSizeMB,
+    currentCount: images.value.length,
+  })
+  if (v.error) {
+    imageErr.value = v.error
+    setTimeout(() => (imageErr.value = ''), 4000)
+    return
+  }
+  for (const f of v.accepted) {
     images.value.push({ url: URL.createObjectURL(f), file: f })
+  }
+  if (v.ignoredNonImages > 0) {
+    imageErr.value = `已忽略 ${v.ignoredNonImages} 个非图片文件（仅支持图片）`
+    setTimeout(() => (imageErr.value = ''), 3000)
   }
 }
 
@@ -130,7 +98,8 @@ function onDrop(e: DragEvent) {
 
 function removeImage(i: number) {
   const img = images.value[i]
-  if (img) URL.revokeObjectURL(img.url)
+  if (!img) return
+  URL.revokeObjectURL(img.url)
   images.value.splice(i, 1)
 }
 
@@ -159,8 +128,16 @@ async function send() {
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
-    if (store.streaming) store.stop()
-    else send()
+    if (store.streaming) {
+      // 生成中按 Enter：有内容 → 打断并直接发送新消息（一步到位）；空 → 仅停止
+      if (text.value.trim() || images.value.length) {
+        void store.stop().then(() => send())
+      } else {
+        void store.stop()
+      }
+    } else {
+      send()
+    }
   }
 }
 </script>
@@ -177,21 +154,6 @@ function onKeydown(e: KeyboardEvent) {
     </div>
     <p v-if="imageErr" class="composer-err">{{ imageErr }}</p>
 
-    <div v-if="genText" class="composer-gen" :class="{ 'is-stopped': store.turnPhase === 'aborted' }">
-      <span class="composer-gen-dot" aria-hidden="true" />
-      <span class="composer-gen-text">{{ genText }}</span>
-      <button
-        v-if="showResume"
-        type="button"
-        class="composer-gen-resume"
-        title="从已生成的部分继续"
-        @click="onResume"
-      >
-        <IconPlay class="w-3 h-3" />
-        <span>继续生成</span>
-      </button>
-    </div>
-
     <textarea
       ref="taRef"
       v-model="text"
@@ -205,9 +167,7 @@ function onKeydown(e: KeyboardEvent) {
     />
 
     <div class="composer-foot">
-      <span class="composer-hint">
-        {{ enterHint }} · Shift+Enter 换行 · Ctrl+V 贴图 · Alt+K 收起
-      </span>
+      <span class="composer-hint">{{ hintLine }}</span>
       <button
         v-if="store.streaming"
         type="button"
@@ -275,58 +235,6 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--color-danger);
   font-size: 11px;
 }
-.composer-gen {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  min-height: 24px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
-}
-.composer-gen.is-stopped {
-  border-color: color-mix(in srgb, var(--color-ink-4) 40%, transparent);
-  background: var(--color-base);
-}
-.composer-gen.is-stopped .composer-gen-dot {
-  background: var(--color-ink-4);
-  animation: none;
-}
-.composer-gen-resume {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-accent-strong);
-  font-size: 10.5px;
-  cursor: pointer;
-}
-.composer-gen-resume:hover {
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-}
-.composer-gen-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--color-accent);
-  animation: gen-pulse 1.2s ease-in-out infinite;
-}
-@keyframes gen-pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-.composer-gen-text {
-  font: 400 10.5px/1 var(--font-mono, ui-monospace, monospace);
-  letter-spacing: 0.04em;
-  color: var(--color-ink-2);
-}
 .composer-ta {
   display: block;
   width: 100%;
@@ -391,11 +299,5 @@ function onKeydown(e: KeyboardEvent) {
 .composer-send.is-stop:hover {
   border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-gen-dot {
-    animation: none;
-    opacity: 0.8;
-  }
 }
 </style>

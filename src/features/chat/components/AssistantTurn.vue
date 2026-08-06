@@ -2,7 +2,8 @@
 /**
  * 回合容器：把同一次 agent 循环（思考 → 执行 → 组织回答）渲染为一个整体，而非折叠卡 + 气泡。
  *
- * - 头部：阶段徽标（思考中 / 正在执行 N 个动作 / 正在组织回答 / 完成）+ 轮数 + 实时耗时。
+ * - 头部：阶段徽标（思考中 / 正在执行 N 个动作 / 正在组织回答 / 完成 / 已停止 / 出错了）
+ *   + 进度 + 动作数/失败数 + 实时耗时；停止/失败的最后一回合提供「继续生成」。
  * - 时间线：始终可见（不再默认折叠）。每个中间步骤的意图正文与工具活动逐条展示，
  *   进行中的高亮、完成的打勾、失败可重试；pending 审批内嵌确认卡（批准 / 拒绝）。
  * - 尾部：最终回答（AssistantAnswer，markdown + 生成式 UI 卡 + 动作行 + reach 徽标）。
@@ -11,6 +12,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import type { ChatMessage, ToolActivity } from '../types'
 import { useChatStore } from '../store'
 import { summarizeReachResult } from '@/features/reach'
+import IconPlay from '~icons/mdi/play'
 import ToolActivityRow from './ToolActivityRow.vue'
 import AssistantAnswer from './AssistantAnswer.vue'
 
@@ -39,8 +41,22 @@ const phaseInfo = computed(() => {
   // 审批暂停：final 轮挂 pending 活动 → 显示「等待确认」
   if (m.activities?.some((a) => a.status === 'pending')) return PHASES.pending
   if (store.streaming) return PHASES[store.turnPhase] ?? PHASES.thinking
+  // 非流式时让最后一个回合反映真实的停止/失败态（也是「继续生成」的锚点）
+  if (props.isLastAssistant && (store.turnPhase === 'aborted' || store.turnPhase === 'failed')) {
+    return PHASES[store.turnPhase]
+  }
   return PHASES.done
 })
+
+/** 「继续生成」：仅最后一个回合在停止/失败后可见（从半成品处续跑，不重复提问） */
+const showResume = computed(() =>
+  !store.streaming
+  && props.isLastAssistant
+  && (phaseInfo.value.cls === 'is-aborted' || phaseInfo.value.cls === 'is-error'),
+)
+function onResume() {
+  void store.resumeAfterStop()
+}
 
 /** 回合内所有活动的计数（跨中间轮累计，不含 final——final 不挂活动） */
 const allActivities = computed<ToolActivity[]>(() =>
@@ -96,6 +112,10 @@ const progressText = computed(() => {
   if (phaseInfo.value.cls === 'is-pending') {
     const pending = allActivities.value.filter((a) => a.status === 'pending').length
     return `${pending} 项操作待确认`
+  }
+  // 停止/失败回合：说明已生成的部分被保留（可继续生成）
+  if (phaseInfo.value.cls === 'is-aborted' || phaseInfo.value.cls === 'is-error') {
+    return '保留已生成的部分'
   }
   if (!store.streaming) return null
   switch (store.turnPhase) {
@@ -159,6 +179,16 @@ function onRetry(stepIdx: number, actIdx: number) {
         </template>
         <template v-if="fmtElapsed()"> · {{ fmtElapsed() }}</template>
       </span>
+      <button
+        v-if="showResume"
+        type="button"
+        class="turn-resume"
+        title="从已生成的部分继续"
+        @click="onResume"
+      >
+        <IconPlay class="w-3 h-3" />
+        <span>继续生成</span>
+      </button>
     </div>
 
     <!-- 时间线：中间步骤的意图正文 + 工具活动，始终可见 -->
@@ -292,6 +322,25 @@ function onRetry(stepIdx: number, actIdx: number) {
   flex: 0 0 auto;
   color: var(--color-ink-4);
   tabular-nums: auto;
+}
+
+/* ── 继续生成（停止/失败回合） ── */
+.turn-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-accent-strong);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.turn-resume:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
 /* ── 时间线 ── */

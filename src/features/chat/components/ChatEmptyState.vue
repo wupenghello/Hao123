@@ -5,22 +5,24 @@ import { useChatStore } from '../store'
 import { useInboxInsights } from '@/features/insights'
 import { useChatSettings } from '../settings'
 import { formatDate, daypart } from '../utils'
+import { currentModelSupportsVision } from '../vision-models'
 import IconConfig from '~icons/mdi/cog-outline'
+import IconDelete from '~icons/mdi/trash-can-outline'
 
 const store = useChatStore()
-const { summary } = useInboxInsights()
+const { workItems, summary } = useInboxInsights()
 
 const nowLabel = computed(() => {
   const d = new Date()
   return `${formatDate(d)} ${daypart(d.getHours())}`
 })
 
-/** 最近有内容的会话（最多 3 个） */
+/** 最近有内容的会话（最多 5 个） */
 const recentSessions = computed(() =>
   store.sessions
     .filter((s) => s.messages.some((m) => m.role === 'user' || m.role === 'assistant' || !!m.ui?.length))
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, 3),
+    .slice(0, 5),
 )
 
 /** 今日风险读数（来自收件箱预测，与首页 InboxDeck 同口径） */
@@ -39,7 +41,12 @@ function ask(text: string) {
 }
 
 function switchTo(id: string) {
-  store.switchSession(id)
+  void store.switchSession(id)
+}
+
+function deleteSession(id: string, e: MouseEvent) {
+  e.stopPropagation()
+  void store.deleteSession(id)
 }
 
 function relTime(ts: number): string {
@@ -75,7 +82,12 @@ const GROUPS: { eyebrow: string; items: { label: string; text: string }[] }[] = 
 ]
 
 const { settings } = useChatSettings()
-const MAX_IMAGES_HINT = computed(() => `Ctrl+V 贴图 · 最多 ${settings.value.maxImages} 张`)
+/** 图片提示随激活模型的视觉能力门控（与输入栏同口径） */
+const IMG_HINT = computed(() =>
+  currentModelSupportsVision()
+    ? `Ctrl+V 贴图 · 最多 ${settings.value.maxImages} 张`
+    : '当前模型不支持图片',
+)
 </script>
 
 <template>
@@ -86,12 +98,12 @@ const MAX_IMAGES_HINT = computed(() => `Ctrl+V 贴图 · 最多 ${settings.value
       <span class="empty-clock">{{ nowLabel }}</span>
     </div>
 
-    <!-- 今日读数 -->
+    <!-- 今日读数：收件箱总数 + 风险构成（风险计数只算有风险项） -->
     <div class="empty-readout">
       <div class="readout-line">
         <span class="readout-label">INBOX</span>
-        <span class="readout-val">{{ summary.total }}</span>
-        <span class="readout-unit">项有风险</span>
+        <span class="readout-val">{{ workItems.length }}</span>
+        <span class="readout-unit">项工作 · {{ summary.total }} 项有风险</span>
         <span class="readout-detail">{{ riskLine }}</span>
       </div>
     </div>
@@ -132,6 +144,14 @@ const MAX_IMAGES_HINT = computed(() => `Ctrl+V 贴图 · 最多 ${settings.value
       >
         <span class="empty-recent-title">{{ s.title }}</span>
         <span class="empty-recent-time">{{ relTime(s.updatedAt) }}</span>
+        <button
+          type="button"
+          class="empty-recent-del"
+          title="删除会话"
+          @click.stop="deleteSession(s.id, $event)"
+        >
+          <IconDelete class="w-3.5 h-3.5" />
+        </button>
       </button>
     </div>
 
@@ -147,7 +167,7 @@ const MAX_IMAGES_HINT = computed(() => `Ctrl+V 贴图 · 最多 ${settings.value
     </button>
 
     <p class="empty-hint">
-      Enter 发送 · Shift+Enter 换行 · {{ MAX_IMAGES_HINT }} · Alt+K 收起
+      Enter 发送 · Shift+Enter 换行 · {{ IMG_HINT }} · Esc 收起
     </p>
   </div>
 </template>
@@ -294,6 +314,28 @@ const MAX_IMAGES_HINT = computed(() => `Ctrl+V 贴图 · 最多 ${settings.value
   flex: 0 0 auto;
   font: 400 10px/1 var(--font-mono, ui-monospace, monospace);
   color: var(--color-ink-3);
+}
+.empty-recent-del {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out-quint), color var(--duration-fast) var(--ease-out-quint);
+}
+.empty-recent-row:hover .empty-recent-del {
+  opacity: 1;
+}
+.empty-recent-del:hover {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
 
 /* 未配置引导 */

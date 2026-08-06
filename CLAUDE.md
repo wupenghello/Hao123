@@ -7,8 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — Start dev server (Vite, default port 5173)
 - `npm run build` — Type-check (`vue-tsc -b`) then production build
 - `npm run preview` — Preview production build locally
-
-No test framework is configured yet.
+- `npm test` — Run Vitest unit tests (`tests/`：chat store / 审批 / 偏好飞轮 / 图片校验 / 工具函数）
 
 ## Architecture
 
@@ -152,17 +151,15 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 | `connectivity.ts` | **LLM 连通性状态层**（模块级单例，非 Pinia）：把「连不上大模型」从被动等 7s 重试变成全局可观测 + 自动恢复的状态机（详见下文「连通性」节） |
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `reachEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
-| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果回灌前按字段裁剪（`clipForModel`：单字符串字段 4KB、整体 16KB 上限，递归裁剪保持**合法 JSON**，关键字段 title/url/metrics 与尾部 sources 完整保留）；**例外**：`git.show`/`git.diff` 的 diff 已在工具侧按行边界裁剪（~100KB 上限），`clipForModel` 不再二次裁剪、完整 diff 直达模型（用户要求 diff 不截断）；`ui__render` 始终下发（不再因 reach/zentao 自动 UI 卡而剥离，否则对比选型的 data-table 指令无法落地）；`activity.result` 内存持有完整结果供活动卡解析、持久化前裁剪控制体积；abort / retry / 重新生成；👍/👎 反馈统计 |
-| `dashboard-context.ts` | 工作台上下文采集（天气 + 指派给我的禅道任务/Bug + 本地待办，编码翻中文），welcome-guide **共享**，in-flight 去重（并发只发一次禅道请求） |
-| `welcome-guide.ts` | 命令面板快捷提问：LLM 站在前端视角生成 `suggestions`（失败回退静态兜底，模块级单例只生成一次） |
-| `components/` | `ChatCommandPalette.vue`（命令面板主 UI：对话流 + 底部输入栏、可拖拽缩放）/ `ChatLauncher.vue`（状态栏入口，带连通性色点） |
+| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果回灌前按字段裁剪（`clipForModel`：单字符串字段 4KB、整体 16KB 上限，递归裁剪保持**合法 JSON**，关键字段 title/url/metrics 与尾部 sources 完整保留）；**例外**：`git.show`/`git.diff` 的 diff 已在工具侧按行边界裁剪（~100KB 上限），`clipForModel` 不再二次裁剪、完整 diff 直达模型（用户要求 diff 不截断）；`ui__render` 始终下发（不再因 reach/zentao 自动 UI 卡而剥离，否则对比选型的 data-table 指令无法落地）；`activity.result` 内存持有完整结果供活动卡解析、持久化前裁剪控制体积；abort / retry / 重新生成（直接替换旧回答，不保留版本栈）；并发审批（同一轮多个 pending 时逐个处理、最后一个才截断续跑，避免审批卡被截断丢失）；👍/👎 一键反馈，与重答前后对一起静默落偏好数据（供 few-shot 召回，UI 不暴露） |
+| `components/` | `ChatPanel.vue`（右侧停靠面板：错误横幅 + 审批条 + 消息流，左边缘可拖拽调宽并持久化）/ `ChatLauncher.vue`（Live2D 桌宠入口，带连通性色点与未读角标） |
 
 **连通性（`connectivity.ts`，解决「连不上大模型」缺乏提示）：** 与 `configured`（env 有没有配 Key，静态）正交的**运行期可达性**状态机：`healthy / checking / unreachable`。核心约定：
 
 - **状态分层语义**——`store.error`（红条）= 真·业务错误（解析失败 / 工具异常 / 4xx 鉴权）；`connectivity`（琥珀条 / Launcher 色点）= 网络可达性问题。`store.ts` 的 catch 用 `classifyError(e)` 拆分：网络类（offline / proxy / provider / auth / unknown）走 `markUnreachable`，不污染红条；非网络类走 `store.error`。
 - **复用真实调用结果作信号**（不空探测）：provider 每次成功 → `markSuccess`；网络错误 → `markUnreachable(reason)`。避免每次进站烧 token 探活。
 - **只在需要时主动 probe**：失败后指数退避自动重试（5s → 10s → 30s 封顶）；用户点「重试」立即 probe。probe 是 `max_tokens:1` 的最小 ping + 5s 超时，**故意不走** `fetchWithRetry` 的 1+2+4s 三次退避（要快速反馈，不白等）。
-- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块（`welcome-guide`）+ `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
+- **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块 + `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
 - **离线优先**：`navigator.onLine===false` 直接 `unreachable('offline')`、跳过任何 fetch；监听 `window` 的 `online`/`offline` 事件自动翻转。
 - **根因 → 文案**：offline / proxy（dev server 没起）/ provider（5xx 超时）/ auth（401/403）四类不同中文文案 + 行动指引。
 - **已知不可达时 `send()` 先 probe 短路**：避免用户发消息后白等 fetchWithRetry 的 7s 退避；不通则挂起，恢复后 `onRecover` 自动续答。
@@ -170,7 +167,9 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 **System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
 
-**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需在模型设置里选择支持图片的模型**——默认 `deepseek-chat` 不支持视觉，发图会收到模型错误（走错误条提示，不崩）；要用图片功能可在模型设置中新增 / 切换 VL 模型（如 `qwen-vl-max`、`gpt-4o`）。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
+**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张，均可设置），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需在模型设置里选择支持图片的模型**——默认 `deepseek-chat` 不支持视觉；`vision-models.ts` 维护 VL 模型关键词名单，当前激活模型不在名单时图片入口（粘贴 / 拖放）**直接禁用并提示换 VL 模型**（如 `qwen-vl-max`、`gpt-4o`），消除「发图必收模型错误」的必坏路径。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
+
+**对话交互：** 面板打开自动聚焦输入框；生成中 Enter 有内容 = 打断并直接发送、空 = 仅停止；停止 / 失败回合在回合头部显示「已停止 · 保留已生成的部分」+「继续生成」按钮（从半成品续跑）；重答直接替换当前回答；👍/👎 一键切换反馈（👎 不再强制选原因），反馈与重答前后对静默落 IndexedDB 供 few-shot 召回，偏好记录上限 500 条自动裁最老；会话上限 50 个自动裁最久未更新；设置弹窗只有数值参数（历史 token 预算 / Agent 轮数 / 输出上限 / 图片限制 / 网页读取上限），开新会话即替代旧的「清空会话」。写操作（git / local / wbscf 等）由系统审批卡统一确认——模型不再先要口头确认（避免双重确认），被拒后模型直接接受并给替代方案。
 
 ### 洞察模块（`src/features/insights/`，自包含特性模块）
 

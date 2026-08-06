@@ -35,16 +35,6 @@ export function formatTime(now: Date): string {
 
 // ============ Token 与历史管理 ============
 
-/**
- * @deprecated 对话历史 token 预算已迁移到可配置的 ChatSettings（见 settings.ts），
- * 默认值 120,000。此常量不再被 store.ts 使用，仅保留以防外部直接引用；
- * 新代码请使用 getChatSettings().maxHistoryTokens。
- *
- * 对话历史 token 预算上限（粗略估算）。
- * 超过此值时截断早期消息，防止超出模型 context window 导致 API 报错。
- * 预留给 system prompt + 当前轮回复的空间。
- */
-export const MAX_HISTORY_TOKENS = 12000
 
 /**
  * 粗略估算文本 token 数。
@@ -135,18 +125,44 @@ export function truncateHistory(history: ChatMessage[], budget: number): ChatMes
 }
 
 /**
- * 从消息数组末尾向前查找并移除空的 assistant 占位消息。
- * agent loop 报错时，当前轮可能留下了未填充内容的 assistant 占位，需清理避免残留空气泡。
+ * 图片添加策略校验（纯函数，供 Composer 与测试共用）。
+ * @returns error 非 null 时整批不添加（accepted 为空）；ignoredNonImages 供 UI 提示
  */
-export function cleanupEmptyAssistant(messages: ChatMessage[]): void {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m.role === 'user') break
-    if (m.role === 'assistant' && !m.content && !m.tool_calls?.length && !m.ui?.length) {
-      messages.splice(i, 1)
-      break
+export interface ValidateImageAdd {
+  error: string | null
+  /** 被忽略的非图片文件数（不阻塞图片添加，仅提示） */
+  ignoredNonImages: number
+  accepted: File[]
+}
+
+export function validateImageAdd(
+  files: File[],
+  opts: { maxImages: number; maxImageSizeMB: number; currentCount: number },
+): ValidateImageAdd {
+  const list = Array.from(files)
+  const nonImages = list.filter((f) => !f.type.startsWith('image/'))
+  const imgs = list.filter((f) => f.type.startsWith('image/'))
+
+  if (!imgs.length) {
+    return { error: '仅支持图片文件（截图 / 照片）', ignoredNonImages: nonImages.length, accepted: [] }
+  }
+  const maxBytes = opts.maxImageSizeMB * 1024 * 1024
+  const oversized = imgs.filter((f) => f.size > maxBytes)
+  if (oversized.length) {
+    return {
+      error: `${oversized.map((f) => f.name).join('、')} 超过单张 ${opts.maxImageSizeMB}MB 限制`,
+      ignoredNonImages: nonImages.length,
+      accepted: [],
     }
   }
+  if (opts.currentCount + imgs.length > opts.maxImages) {
+    return {
+      error: `最多同时上传 ${opts.maxImages} 张图片`,
+      ignoredNonImages: nonImages.length,
+      accepted: [],
+    }
+  }
+  return { error: null, ignoredNonImages: nonImages.length, accepted: imgs }
 }
 
 // ============ JSON 泄漏检测（模型把工具原始数据贴进回答的兜底）============
@@ -182,50 +198,3 @@ export function isRawJsonLeak(text: string): boolean {
   return false
 }
 
-// ============ JSON 截断（语义感知）============
-
-/**
- * 在 JSON 边界处截断字符串，保证截断后的内容仍是合法的 JSON。
- * 避免硬截断导致模型收到残缺 JSON 无法解析。
- *
- * 调用方传入的是 JSON.stringify 的产物（本就是合法 JSON），故这里**不再**尝试
- * 完整解析后原样返回——那会让截断逻辑永不执行、MAX_TOOL_RESULT 形同虚设。
- *
- * 策略：从 maxLen 向前找最近的「完整元素边界」（对象/数组闭合括号后跟逗号），
- * 截到该处后去掉尾逗号，并按需补回外层数组/对象的闭合括号，使结果仍是合法 JSON。
- */
-export function truncateAtJsonBoundary(json: string, maxLen: number): string {
-  if (json.length <= maxLen) return json
-
-  // 从 maxLen 向前找最近的完整 JSON 元素边界（'}' 或 ']' 后跟 ',' / ']' / '}'）
-  let cutPos = -1
-  for (let i = Math.min(maxLen, json.length) - 1; i >= maxLen * 0.7; i--) {
-    const ch = json[i]
-    if ((ch === '}' || ch === ']') && i + 1 < json.length) {
-      let j = i + 1
-      while (j < json.length && /\s/.test(json[j])) j++
-      if (j < json.length && (json[j] === ',' || json[j] === ']' || json[j] === '}')) {
-        cutPos = i + 1
-        break
-      }
-    }
-  }
-
-  if (cutPos > 0) {
-    let head = json.slice(0, cutPos)
-    // 去掉末尾尾逗号（截断点可能正好落在元素边界后的逗号上）
-    head = head.replace(/,\s*$/, '')
-    // 补齐被截断的外层闭合括号，使结果仍是合法 JSON（用栈匹配未闭合的开括号）
-    const stack: string[] = []
-    for (let k = 0; k < head.length; k++) {
-      const c = head[k]
-      if (c === '[' || c === '{') stack.push(c === '[' ? ']' : '}')
-      else if (c === ']' || c === '}') stack.pop()
-    }
-    if (stack.length) head += stack.reverse().join('')
-    return head + '\n…[结果过长已截断，请据此已有数据回答]'
-  }
-
-  // 兜底：硬截断 + 提示（找不到边界时退而求其次，已无法保证合法 JSON）
-  return json.slice(0, maxLen) + '\n…[结果过长已截断，请据此回答]'
-}

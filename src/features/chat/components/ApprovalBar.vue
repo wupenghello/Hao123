@@ -11,7 +11,7 @@ function onLocate() {
   emit('locate')
 }
 
-/** 全部批准（并行；每个都从对应 pending 处续跑 agent 循环，消息状态随各自完成翻转） */
+/** 全部批准（逐个；store 内每次批准后检查是否还有其它 pending，最后一个处理完才续跑 agent 循环） */
 async function approveAll() {
   const pending = [...store.pendingApprovals]
   for (const p of pending) {
