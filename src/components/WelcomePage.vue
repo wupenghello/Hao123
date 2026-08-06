@@ -192,7 +192,7 @@ const hasUrgentItems = computed(() =>
 }
 .home-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 
-@media (max-width: 980px) {
+@container layout-main (max-width: 980px) {
   .home { padding-bottom: 104px; overflow-y: auto; } /* 窄屏堆叠布局内容必超视口，退回容器内滚动 */
   .home-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; min-height: 100%; }
   .home-center { min-height: 540px; overflow: visible; }

@@ -41,7 +41,8 @@ import {
   formatDate,
   formatTime,
   truncateHistory,
-  cleanupEmptyAssistant,
+  isRawJsonLeak,
+  startsWithJson,
 } from './utils'
 import type { ChatMessage, ChatSession, ChatUiBlock, ToolActivity, ToolApproval, TurnVersions } from './types'
 import type { FeedbackCategory, FeedbackStats } from './types'
@@ -51,6 +52,14 @@ import type { PreferenceContextMessage } from './preference-log'
 import { getFewShotSystemMessage } from './few-shot'
 import { modePromptMessage } from './composer-modes'
 import type { ComposerMode } from './composer-modes'
+
+// 旧版居中浮层面板的 UI 持久化键（沉浸式 / 面板尺寸），新版右侧停靠面板不再使用；
+// 一次性清理，避免历史脏键残留。保留一个版本期后删除本块。
+try {
+  localStorage.removeItem('hao123-chat-immersive')
+  localStorage.removeItem('hao123-chat-immersive-sidebar')
+  localStorage.removeItem('hao123-chat-panel-size')
+} catch { /* localStorage 不可用时忽略 */ }
 
 /**
  * activity.result 持久化时的截断长度。内存里 activity.result 持有完整 JSON（供活动卡
@@ -667,6 +676,7 @@ function buildStaticSystemPrompt(): string {
     '',
     '# 回答风格',
     '- 简体中文，口吻自然亲切、简洁不啰嗦，像一位靠谱的同事。',
+    '- 工具返回的数据（JSON / 字段名 / 原始结构）是内部素材，绝不原样贴进回答，也不要用 JSON 或代码块形式展示；一律用自己的话整理成自然语言（列表 / 表格 / 短句），工具结果会由前端自动生成卡片。',
     '- 遇到需要用户确认的操作时，工具会返回 approvalRequired。此时只能说明“我已准备好，等你确认”，不要说动作已经完成；用户确认或取消后，会收到新的工具结果，再继续给结论。',
     '- 善用生成式 UI 与 Markdown：卡片是速览，正文要能让用户不点开卡片也读懂论据。涉及外部调研、网页读取、知识库检索等带来源的回答，正文应分层呈现：先给结论，再用自己的话复述查到的关键观点和依据（可引用原文要点，不要只丢一句结论），最后给出处。不要因为信息已进卡片就把过程省成干瘪总结。',
     '- 数据型回答先给结论/概览，再列细节；天气可适当加一句贴心提示（如带伞、添衣）。',
@@ -743,7 +753,7 @@ function loadHistory(): ChatMessage[] {
     const history = raw ? (JSON.parse(raw) as ChatMessage[]) : []
     return history.map((m) =>
       m.role === 'assistant' && m.content
-        ? { ...m, content: stripIrrelevantKbMeta(m.content) }
+        ? { ...m, content: isRawJsonLeak(m.content) ? '' : stripIrrelevantKbMeta(m.content) }
         : m,
     )
   } catch {
@@ -821,6 +831,8 @@ function loadSessions(): ChatSession[] {
   return []
 }
 
+export type TurnPhase = 'idle' | 'thinking' | 'working' | 'composing' | 'done' | 'aborted' | 'failed'
+
 export const useChatStore = defineStore('chat', () => {
   const open = ref(false)
   // 多会话：sessions 持久化（写盘前 slim）+ activeSessionId；messages 是当前活动会话消息镜像。
@@ -892,6 +904,21 @@ export const useChatStore = defineStore('chat', () => {
   // 初始化时落盘一次：迁移/新建的 session 立即持久化（含空会话），避免刷新丢失
   schedulePersist()
   const streaming = ref(false)
+  /** 当前回合的阶段（纯内存派生，不持久化）：idle → thinking → working → composing → done/aborted/failed。
+   *  Composer 状态条与回合组件据此呈现「思考 / 正在执行 N 个动作 / 正在组织回答」的过程叙事。 */
+  const turnPhase = ref<TurnPhase>('idle')
+  /** 本回合 agent 循环的总轮数（含最终回答轮），状态条「第 N 轮」用 */
+  const turnRound = ref(0)
+  /** 本回合工具调用总数（并行算多个），进度「N 个动作」用 */
+  const turnActTotal = ref(0)
+  /** 本回合已完成的工具调用数（done/error/pending 都算完成，取消归零） */
+  const turnActDone = ref(0)
+  /** 本回合开始时间戳（ms），状态条实时耗时用 */
+  const turnStart = ref(0)
+  /** JSON 泄漏抑制：当前是否正把模型回答里的原始 JSON 隐藏（流式同步 + 渲染层共用） */
+  const leakSuppressed = ref(false)
+  /** 抑制命中的回合轮号（回填判定只在该轮收尾时做，避免后续轮正常回答被误标） */
+  const leakSuppressedRound = ref(-1)
   /** 最近一次 send 的合成器模式；approve/reject/regenerate/retry/恢复续答续跑时沿用，避免中途丢模式 */
   const lastMode = ref<ComposerMode>('ask')
   const error = ref<string | null>(null)
@@ -1066,6 +1093,12 @@ export const useChatStore = defineStore('chat', () => {
     abortController?.abort()
     abortController = null
     streaming.value = false
+    // 与 runAgentLoop 的 AbortError 收尾一致：清理空占位、给已保留轮次标记 aborted，
+    // 避免「停止后刷新 → 重答版本表把空 content 的 assistant 消息喂给模型」的 400 风险。
+    truncateIncompleteTail()
+    const tail = messages.value[messages.value.length - 1]
+    if (tail?.role === 'assistant' && tail._loopGroup) tail._loopFinal = true
+    if (turnPhase.value !== 'aborted' && turnPhase.value !== 'failed') turnPhase.value = 'aborted'
     // 等旧循环退出（abort 后经 catch(AbortError) 收尾），再让新 send 接手，避免双循环抢改 messages
     if (currentLoop) {
       await currentLoop.catch(() => {})
@@ -1074,10 +1107,26 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * 「继续生成」：从被停止/失败回合的半成品处续跑，不重复提问。
+   * 当前末尾为 assistant 消息（aborted/failed 的最终轮）→ 直接接续 agent 循环，
+   * 让模型基于已保留的内容继续作答；否则回退到重新生成最后一条回答。
+   */
+  async function resumeAfterStop() {
+    if (streaming.value) return
+    const tail = messages.value[messages.value.length - 1]
+    if (tail?.role === 'assistant') {
+      await runAgentLoop([], lastMode.value)
+      return
+    }
+    await regenerate()
+  }
+
+  /**
    * runAgentLoop 入口：转发到 impl 并把 in-flight Promise 记到 currentLoop，
    * 供 stop() await（打断重发时等旧循环 wind down）。
    */
-  function runAgentLoop(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask', versionUid?: string): Promise<void> {
+  async function runAgentLoop(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask', versionUid?: string): Promise<void> {
+    // 新轮干净完成时清空上一轮的 aborted 状态，避免状态条残留「已停止」
     const p = runAgentLoopImpl(extraHiddenContexts, mode, versionUid)
     currentLoop = p
     return p
@@ -1154,6 +1203,31 @@ export const useChatStore = defineStore('chat', () => {
    * versionUid：若为"新轮"（send / regenerate / editMessage），传对应 user 消息 id，
    *   循环干净完成时把该 turn 块压入 versions[uid]（cap 3）；续轮（approve/retry/reject）传 undefined 不入栈。
    */
+  /**
+   * 中止后清理不完整的回合尾部（替代 cleanupEmptyAssistant）：
+   * 从后向前删除「当前回合尚未收尾的消息」（role=tool / 无正文无 tool_calls 的空 assistant 占位），
+   * 但**保留**已有正文的 assistant 消息——用户停止后能看到的半成品回答不是删掉的，
+   * 而是留在列表里并标记为 aborted，由「继续生成」从该处续跑。
+   * 该消息不可见且不可达（其 tool 结果已被删），不会污染模型输入。
+   */
+  function truncateIncompleteTail(loopGroup?: string) {
+    const msgs = messages.value
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m.role === 'user') break
+      if (m.role === 'tool') { msgs.splice(i, 1); continue }
+      if (m.role === 'assistant') {
+        // 有待审批的活动 → 用户正在确认的操作，绝不因停止/出错而删除（否则审批卡凭空消失）
+        if (m.activities?.some((a) => a.status === 'pending')) break
+        if (m.content.trim() || m.ui?.length) break // 有产出 → 保留为 aborted 回合
+        if (!m.tool_calls?.length) { msgs.splice(i, 1); continue } // 空占位（未产出任何内容）→ 删
+        // 有 tool_calls 的中间轮：删除后同组更早的 assistant 轮仍是保留轮（loopGroup 不匹配 → 视为已保留）
+        if (loopGroup && m._loopGroup !== loopGroup) break
+        msgs.splice(i, 1)
+      }
+    }
+  }
+
   async function runAgentLoopImpl(extraHiddenContexts: ChatMessage[] = [], mode: ComposerMode = 'ask', versionUid?: string) {
     abortController?.abort()
     const controller = new AbortController()
@@ -1162,6 +1236,11 @@ export const useChatStore = defineStore('chat', () => {
 
     error.value = null
     streaming.value = true
+    turnPhase.value = 'thinking'
+    turnRound.value = 1
+    turnActTotal.value = 0
+    turnActDone.value = 0
+    turnStart.value = Date.now()
 
     // 本次 agent 循环的统一标识：多轮工具调用产生的 assistant 消息共享此 ID，
     // UI 据此将中间轮次折叠为紧凑摘要，只展开最终回答。
@@ -1196,6 +1275,7 @@ export const useChatStore = defineStore('chat', () => {
       const maxRounds = Math.max(1, chatSettings.maxRounds || 5)
       let brokeForPending = false
       for (let round = 0; round < maxRounds; round++) {
+        turnRound.value = round + 1
         // 每轮新建一个 assistant 占位消息；改「数组里的响应式代理」以驱动流式重渲染
         const idx = messages.value.push({ id: genId('msg'), role: 'assistant', content: '', ts: Date.now() }) - 1
         const assistant = messages.value[idx]
@@ -1214,12 +1294,26 @@ export const useChatStore = defineStore('chat', () => {
             if (signal.aborted) return
             assistant.content += delta
             assistant.content = stripIrrelevantKbMeta(assistant.content)
+            // JSON 泄漏抑制：模型把工具返回的原始 JSON 直接贴进回答时（开头即 { 或 [，
+            // 或整条 JSON 代码块），暂停把增量同步到 UI 渲染流——回答滚动显示只会越滚越乱。
+            // 抑制状态本身可靠（round 结束由「整段是否就是 JSON」判定，循环内不解除）。
+            if (!leakSuppressed.value && startsWithJson(assistant.content)) {
+              leakSuppressed.value = true
+              leakSuppressedRound.value = round
+            }
+            // 流式期间：正文非空 → 正在组织回答（thinking 短瞬、working 期间无正文）
+            if (turnPhase.value !== 'working') turnPhase.value = 'composing'
           },
         })
         if (signal.aborted) return
 
         // 无工具调用 → 本轮即最终回答，结束
         if (!toolCalls.length) {
+          // JSON 泄漏抑制收尾：该轮内容整体就是 JSON → 判定泄漏；否则解除抑制正常展示
+          if (leakSuppressed.value && leakSuppressedRound.value === round) {
+            leakSuppressed.value = !isRawJsonLeak(assistant.content)
+          }
+          leakSuppressedRound.value = -1
           assistant.qualityCategory = classifyAssistantMessage(messages.value.slice(0, idx), assistant)
           assistant._loopFinal = true
           break
@@ -1242,6 +1336,8 @@ export const useChatStore = defineStore('chat', () => {
           startTime: Date.now(),
           expanded: false,
         }))
+        turnPhase.value = 'working'
+        turnActTotal.value += toolCalls.length
 
         // 并行执行所有工具调用
         const activities = assistant.activities!
@@ -1268,6 +1364,8 @@ export const useChatStore = defineStore('chat', () => {
                 result = await callTool(call.function.name, args, signal)
                 activity.status = (result as { error?: unknown })?.error ? 'error' : 'done'
               }
+              // 工具落定（done/error/pending 均算完成）→ 推进动作进度
+              turnActDone.value = Math.min(turnActDone.value + 1, turnActTotal.value)
               const rawResult = result
               const renderedBlocks = uiBlocksFromRenderResult(rawResult)
               if (renderedBlocks.length) {
@@ -1313,6 +1411,8 @@ export const useChatStore = defineStore('chat', () => {
           break
         }
         hiddenContexts.push(...visionContexts.filter((m): m is ChatMessage => !!m))
+        // 进入下一轮思考（工具结果已回灌，等待模型基于结果作答）
+        turnPhase.value = 'thinking'
         // 继续下一轮，让模型基于工具结果作答
       }
       // 循环结束（用尽 maxRounds）时若最后一条是 tool 消息，说明模型仍想调工具但已无轮次，
@@ -1346,10 +1446,10 @@ export const useChatStore = defineStore('chat', () => {
       markSuccess()
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') {
-        // 中止也要清理当前轮留下的「空 assistant 占位」（content 为空且无 tool_calls），
-        // 否则它会被持久化到 localStorage，下一轮 buildApiMessages 把空 content 的
-        // assistant 喂给模型，DeepSeek/OpenAI 会以 400「content must be non-empty」拒绝。
-        cleanupEmptyAssistant(messages.value)
+        // 中止语义：保留已生成的半成品回答（标记为 aborted 回合，供「继续生成」续跑），
+        // 只清掉当前回合不完整的尾部（空占位 / tool 结果）；与旧的 cleanupEmptyAssistant
+        // 行为不同——那会连半成品一起删掉，用户停止后什么都看不到。
+        truncateIncompleteTail(loopGroup)
         // 标记该 loop 组最后一条已完成轮次为最终回答，避免中间步骤被误当最终渲染
         for (let i = messages.value.length - 1; i >= 0; i--) {
           if ((messages.value[i] as ChatMessage)._loopGroup === loopGroup) {
@@ -1357,6 +1457,9 @@ export const useChatStore = defineStore('chat', () => {
             break
           }
         }
+        turnPhase.value = 'aborted'
+        leakSuppressed.value = false
+        leakSuppressedRound.value = -1
         return
       }
       // 网络类错误归连通性层（琥珀条 / Launcher 色点 / 自动重试），不污染 store.error 红条；
@@ -1368,8 +1471,8 @@ export const useChatStore = defineStore('chat', () => {
         clearConnectivityIssue()
         error.value = (e as Error)?.message || '对话出错了，请稍后重试'
       }
-      // 移除空的尾部 assistant 占位（避免残留空气泡）
-      cleanupEmptyAssistant(messages.value)
+      // 移除空的尾部 assistant 占位（避免残留空气泡）；保留有正文的半成品，标记为 failed 回合
+      truncateIncompleteTail(loopGroup)
       // 同上：标记最后一条已完成轮次为最终回答
       for (let i = messages.value.length - 1; i >= 0; i--) {
         if ((messages.value[i] as ChatMessage)._loopGroup === loopGroup) {
@@ -1377,8 +1480,11 @@ export const useChatStore = defineStore('chat', () => {
           break
         }
       }
+      turnPhase.value = 'failed'
     } finally {
       if (abortController === controller) {
+        // 非中止路径（done / 失败 / 审批暂停）下，尚未设置阶段就归位为 done
+        if (turnPhase.value !== 'aborted' && turnPhase.value !== 'failed') turnPhase.value = 'done'
         streaming.value = false
         abortController = null
         if (!open.value) unread.value = true
@@ -1651,6 +1757,7 @@ export const useChatStore = defineStore('chat', () => {
     const approvalController = new AbortController()
     abortController = approvalController
     streaming.value = true
+    turnPhase.value = 'working'
 
     let result: unknown
     let visionContext: ChatMessage | null = null
@@ -1762,6 +1869,12 @@ export const useChatStore = defineStore('chat', () => {
     currentSessionTitle,
     pendingApprovals,
     streaming,
+    turnPhase,
+    turnRound,
+    turnActTotal,
+    turnActDone,
+    turnStart,
+    leakSuppressed,
     error,
     unread,
     configured,
@@ -1779,6 +1892,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteSession,
     renameSession,
     stop,
+    resumeAfterStop,
     send,
     regenerate,
     rate,

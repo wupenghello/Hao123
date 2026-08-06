@@ -1103,7 +1103,7 @@ onBeforeUnmount(() => {
 @keyframes deck-ping { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* 窄屏：卫星收拢为底部横排、细线隐藏、位置 / 新建贴角，避免绝对定位互相压盖 */
-@media (max-width: 1100px) {
+@container layout-main (max-width: 1100px) {
   .deck-sats { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5; display: flex; gap: 10px; }
   .sat { position: static; min-width: 0; }
   .deck-pos { right: 16px; bottom: 12px; }

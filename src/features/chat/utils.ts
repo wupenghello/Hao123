@@ -149,6 +149,39 @@ export function cleanupEmptyAssistant(messages: ChatMessage[]): void {
   }
 }
 
+// ============ JSON 泄漏检测（模型把工具原始数据贴进回答的兜底）============
+
+/**
+ * 文本是否以 JSON 形态开头（流式抑制用，宁可多抑制不可漏）：
+ * `{` / `[` 开头，或整体被 JSON 代码块包裹。
+ * 命中后进入抑制模式：后续增量只攒不显示，循环结束时再统一回填（由渲染层负责隐藏）。
+ */
+export function startsWithJson(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (t.startsWith('{') || t.startsWith('[')) return true
+  return /^```(?:json)?\s*[\[{]/.test(t)
+}
+
+/**
+ * 整段文本是否就是工具原始 JSON（渲染兜底用，保守：必须整体可解析才算泄漏）。
+ * 覆盖两种形态：整体被 ```json 代码块包裹；或正文就是一条 JSON（如 {"dimension":...}）。
+ * 正常回答里夹一段 JSON 不命中——只处理「整条回答就是 JSON」的极端情况。
+ */
+export function isRawJsonLeak(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  const fence = t.match(/^```(?:json)?\s*([\s\S]*?)```\s*$/i)
+  if (fence) {
+    const inner = fence[1].trim()
+    return inner.startsWith('{') || inner.startsWith('[')
+  }
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try { JSON.parse(t); return true } catch { return false }
+  }
+  return false
+}
+
 // ============ JSON 截断（语义感知）============
 
 /**

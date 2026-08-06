@@ -304,11 +304,11 @@ function hasMenu(item: NavItem): boolean {
 .dk-sep { height: 1px; margin: 4px; background: rgba(255, 255, 255, 0.08); }
 
 /* 窄屏兜底：不引入横向滚动（会裁掉飞出菜单），改为缩窄图标档位 */
-@media (max-width: 780px) {
+@container layout-main (max-width: 780px) {
   .dk-btn { width: 46px; }
   .dk-lb { display: none; }
 }
-@media (max-width: 620px) {
+@container layout-main (max-width: 620px) {
   .dock { gap: 2px; padding: 6px 8px; }
   .dk-btn { width: 38px; padding: 6px 2px 5px; }
   .dk-ic { width: 18px; height: 18px; }

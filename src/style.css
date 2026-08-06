@@ -159,6 +159,9 @@
   --glass-blur-strong: blur(24px) saturate(180%);
   --highlight-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
   --highlight-inset-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+
+  /* —— 布局 —— */
+  --chat-panel-w: 400px;
 }
 
 html,

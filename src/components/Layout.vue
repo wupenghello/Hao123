@@ -8,14 +8,17 @@ import ClaudeButton from '@/components/status/ClaudeButton.vue'
 import ModelConfigHost from '@/components/status/ModelConfigHost.vue'
 import WelcomePage from '@/components/WelcomePage.vue'
 import { WeatherWidget } from '@/features/weather'
-import { ChatCommandPalette, ChatLauncher, useChatHotkeys } from '@/features/chat'
+import { ChatPanel, ChatLauncher, useChatHotkeys, useChatStore } from '@/features/chat'
 import {
   startStorageHealthMonitor,
   stopStorageHealthMonitor,
 } from '@/features/storage-health'
 
-// 全局召唤快捷键：Alt+K / Cmd+K 打开命令面板，Esc 关闭
+// 全局召唤快捷键：Alt+K / Cmd+K 打开聊天面板，Esc 收起
 useChatHotkeys()
+
+// 面板开合状态：供 aside 推挤布局与 launcher 避让使用
+const chat = useChatStore()
 
 onMounted(() => startStorageHealthMonitor())
 onUnmounted(() => stopStorageHealthMonitor())
@@ -39,17 +42,26 @@ onUnmounted(() => stopStorageHealthMonitor())
       </template>
     </StatusBar>
 
-    <!-- 主内容区：工作台首页（收件箱为主角，AI 退成左下角召唤层）。min-h-0 保证固定高度分配；
-         页面级滚动发生在 WelcomePage 内部（.home 自滚，body 永久 overflow:hidden 的约定） -->
-    <main class="layout-main flex-1 min-h-0">
-      <WelcomePage />
-    </main>
+    <!-- 主区 + 右侧停靠聊天面板：面板展开推挤 main；@container 断点让内容随 main 宽度收拢 -->
+    <div class="layout-body flex-1 min-h-0 flex flex-row">
+      <main class="layout-main flex-1 min-w-0 min-h-0">
+        <WelcomePage />
+      </main>
 
-    <!-- 助手入口：固定左下角小药丸（position:fixed，视口定位） -->
+      <aside
+        class="chat-aside"
+        :class="{ 'is-open': chat.open }"
+        :inert="!chat.open"
+        :aria-hidden="!chat.open"
+      >
+        <div class="chat-aside-inner">
+          <ChatPanel />
+        </div>
+      </aside>
+    </div>
+
+    <!-- 助手入口：可拖拽桌宠（position:fixed，面板打开时自动右移避让） -->
     <ChatLauncher />
-
-    <!-- 全局命令面板（Spotlight 式，Teleport 到 body，Alt+K 召唤） -->
-    <ChatCommandPalette />
 
     <ModelConfigHost />
   </div>
@@ -65,6 +77,35 @@ onUnmounted(() => stopStorageHealthMonitor())
   inset: 36px 0 0;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.24));
+}
+
+/* 主内容容器：container 化，让 InboxDeck/WelcomePage/Dock 的断点随 main 宽度（而非视口）变化——
+   聊天面板展开推挤 main 时，窄屏分支能正确提前触发 */
+.layout-main {
+  container-type: inline-size;
+  container-name: layout-main;
+}
+
+/* 右侧停靠聊天面板：关闭时宽度 0 但保留挂载（滚动位置/草稿不丢），展开推挤 main */
+.chat-aside {
+  width: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  transition: width 340ms var(--ease-out-quint);
+}
+.chat-aside.is-open {
+  width: var(--chat-panel-w, 400px);
+}
+.chat-aside-inner {
+  width: var(--chat-panel-w, 400px);
+  height: 100%;
+  min-height: 0;
+  border-left: 1px solid var(--color-line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-aside {
+    transition: none;
+  }
 }
 
 .status-brand {

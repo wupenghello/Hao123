@@ -17,7 +17,7 @@ export interface ComposerModeDef {
   placeholder: string
 }
 
-/** 合成器模式定义（标签 + 占位符；与 ChatCommandPalette 的 tabs 同源） */
+/** 合成器模式定义（标签 + 占位符；UI 恒走 ask，模式枚举保留供 send 契约使用） */
 export const COMPOSER_MODES: ComposerModeDef[] = [
   { key: 'ask', label: '问答', placeholder: '直接跟我说就好…' },
   { key: 'plan', label: '规划', placeholder: '说目标，我来拆步骤和优先级…' },

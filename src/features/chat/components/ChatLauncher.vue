@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * 助手入口（可拖拽，默认右下角）。
+ * 助手入口（可拖拽，默认右下角，避让右侧停靠面板）。
  *
  * - 默认固定在视口右下角；用户可按住拖动到任意位置，松手后位置持久化到 localStorage。
  * - 拖拽与点击区分：移动距离 > 5px 视为拖拽（不打开面板），否则视为点击（打开面板）。
  * - 用 Pointer Events 统一鼠标与触屏；setPointerCapture 保证拖出元素也能跟踪。
  * - 边界约束：拖拽时和窗口 resize 时都 clamp 到视口内，避免拖丢。
+ * - 未拖拽过（pos === null）时，面板打开则右移避让（right = 面板宽 + 16px）。
  */
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useChatStore } from '../store'
@@ -14,12 +15,8 @@ import { ASSISTANT_NAME } from '../config'
 import { activeModel, activeProvider, configured as modelConfigured, hasUiConfig } from '@/features/model-config'
 import {
   AvatarStage,
-  AVATAR_MODELS,
   getAvatarModelUrl,
   DEFAULT_MODEL_ID,
-  SCALE_FACTOR_STEP,
-  SCALE_FACTOR_MIN,
-  SCALE_FACTOR_MAX,
   clampScaleFactor,
   STORAGE_KEY_MODEL,
   STORAGE_KEY_SCALE,
@@ -28,13 +25,6 @@ import type { AvatarExpression } from '@/features/avatar'
 import { useStorage } from '@/composables/useStorage'
 import IconCheckNetwork from '~icons/mdi/check-network-outline'
 import IconNetworkOff from '~icons/mdi/network-off-outline'
-import IconDrag from '~icons/mdi/drag'
-import IconZoomIn from '~icons/mdi/magnify-plus-outline'
-import IconZoomOut from '~icons/mdi/magnify-minus-outline'
-import IconReset from '~icons/mdi/refresh'
-import IconCheck from '~icons/mdi/check'
-import IconChat from '~icons/mdi/chat-outline'
-import IconClose from '~icons/mdi/close'
 
 const store = useChatStore()
 const { status: connectivityStatus, message: connectivityMsg } = useConnectivity()
@@ -45,15 +35,9 @@ const avatarRef = ref<InstanceType<typeof AvatarStage> | null>(null)
 const AVATAR_W = 130
 const AVATAR_H = 168
 
-// ── 形象与缩放（持久化）──
-/** 当前选中的形象 id */
+// ── 形象与缩放（持久化；形象切换 / 缩放调节入口已随右键菜单移除，沿用上次持久化值）──
 const modelId = useStorage<string>(STORAGE_KEY_MODEL, DEFAULT_MODEL_ID)
-/** 当前缩放倍数（相对自适应 fit，边界 [SCALE_FACTOR_MIN, SCALE_FACTOR_MAX]） */
 const scaleFactor = useStorage<number>(STORAGE_KEY_SCALE, 1)
-/** 当前形象的中文标签（菜单标题用） */
-const currentModelLabel = computed(
-  () => AVATAR_MODELS.find((m) => m.id === modelId.value)?.label ?? '形象',
-)
 
 /** 给 AvatarStage 的配置：url 随形象切换；scaleFactor 用于渲染器初始化 */
 const avatarConfig = computed(() => ({
@@ -66,43 +50,6 @@ watch(
   scaleFactor,
   (f) => avatarRef.value?.setScaleFactor?.(clampScaleFactor(f)),
 )
-
-// ── 右键菜单 ──
-const menuOpen = ref(false)
-const menuX = ref(0)
-const menuY = ref(0)
-
-function onContextMenu(e: MouseEvent) {
-  e.preventDefault()
-  // 菜单边界约束，避免贴边溢出（形象较多，预留充足高度）
-  const menuW = 196
-  const menuH = 500
-  menuX.value = Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 8))
-  menuY.value = Math.max(8, Math.min(e.clientY, window.innerHeight - menuH - 8))
-  menuOpen.value = true
-}
-
-function closeMenu() {
-  menuOpen.value = false
-}
-
-function zoomIn() {
-  scaleFactor.value = clampScaleFactor(scaleFactor.value + SCALE_FACTOR_STEP)
-}
-function zoomOut() {
-  scaleFactor.value = clampScaleFactor(scaleFactor.value - SCALE_FACTOR_STEP)
-}
-function resetZoom() {
-  scaleFactor.value = 1
-}
-function selectModel(id: string) {
-  modelId.value = id
-  closeMenu()
-}
-function openChat() {
-  store.show()
-  closeMenu()
-}
 
 /** 把连通性状态映射到 avatar 表情 */
 function expressionForStatus(): AvatarExpression {
@@ -247,17 +194,6 @@ function onResize() {
   }
 }
 
-function onDocClick(e: MouseEvent) {
-  if (!menuOpen.value) return
-  const menu = document.querySelector('.avatar-context-menu')
-  // 点在菜单外（且不是右键 launcher 本身）则关闭；菜单项自带 closeMenu
-  if (menu && !menu.contains(e.target as Node)) closeMenu()
-}
-
-function onDocKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && menuOpen.value) closeMenu()
-}
-
 onMounted(() => {
   // 读持久化位置
   const stored = localStorage.getItem(LAUNCHER_POS_KEY)
@@ -270,23 +206,22 @@ onMounted(() => {
     } catch { /* 忽略损坏的存储 */ }
   }
   window.addEventListener('resize', onResize)
-  // 延迟绑定 click，避免触发右键的同一手势立即关闭菜单
-  setTimeout(() => {
-    window.addEventListener('click', onDocClick)
-    window.addEventListener('keydown', onDocKeydown)
-  }, 0)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
-  window.removeEventListener('click', onDocClick)
-  window.removeEventListener('keydown', onDocKeydown)
 })
 
-/** 动态定位样式：有 pos 用 left/top，否则用 CSS 默认 right/bottom */
+/** 动态定位样式：有 pos 用 left/top，否则用 CSS 默认 right/bottom（面板打开时右移避让） */
 const launcherStyle = computed(() => {
-  if (!pos.value) return {}
-  return { left: `${pos.value.left}px`, top: `${pos.value.top}px`, right: 'auto', bottom: 'auto' }
+  if (pos.value) {
+    return { left: `${pos.value.left}px`, top: `${pos.value.top}px`, right: 'auto', bottom: 'auto' }
+  }
+  // 未拖拽过：面板打开时让出右侧，避免压住面板
+  if (store.open) {
+    return { right: `calc(var(--chat-panel-w, 400px) + 16px)` }
+  }
+  return {}
 })
 </script>
 
@@ -303,7 +238,6 @@ const launcherStyle = computed(() => {
     @pointerup="onPointerUp"
     @pointercancel="onPointerUp"
     @click="onClick"
-    @contextmenu="onContextMenu"
     @mousemove="onMouseMove"
     @mouseleave="onMouseLeave"
   >
@@ -326,64 +260,9 @@ const launcherStyle = computed(() => {
       <IconNetworkOff v-if="statusState === 'down'" class="w-3 h-3" />
       <IconCheckNetwork v-else class="w-3 h-3" />
     </span>
-    <!-- 未读徽标：左上角 -->
+    <!-- 未读徽标：左上角（静态，无 pulse） -->
     <span v-if="store.unread" class="launcher-unread" aria-hidden="true">新</span>
-    <!-- 拖拽手柄：底部居中，hover 时浮现 -->
-    <IconDrag class="launcher-drag-handle" aria-hidden="true" />
   </button>
-
-  <!-- 右键菜单：缩放 / 切换形象 / 打开小吴 -->
-  <Teleport to="body">
-    <div
-      v-if="menuOpen"
-      class="avatar-context-menu"
-      :style="{ left: menuX + 'px', top: menuY + 'px' }"
-      @click.stop
-      @contextmenu.prevent
-    >
-      <div class="ctx-header">
-        <span class="ctx-title">{{ ASSISTANT_NAME }} · {{ currentModelLabel }}</span>
-        <button type="button" class="ctx-close" title="关闭" @click="closeMenu">
-          <IconClose class="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div class="ctx-group">
-        <div class="ctx-group-label">大小</div>
-        <button type="button" class="ctx-item" :disabled="scaleFactor >= SCALE_FACTOR_MAX" @click="zoomIn">
-          <IconZoomIn class="w-4 h-4" /><span>放大</span>
-        </button>
-        <button type="button" class="ctx-item" :disabled="scaleFactor <= SCALE_FACTOR_MIN" @click="zoomOut">
-          <IconZoomOut class="w-4 h-4" /><span>缩小</span>
-        </button>
-        <button type="button" class="ctx-item" @click="resetZoom">
-          <IconReset class="w-4 h-4" /><span>重置 <em class="ctx-pct">{{ Math.round(scaleFactor * 100) }}%</em></span>
-        </button>
-      </div>
-
-      <div class="ctx-group">
-        <div class="ctx-group-label">形象</div>
-        <button
-          v-for="m in AVATAR_MODELS"
-          :key="m.id"
-          type="button"
-          class="ctx-item"
-          :class="{ 'is-active': m.id === modelId }"
-          @click="selectModel(m.id)"
-        >
-          <span class="ctx-check"><IconCheck v-if="m.id === modelId" class="w-3.5 h-3.5" /></span>
-          <span class="ctx-name">{{ m.label }}</span>
-          <span v-if="m.desc" class="ctx-desc">{{ m.desc }}</span>
-        </button>
-      </div>
-
-      <div class="ctx-group ctx-group--action">
-        <button type="button" class="ctx-item ctx-item--primary" @click="openChat">
-          <IconChat class="w-4 h-4" /><span>打开 {{ ASSISTANT_NAME }}</span>
-        </button>
-      </div>
-    </div>
-  </Teleport>
 </template>
 
 <style scoped>
@@ -404,7 +283,7 @@ const launcherStyle = computed(() => {
   cursor: grab;
   touch-action: none;
   user-select: none;
-  transition: transform var(--duration-fast) var(--ease-out-quint), filter var(--duration-fast) var(--ease-out-quint);
+  transition: transform var(--duration-fast) var(--ease-out-quint), right 340ms var(--ease-out-quint);
 }
 
 .avatar-launcher-stage {
@@ -413,10 +292,9 @@ const launcherStyle = computed(() => {
   pointer-events: none; /* 点击交给外层 button，避免 canvas 抢手势 */
 }
 
-/* hover 时角色微微上浮 + 提亮，提示可交互 */
+/* hover 时角色微微上浮，提示可交互（不发光） */
 .avatar-launcher:hover {
-  transform: translateY(-3px);
-  filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--color-accent) 35%, transparent));
+  transform: translateY(-2px);
 }
 
 .avatar-launcher:not(.is-dragging):active {
@@ -428,7 +306,6 @@ const launcherStyle = computed(() => {
   cursor: grabbing;
   transition: none;
   transform: none;
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--color-accent) 50%, transparent));
 }
 
 /* 连通性色点：右上角小圆点，跟随角色 */
@@ -457,7 +334,7 @@ const launcherStyle = computed(() => {
   border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
 }
 
-/* 未读徽标：左上角 */
+/* 未读徽标：左上角（静态，无 pulse 动画） */
 .launcher-unread {
   position: absolute;
   top: 12px;
@@ -474,161 +351,6 @@ const launcherStyle = computed(() => {
   font-size: 10px;
   font-weight: 700;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  animation: launcher-unread-pulse 1.8s ease-in-out infinite;
-}
-
-@keyframes launcher-unread-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.12); }
-}
-
-/* 拖拽手柄：底部居中，hover 时浮现 */
-.launcher-drag-handle {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 16px;
-  height: 16px;
-  transform: translateX(-50%);
-  color: var(--color-ink-3);
-  opacity: 0;
-  transition: opacity 0.2s, color 0.2s;
-}
-.avatar-launcher:hover .launcher-drag-handle {
-  opacity: 0.7;
-  color: var(--color-accent-strong);
-}
-
-/* ── 右键菜单 ── */
-.avatar-context-menu {
-  position: fixed;
-  z-index: 9999;
-  min-width: 196px;
-  max-width: 240px;
-  padding: 6px;
-  color: var(--color-ink);
-  background: color-mix(in srgb, var(--color-raised) 92%, transparent);
-  backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid var(--color-line-hover);
-  border-radius: 10px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
-  font-size: 13px;
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
-  animation: ctx-pop 0.14s var(--ease-out-quint);
-}
-
-@keyframes ctx-pop {
-  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.ctx-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px 8px;
-  border-bottom: 1px solid var(--color-line);
-}
-.ctx-title {
-  font-weight: 700;
-  font-size: 12.5px;
-  color: var(--color-ink);
-}
-.ctx-close {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  color: var(--color-ink-3);
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.ctx-close:hover {
-  color: var(--color-ink);
-  background: var(--color-line);
-}
-
-.ctx-group {
-  padding: 4px 0;
-  border-bottom: 1px solid var(--color-line);
-}
-.ctx-group:last-child {
-  border-bottom: none;
-}
-.ctx-group-label {
-  padding: 4px 10px 2px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--color-ink-3);
-  letter-spacing: 0.04em;
-}
-
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 10px;
-  color: var(--color-ink-2);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.13s, color 0.13s;
-}
-.ctx-item:hover:not(:disabled) {
-  color: var(--color-ink);
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-}
-.ctx-item:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-}
-.ctx-item.is-active {
-  color: var(--color-accent-strong);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-}
-.ctx-check {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  flex: 0 0 16px;
-  color: var(--color-accent-strong);
-}
-.ctx-name {
-  flex: 0 0 auto;
-  font-weight: 600;
-}
-.ctx-desc {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--color-ink-3);
-}
-.ctx-pct {
-  margin-left: 6px;
-  font-style: normal;
-  font-size: 11px;
-  color: var(--color-ink-3);
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-.ctx-item--primary {
-  color: var(--color-accent-strong);
-  font-weight: 600;
-}
-.ctx-group--action {
-  padding-top: 6px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-context-menu {
-    animation: none;
-  }
 }
 
 @media (max-width: 480px) {
@@ -638,9 +360,6 @@ const launcherStyle = computed(() => {
     width: 110px;
     height: 142px;
   }
-  .launcher-drag-handle {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -649,13 +368,9 @@ const launcherStyle = computed(() => {
   }
   .avatar-launcher:hover {
     transform: none;
-    filter: none;
   }
   .avatar-launcher:not(.is-dragging):active {
     transform: none;
-  }
-  .launcher-unread {
-    animation: none;
   }
 }
 </style>
