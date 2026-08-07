@@ -135,12 +135,15 @@ const IMG_HINT = computed(() =>
         <span class="empty-group-eyebrow">RESUME</span>
         <span class="empty-group-line" aria-hidden="true" />
       </div>
-      <button
+      <div
         v-for="s in recentSessions"
         :key="s.id"
-        type="button"
+        role="button"
+        tabindex="0"
         class="empty-recent-row"
         @click="switchTo(s.id)"
+        @keydown.enter.self.prevent="switchTo(s.id)"
+        @keydown.space.self.prevent="switchTo(s.id)"
       >
         <span class="empty-recent-title">{{ s.title }}</span>
         <span class="empty-recent-time">{{ relTime(s.updatedAt) }}</span>
@@ -152,7 +155,7 @@ const IMG_HINT = computed(() =>
         >
           <IconDelete class="w-3.5 h-3.5" />
         </button>
-      </button>
+      </div>
     </div>
 
     <!-- 未配置引导 -->
@@ -296,6 +299,10 @@ const IMG_HINT = computed(() =>
 }
 .empty-recent-row:hover {
   background: var(--color-base);
+}
+.empty-recent-row:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
 }
 .empty-recent-title {
   flex: 1;
