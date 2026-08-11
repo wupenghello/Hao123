@@ -1267,7 +1267,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!toolCalls.length) {
           // JSON 泄漏抑制收尾：该轮内容整体就是 JSON → 判定泄漏；否则解除抑制正常展示
           if (leakSuppressed.value && leakSuppressedRound.value === round) {
-            leakSuppressed.value = !isRawJsonLeak(assistant.content)
+            leakSuppressed.value = isRawJsonLeak(assistant.content)
           }
           leakSuppressedRound.value = -1
           assistant.qualityCategory = classifyAssistantMessage(messages.value.slice(0, idx), assistant)

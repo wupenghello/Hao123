@@ -168,15 +168,45 @@ export function validateImageAdd(
 // ============ JSON 泄漏检测（模型把工具原始数据贴进回答的兜底）============
 
 /**
- * 文本是否以 JSON 形态开头（流式抑制用，宁可多抑制不可漏）：
- * `{` / `[` 开头，或整体被 JSON 代码块包裹。
- * 命中后进入抑制模式：后续增量只攒不显示，循环结束时再统一回填（由渲染层负责隐藏）。
+ * 文本是否以 JSON 形态开头（流式抑制用）。
+ *
+ * 优化：对 glm-5 等强模型减少误触发。只有当开头 ~150 字符内表现为纯 JSON 结构
+ * （无自然语言、无中文、无 markdown 标题）时才抑制。
+ * 正常回答里的 JSON 代码块示例、结构化内容不会命中。
  */
 export function startsWithJson(text: string): boolean {
   const t = text.trim()
   if (!t) return false
-  if (t.startsWith('{') || t.startsWith('[')) return true
-  return /^```(?:json)?\s*[\[{]/.test(t)
+
+  // JSON 代码块开头 → 明确是 JSON，立即抑制
+  if (/^```(?:json)?\s*[\[{]/.test(t)) return true
+
+  // 裸 { 或 [ 开头 → 需要更多证据，避免误触发
+  if (t.startsWith('{') || t.startsWith('[')) {
+    const head = t.slice(0, 150)
+
+    // 含中文字符 → 不是工具泄漏（工具 JSON 字段名都是英文）
+    if (/[㐀-鿿]/.test(head)) return false
+
+    // 含 markdown 标题或列表标记 → 是正文不是纯 JSON
+    if (/^#{1,6}\s/m.test(head) || /^[-*]\s/m.test(head)) return false
+
+    // 含 2+ 句子结束标点 → 是自然语言
+    const sentenceEnds = head.match(/[。！？.!?]+/g)
+    if (sentenceEnds && sentenceEnds.length >= 2) return false
+
+    // 第一行很短（<60 字符）且下一行是标题或中文 → 是回答开头
+    const firstNewline = head.indexOf('\n')
+    if (firstNewline > 0 && firstNewline < 60) {
+      const next = head.slice(firstNewline + 1).trimStart()
+      if (/^#+\s/.test(next) || /^[㐀-鿿]/.test(next)) return false
+    }
+
+    // 否则视为 JSON 开头，触发抑制
+    return true
+  }
+
+  return false
 }
 
 /**
