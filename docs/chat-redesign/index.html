@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>聊天回复重构 · 方案对比导航</title>
+<style>
+  :root{
+    --base:#070b14;--base2:#0b1322;--raised:#0a0f17;
+    --accent:#27e3ff;--accent2:#6ee9ff;--accent-soft:rgba(39,227,255,.10);--accent-line:rgba(39,227,255,.22);
+    --ok:#34f5a3;--warn:#f5a524;--danger:#ff6b8a;--violet:#a78bfa;--teal:#2dd4bf;
+    --ink:rgba(243,248,255,.95);--ink2:rgba(243,248,255,.66);--ink3:rgba(243,248,255,.42);--ink4:rgba(243,248,255,.28);
+    --hair:rgba(255,255,255,.06);--line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);
+    --sans:"Inter","PingFang SC",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --disp:"Space Grotesk","Inter",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:var(--sans);background:linear-gradient(180deg,var(--base2),var(--base) 70%);color:var(--ink);min-height:100vh;padding:56px 40px}
+  .page-title{font-family:var(--disp);font-size:30px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
+  .page-subtitle{color:var(--ink2);font-size:14.5px;margin-bottom:44px;max-width:760px;line-height:1.75}
+  .page-subtitle strong{color:var(--ink);font-weight:600}
+  .schemes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;max-width:1400px}
+  .scheme-card{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:26px 22px;transition:border-color .18s,transform .18s;text-decoration:none;color:inherit;display:block;position:relative;overflow:hidden}
+  .scheme-card:hover{border-color:var(--accent-line);transform:translateY(-2px)}
+  .scheme-card::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;opacity:0;transition:opacity .18s}
+  .scheme-card:hover::before{opacity:1}
+  .scheme-card.a::before{background:var(--accent)}
+  .scheme-card.b::before{background:var(--ok)}
+  .scheme-card.c::before{background:var(--violet)}
+  .scheme-card.d::before{background:var(--teal)}
+  .scheme-card.e::before{background:linear-gradient(90deg,var(--violet),var(--accent))}
+  .scheme-letter{font-family:var(--disp);font-size:44px;font-weight:800;opacity:.5;line-height:1;margin-bottom:14px;letter-spacing:-.02em}
+  .scheme-card.a .scheme-letter{color:var(--accent)}
+  .scheme-card.b .scheme-letter{color:var(--ok)}
+  .scheme-card.c .scheme-letter{color:var(--violet)}
+  .scheme-card.d .scheme-letter{color:var(--teal)}
+  .scheme-card.e .scheme-letter{color:var(--accent2)}
+  .scheme-name{font-size:19px;font-weight:700;margin-bottom:5px;letter-spacing:-.01em}
+  .scheme-tagline{color:var(--ink3);font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:14px;font-family:var(--mono)}
+  .scheme-desc{color:var(--ink2);font-size:13px;line-height:1.75;margin-bottom:18px}
+  .scheme-tradeoff{border-top:1px solid var(--hair);padding-top:14px;font-size:12px;color:var(--ink3);line-height:1.7}
+  .scheme-tradeoff b{color:var(--ink2);font-weight:600}
+  .scheme-fit{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}
+  .fit-tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;border:1px solid var(--hair);color:var(--ink3)}
+  .file-link{display:inline-flex;align-items:center;gap:5px;margin-top:14px;color:var(--accent2);font-size:11.5px;font-family:var(--mono);text-decoration:none;opacity:.75;transition:opacity .15s}
+  .file-link:hover{opacity:1}
+  .file-link .arrow{transition:transform .15s}
+  .file-link:hover .arrow{transform:translateX(2px)}
+  .scenario-box{margin-top:36px;max-width:1400px;padding:22px 26px;background:rgba(255,255,255,.018);border:1px solid var(--line);border-radius:14px}
+  .scenario-box h3{font-family:var(--disp);font-size:14px;font-weight:700;margin-bottom:10px;color:var(--ink)}
+  .scenario-box p{font-size:13px;color:var(--ink2);line-height:1.75;margin-bottom:6px}
+  .scenario-box .q{font-family:var(--mono);color:var(--accent2)}
+  .legend{margin-top:14px;display:flex;flex-wrap:wrap;gap:14px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .legend .swatch{width:8px;height:8px;border-radius:50%}
+</style>
+</head>
+<body>
+  <h1 class="page-title">聊天回复渲染 · 重构方案对比</h1>
+  <p class="page-subtitle">
+    当前问题：工具活动、意图正文、最终回答、生成式 UI 卡、审批卡、reach 信任徽标全部堆在一个「回合」容器里，
+    <strong>信息层级扁平、视觉权重趋同</strong>，用户不知道该看哪里。
+    下面 5 个方案从不同产品哲学出发重新组织信息架构，每个 mockup 都是独立 HTML。
+  </p>
+
+  <div class="schemes-grid">
+    <a class="scheme-card a" href="scheme-A-focus.html" target="_blank">
+      <div class="scheme-letter">A</div>
+      <div class="scheme-name">对话流 Focus</div>
+      <div class="scheme-tagline">ChatGPT-like · 极简主义</div>
+      <p class="scheme-desc">
+        工具活动折叠为一行微进度条，最终回答是绝对主角。Markdown 排版舒展，生成式 UI
+        作为正文延伸内嵌。没有时间线、没有折叠卡——用户看到的就是一份干净答案。
+      </p>
+      <div class="scheme-tradeoff">
+        <b>取舍：</b>牺牲过程可见性，换最低认知负荷。专业用户无法审计「AI 做了什么」，
+        但 90% 场景下用户只关心答案。工具调用出错时缺乏排查入口是主要风险。
+      </div>
+      <div class="scheme-fit">
+        <span class="fit-tag">日常问答</span><span class="fit-tag">快速查询</span><span class="fit-tag">低打扰</span>
+      </div>
+      <span class="file-link">scheme-A-focus.html <span class="arrow">→</span></span>
+    </a>
+
+    <a class="scheme-card b" href="scheme-B-console.html" target="_blank">
+      <div class="scheme-letter">B</div>
+      <div class="scheme-name">操作台 Console</div>
+      <div class="scheme-tagline">Linear-like · 过程可见</div>
+      <p class="scheme-desc">
+        左侧纵轴时间线记录每一步工具调用，节点带状态色点。每步可展开看参数与结果，
+        末尾「结论」卡片是最终回答。整个过程像一次可审计的运算。
+      </p>
+      <div class="scheme-tradeoff">
+        <b>取舍：</b>占用更多垂直空间，但最终回答不再被淹没。
+        时间线把「过程」变成一等公民，代价是阅读节奏被打断——适合需要信任验证的专业用户。
+      </div>
+      <div class="scheme-fit">
+        <span class="fit-tag">开发调试</span><span class="fit-tag">复杂编排</span><span class="fit-tag">可追溯</span>
+      </div>
+      <span class="file-link">scheme-B-console.html <span class="arrow">→</span></span>
+    </a>
+
+    <a class="scheme-card c" href="scheme-C-report.html" target="_blank">
+      <div class="scheme-letter">C</div>
+      <div class="scheme-name">文档流 Report</div>
+      <div class="scheme-tagline">Notion AI-like · 交付物导向</div>
+      <p class="scheme-desc">
+        调研类回答以报告形式呈现：标题 → 摘要 → 分段正文 → 来源引用。
+        工具活动折叠到底部附录，天气/任务以信息图表呈现。回答本身就是可交付的文档。
+      </p>
+      <div class="scheme-tradeoff">
+        <b>取舍：</b>对短问答显得「重」，但对调研类长回答提升巨大。
+        需要模型输出结构化内容（标题/摘要分段），否则格式感会变成空壳。
+      </div>
+      <div class="scheme-fit">
+        <span class="fit-tag">调研分析</span><span class="fit-tag">周报</span><span class="fit-tag">可存档</span>
+      </div>
+      <span class="file-link">scheme-C-report.html <span class="arrow">→</span></span>
+    </a>
+
+    <a class="scheme-card d" href="scheme-D-cards.html" target="_blank">
+      <div class="scheme-letter">D</div>
+      <div class="scheme-name">卡片栈 Cards</div>
+      <div class="scheme-tagline">信息分块 · 原子操作</div>
+      <p class="scheme-desc">
+        每个信息单元独立卡片：搜索结果卡、天气卡、任务卡，可单独展开/折叠。
+        最下方是「综合总结」卡片。卡片是原子操作单元，用户可扫描、定位、跳过。
+      </p>
+      <div class="scheme-tradeoff">
+        <b>取舍：</b>卡片多时信息碎片化，需要用户主动整理全局；
+        但单个卡片的可操作性最强（独立复制/折叠/定位），适合多数据源并行场景。
+      </div>
+      <div class="scheme-fit">
+        <span class="fit-tag">多源并行</span><span class="fit-tag">逐一审阅</span><span class="fit-tag">可扫描</span>
+      </div>
+      <span class="file-link">scheme-D-cards.html <span class="arrow">→</span></span>
+    </a>
+
+    <a class="scheme-card e" href="scheme-E-studio.html" target="_blank">
+      <div class="scheme-letter">E</div>
+      <div class="scheme-name">分栏 Studio</div>
+      <div class="scheme-tagline">Cursor IDE · 对话与上下文分离</div>
+      <p class="scheme-desc">
+        左栏简洁对话气泡流，右栏实时上下文面板（工具调用状态、结果预览、来源列表）。
+        两栏互不干扰：对话保持阅读节奏，技术细节按需查看。生成式 UI 在左栏全宽渲染。
+      </p>
+      <div class="scheme-tradeoff">
+        <b>取舍：</b>需要横向空间，窄屏需折叠右栏；但信息密度最高、扩展性最强。
+        对话与上下文的分离让「读答案」和「审过程」真正并行不悖。
+      </div>
+      <div class="scheme-fit">
+        <span class="fit-tag">宽屏桌面</span><span class="fit-tag">重度用户</span><span class="fit-tag">监控过程</span>
+      </div>
+      <span class="file-link">scheme-E-studio.html <span class="arrow">→</span></span>
+    </a>
+  </div>
+
+  <div class="scenario-box">
+    <h3>统一模拟场景（5 个方案共用）</h3>
+    <p><span class="q">用户：</span>「帮我调研一下 DeepSeek 最新模型的进展，顺便查查今天天气，再帮我看看我有哪些禅道任务」</p>
+    <p><span class="q">小吴：</span>并行调用 <code>reach.search</code> / <code>weather.now</code> / <code>zentao.myTasks</code> 三个工具，最终合成一份回答。</p>
+    <p>每个 mockup 都包含 2 轮对话上下文（首轮简单问答建立场景，次轮为本次多工具复杂回答），底部保留输入框模拟真实面板。</p>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--accent)"></span> 主色 accent</span>
+      <span><span class="swatch" style="background:var(--ok)"></span> 成功/完成</span>
+      <span><span class="swatch" style="background:var(--warn)"></span> 临期/警告</span>
+      <span><span class="swatch" style="background:var(--danger)"></span> P1 高优</span>
+      <span><span class="swatch" style="background:var(--violet)"></span> 报告/上下文</span>
+      <span><span class="swatch" style="background:var(--teal)"></span> 卡片栈</span>
+    </div>
+  </div>
+</body>
+</html>

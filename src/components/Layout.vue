@@ -96,6 +96,11 @@ onUnmounted(() => stopStorageHealthMonitor())
 .chat-aside.is-open {
   width: var(--chat-panel-w, 400px);
 }
+/* 拖拽调宽期间禁用 width transition：左边缘即时光标、右侧固定，避免 340ms 缓动让面板整块滑 */
+:global(html.chat-resizing .chat-aside),
+:global(html.chat-resizing .chat-aside-inner) {
+  transition: none;
+}
 .chat-aside-inner {
   width: var(--chat-panel-w, 400px);
   height: 100%;

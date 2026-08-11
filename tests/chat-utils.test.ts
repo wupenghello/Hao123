@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import { daypart } from '@/features/chat/utils'
 import {
-  daypart,
   estimateTokens,
   estimateMessageTokens,
   truncateHistory,
-  isRawJsonLeak,
-  startsWithJson,
-} from '@/features/chat/utils'
+} from '@/features/chat/agent/build-messages'
 import type { ChatMessage } from '@/features/chat/types'
 
 describe('daypart', () => {
@@ -28,21 +26,6 @@ describe('estimateTokens', () => {
   it('CJK 按 ~1.5 token/字估算', () => {
     const t = estimateTokens('你好世界')
     expect(t).toBeGreaterThan(0)
-  })
-})
-
-describe('JSON 泄漏检测', () => {
-  it('startsWithJson 识别 `{` 开头与 JSON 代码块', () => {
-    expect(startsWithJson('{"a":1}')).toBe(true)
-    expect(startsWithJson('```json\n{"a":1}')).toBe(true)
-    expect(startsWithJson('好的，答案是…')).toBe(false)
-  })
-
-  it('isRawJsonLeak 仅整段可解析 JSON 才算泄漏', () => {
-    expect(isRawJsonLeak('{"dimension":"x"}')).toBe(true)
-    expect(isRawJsonLeak('```json\n[1,2,3]\n```')).toBe(true)
-    expect(isRawJsonLeak('天气不错 {temp:1}')).toBe(false)
-    expect(isRawJsonLeak('')).toBe(false)
   })
 })
 
@@ -73,7 +56,6 @@ describe('truncateHistory', () => {
       h.push(msg('user', `问题 ${i}：` + '今天天气怎么样，请详细说明。'.repeat(5)))
       h.push(msg('assistant', `回答 ${i}：` + '北京晴，温度适宜，注意防晒。'.repeat(10)))
     }
-    // 追加一对携带旧调用引用的消息：call_old 无对应 assistant.tool_calls（引用已在截断区间外）
     h.push(msg('user', '最后一个问题'))
     h.push(msg('tool', '{"temp":2}', { tool_call_id: 'call_old' }))
     const cut = truncateHistory(h, 3000)

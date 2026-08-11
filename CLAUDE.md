@@ -143,7 +143,7 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 
 ### 聊天助理模块（`src/features/chat/`，自包含特性模块）
 
-小吴——嵌在工作台里的 AI 助理。命令面板形态（`Alt+K` / `⌘K` 召唤），agent 循环 + 工具调用，外部统一从 `@/features/chat` 引入（barrel `index.ts`）：
+小吴——嵌在工作台里的 AI 助理。命令面板形态（`Alt+K` / `⌘K` 召唤），agent 循环 + 工具调用，外部统一从 `@/features/chat` 引入（barrel `index.ts`）。2026-08 完成 Turn 化重构：**一次问答 = 一个 Turn**（`turns.ts`），`store.ts` 拆为薄壳，agent 循环抽成纯逻辑引擎，审批升为独立队列。
 
 | 路径 | 职责 |
 |---|---|
@@ -151,12 +151,27 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 | `connectivity.ts` | **LLM 连通性状态层**（模块级单例，非 Pinia）：把「连不上大模型」从被动等 7s 重试变成全局可观测 + 自动恢复的状态机（详见下文「连通性」节） |
 | `llm/` | provider 无关抽象（`LlmProvider`：`chatStream` 流式 + `complete` 一次性）+ OpenAI 兼容实现（SSE 解析、工具调用增量拼接、瞬态错误指数退避重试） |
 | `tools.ts` | **工具聚合层**：把各特性模块的中立工具声明适配为 OpenAI 格式并按名前缀分发；`kbEnabled` / `wbscfEnabled` / `reachEnabled` / `claudeEnabled` 按真实配置门控（未配置不暴露工具、system prompt 也不宣称该能力） |
-| `store.ts` | Pinia `useChatStore`：**agent 循环**（流式 → 有 `tool_calls` 则并行执行并回灌 → 继续，上限 `maxRounds` 默认 12，对话中枢设置弹窗可调）；工具全量下发由模型自选，不做关键词意图筛选；历史 token 截断；超大工具结果回灌前按字段裁剪（`clipForModel`：单字符串字段 4KB、整体 16KB 上限，递归裁剪保持**合法 JSON**，关键字段 title/url/metrics 与尾部 sources 完整保留）；**例外**：`git.show`/`git.diff` 的 diff 已在工具侧按行边界裁剪（~100KB 上限），`clipForModel` 不再二次裁剪、完整 diff 直达模型（用户要求 diff 不截断）；`ui__render` 始终下发（不再因 reach/zentao 自动 UI 卡而剥离，否则对比选型的 data-table 指令无法落地）；`activity.result` 内存持有完整结果供活动卡解析、持久化前裁剪控制体积；abort / retry / 重新生成（直接替换旧回答，不保留版本栈）；并发审批（同一轮多个 pending 时逐个处理、最后一个才截断续跑，避免审批卡被截断丢失）；👍/👎 一键反馈，与重答前后对一起静默落偏好数据（供 few-shot 召回，UI 不暴露） |
-| `components/` | `ChatPanel.vue`（右侧停靠面板：错误横幅 + 审批条 + 消息流，左边缘可拖拽调宽并持久化）/ `ChatLauncher.vue`（Live2D 桌宠入口，带连通性色点与未读角标） |
+| `turns.ts` | **Turn 数据模型**（核心）：一次问答 = 一个 `Turn`（userContent + `steps: ToolStep[]` + answer + uiBlocks + status），取代旧的 messages 数组 + `_loopGroup` 拼回合；`ToolStep.callId` 与协议 tool_call id 同源；`slimTurn` 写盘前剥离内存态字段 |
+| `approval.ts` | **审批队列模块**：`useApprovalQueue` 暴露 `pendingApprovals`（computed）+ `requestApproval`（引擎阻塞点）/ `approve` / `reject` / `approveAll` / `clearForTurn`。并发审批天然串行（Promise.all 内各悬置 Promise），不再有 `hasOtherPending` / `brokeForPending` hack |
+| `sessions.ts` | 会话 CRUD + Turn[] 持久化（防抖写盘，仅 turn 收尾触发，流式期间只写内存）+ **旧格式迁移** `migrateLegacySessions`（messages → turns，loadSessions 时自动迁移并写回） |
+| `agent/loop.ts` | **agent 循环引擎（纯逻辑，可单测）**：`runTurn(turn, deps)` 每轮 = 一次模型调用；有 tool_calls → 建 ToolStep → 审批 await → 执行 → 回灌 → 下一轮；无 → 流式累积 answer → done。停止 = abort → 抛 AbortError → 半成品 answer 原地保留；`approvalPolicy` 在 `agent/policy.ts` |
+| `agent/build-messages.ts` | Turn → OpenAI 消息序列（静态/动态 system + 历史截断 + few-shot + RAG 候选证据 + 视觉补充上下文）；`clipForModel` 工具结果回灌体积控制（单字段 4KB、整体 16KB，`git.show/diff` 例外不裁剪）；**JSON 泄漏抑制已删除**——由 system prompt 硬性约束「工具原始 JSON 绝不进回答正文」替代渲染层兜底 |
+| `feedback/` | 偏好数据飞轮 `preference-log.ts`（👍/👎/重答 → IndexedDB 偏好对）+ `few-shot.ts` 召回；旧路径 `preference-log.ts` / `few-shot.ts` 仅 re-export 兼容 |
+| `feedback-stats.ts` | 反馈分类 `classifyAssistantMessage` / `FEEDBACK_CATEGORIES` / 统计归因（纯函数） |
+| `decide-turn-mode.ts` | **分型渲染判定**（纯函数）：`decideTurnMode(turn)` → `answer-first`（默认）/ `report`（reach/长回答）/ `taskflow`（写操作/审批）；判定规则硬编码、可单测；Turn 卡可手动切换兜底 |
+| `store.ts` | **薄壳**（~250 行）：面板开合 / 未读 / 流式阶段 / 错误 + 对外契约（`configured` / `show()` / `send()` / `openModelConfig()`）+ 调度（提交 Turn → `runTurn`） |
+| `ui-types.ts` | `ChatUiBlock` / `ChatUiKind`（生成式 UI 卡类型，**对外契约**——reach 等 12 个外部模块依赖，结构稳定不动） |
+| `components/` | `ChatPanel.vue`（右停靠 4 区：Header + `NotificationBar`（连通性/错误/审批三合一条）+ Turn 流 + Composer，左边缘可拖拽调宽并持久化）/ `TurnCard.vue`（分型渲染）+ `AnswerCard.vue` + `TurnProcess.vue`（过程抽屉，步骤/审批/结果，折叠态一行摘要）/ `ChatLauncher.vue`（Live2D 桌宠入口，未读 = 内容预览 + 待审批琥珀点） |
+
+**Turn 化要点（重构后约定）：**
+- `Turn` 是持久化 + 渲染的一等公民；`ChatMessage` 只是传输格式（`agent/build-messages.ts` 压平）。旧的 `_loopGroup` / `_loopFinal` / `truncateIncompleteTail` / `slimMessage` 全数删除（仅 sessions 迁移代码读取旧格式）。
+- 审批 = `runTurn` 里的 `await requestApproval`；UI 批准/拒绝即 resolve/reject 该 Promise。并发审批由 `Promise.all` 天然串行，无索引比对。
+- 重答 = 清空 turn.answer/steps 重跑；重试单工具 = 重跑该 ToolStep 再跑 answer 阶段；停止/失败回合在回合头部显示「继续生成」从半成品续跑。
+- 分型渲染：`decideTurnMode` 判定（写操作/审批 → taskflow，过程优先结论在上；reach + 长回答 → report；其余 answer-first）。答案永远在过程之上，过程折叠为一行摘要（`N 个动作 · X 成功`），工具线上名不裸示。
 
 **连通性（`connectivity.ts`，解决「连不上大模型」缺乏提示）：** 与 `configured`（env 有没有配 Key，静态）正交的**运行期可达性**状态机：`healthy / checking / unreachable`。核心约定：
 
-- **状态分层语义**——`store.error`（红条）= 真·业务错误（解析失败 / 工具异常 / 4xx 鉴权）；`connectivity`（琥珀条 / Launcher 色点）= 网络可达性问题。`store.ts` 的 catch 用 `classifyError(e)` 拆分：网络类（offline / proxy / provider / auth / unknown）走 `markUnreachable`，不污染红条；非网络类走 `store.error`。
+- **状态分层语义**——`store.error`（红条）= 真·业务错误（解析失败 / 工具异常 / 4xx 鉴权）；`connectivity`（琥珀条 / Launcher 色点）= 网络可达性问题。store 的 catch 用 `classifyError(e)` 拆分：网络类（offline / proxy / provider / auth / unknown）走 `markUnreachable`，不污染红条；非网络类走 `store.error`。
 - **复用真实调用结果作信号**（不空探测）：provider 每次成功 → `markSuccess`；网络错误 → `markUnreachable(reason)`。避免每次进站烧 token 探活。
 - **只在需要时主动 probe**：失败后指数退避自动重试（5s → 10s → 30s 封顶）；用户点「重试」立即 probe。probe 是 `max_tokens:1` 的最小 ping + 5s 超时，**故意不走** `fetchWithRetry` 的 1+2+4s 三次退避（要快速反馈，不白等）。
 - **恢复广播 `onRecover(cb)`**：连通恢复时 ambient 模块 + `store`（末尾有未答复 user 消息时）自动续生成 / 续答，用户无需点任何按钮。模块级注册一次，回调去重。
@@ -165,9 +180,9 @@ API Key 明文存在本机 localStorage，仅定位为本地开发工作台；�
 - **已知不可达时 `send()` 先 probe 短路**：避免用户发消息后白等 fetchWithRetry 的 7s 退避；不通则挂起，恢复后 `onRecover` 自动续答。
 - **不持久化**：连通性是瞬态，纯内存（持久化会让下次进站看到陈旧的「不可用」）。`configured=false` 时整层短路（不探测、不显示降级条）。
 
-**System prompt** 拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。
+**System prompt**（`agent/build-messages.ts`）拆静态（能力 / 风格 / 组合规划）+ 动态（时间 / 城市）两条消息，命中 prompt caching；能力列表从已注册工具动态生成。「**组合规划**」节显式鼓励开放性问题并行多工具（如「今天怎么安排」→ 并行任务 / Bug / 待办 / 天气），而非一问一工具。**JSON 泄漏已改由提示词约束**（「工具返回的 JSON 是内部素材，绝不整段贴进回答正文」），渲染层不再有泄漏检测代码。
 
-**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张，均可设置），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`toApiMessage` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需在模型设置里选择支持图片的模型**——默认 `deepseek-chat` 不支持视觉；`vision-models.ts` 维护 VL 模型关键词名单，当前激活模型不在名单时图片入口（粘贴 / 拖放）**直接禁用并提示换 VL 模型**（如 `qwen-vl-max`、`gpt-4o`），消除「发图必收模型错误」的必坏路径。**图片不进 localStorage**（base64 过大会撑爆 `hao123-chat-history`）：`ChatMessage.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，messages 用自定义持久化（不再走 `useStorage` 默认），写入前剥离 `images` 字段——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
+**多模态图片输入：** 命令面板支持 `Ctrl+V` 粘贴截图 / 拖图片到底部输入栏（单张 ≤5MB、最多 4 张，均可设置），随消息以 OpenAI vision 协议（`image_url` data URL）发给模型；`buildApiMessages` 对带图 user 消息构造多模态 `content`。⚠️ **视觉能力需在模型设置里选择支持图片的模型**——默认 `deepseek-chat` 不支持视觉；`vision-models.ts` 维护 VL 模型关键词名单，当前激活模型不在名单时图片入口（粘贴 / 拖放）**直接禁用并提示换 VL 模型**（如 `qwen-vl-max`、`gpt-4o`），消除「发图必收模型错误」的必坏路径。**图片不进 localStorage**（base64 过大会撑爆会话存储）：`Turn.images` 只在内存持有供 agent 多轮 + 当前会话回显缩略图，写盘前 `slimTurn` 剥离——刷新页面后图片消失、文字保留；`estimateMessageTokens` 按 ~1500 token/张计入图片，让历史截断正确预算。
 
 **对话交互：** 面板打开自动聚焦输入框；生成中 Enter 有内容 = 打断并直接发送、空 = 仅停止；停止 / 失败回合在回合头部显示「已停止 · 保留已生成的部分」+「继续生成」按钮（从半成品续跑）；重答直接替换当前回答；👍/👎 一键切换反馈（👎 不再强制选原因），反馈与重答前后对静默落 IndexedDB 供 few-shot 召回，偏好记录上限 500 条自动裁最老；会话上限 50 个自动裁最久未更新；设置弹窗只有数值参数（历史 token 预算 / Agent 轮数 / 输出上限 / 图片限制 / 网页读取上限），开新会话即替代旧的「清空会话」。写操作（git / local / wbscf 等）由系统审批卡统一确认——模型不再先要口头确认（避免双重确认），被拒后模型直接接受并给替代方案。
 

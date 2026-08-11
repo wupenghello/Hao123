@@ -18,6 +18,18 @@ const sortedSessions = computed(() =>
   [...store.sessions].sort((a, b) => b.updatedAt - a.updatedAt),
 )
 
+/** 会话状态徽标：取最后一个 turn 的状态 */
+function sessionStatus(s: { turns: { status: string; answer: string }[] }): { text: string; cls: string } | null {
+  const last = s.turns[s.turns.length - 1]
+  if (!last) return null
+  if (last.status === 'waiting_approval') return { text: '⏳ 待确认', cls: 'is-pending' }
+  if (last.status === 'aborted') return { text: '已停止', cls: 'is-aborted' }
+  if (last.status === 'failed') return { text: '失败', cls: 'is-error' }
+  if (last.status === 'done' && last.answer) return { text: '✓ 完成', cls: 'is-done' }
+  if (last.status === 'running') return { text: '思考中', cls: 'is-running' }
+  return null
+}
+
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts
   if (diff < 60_000) return '刚刚'
@@ -153,6 +165,7 @@ watch(
           <button type="button" class="sess-row-main" @click="switchTo(s.id)">
             <span class="sess-dot" aria-hidden="true" />
             <span class="sess-title">{{ s.title }}</span>
+            <span v-if="sessionStatus(s)" class="sess-status" :class="sessionStatus(s)?.cls">{{ sessionStatus(s)?.text }}</span>
             <span class="sess-time">{{ relativeTime(s.updatedAt) }}</span>
           </button>
           <span class="sess-row-ops">
@@ -260,6 +273,19 @@ watch(
   color: var(--color-ink);
   font-weight: 650;
 }
+.sess-status {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.sess-status.is-done { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
+.sess-status.is-pending { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 14%, transparent); }
+.sess-status.is-running { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.sess-status.is-error { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
+.sess-status.is-aborted { color: var(--color-ink-3); background: color-mix(in srgb, var(--color-ink-3) 10%, transparent); }
 .sess-time {
   flex: 0 0 auto;
   font: 400 10px/1 var(--font-mono, ui-monospace, monospace);

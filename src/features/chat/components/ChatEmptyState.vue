@@ -20,7 +20,7 @@ const nowLabel = computed(() => {
 /** 最近有内容的会话（最多 5 个） */
 const recentSessions = computed(() =>
   store.sessions
-    .filter((s) => s.messages.some((m) => m.role === 'user' || m.role === 'assistant' || !!m.ui?.length))
+    .filter((s) => s.turns.some((t) => t.userContent || t.answer || !!t.uiBlocks.length))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 5),
 )

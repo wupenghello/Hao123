@@ -260,8 +260,15 @@ const launcherStyle = computed(() => {
       <IconNetworkOff v-if="statusState === 'down'" class="w-3 h-3" />
       <IconCheckNetwork v-else class="w-3 h-3" />
     </span>
-    <!-- 未读徽标：左上角（静态，无 pulse） -->
-    <span v-if="store.unread" class="launcher-unread" aria-hidden="true">新</span>
+    <!-- 待审批标记：右下角琥珀点（有操作等你确认） -->
+    <span
+      v-if="store.pendingApprovals.length"
+      class="launcher-pending"
+      title="有操作待你确认"
+      aria-hidden="true"
+    />
+    <!-- 未读内容预览：不再是「新」字，而是摘要 -->
+    <span v-if="store.unread && store.unreadPreview" class="launcher-unread" aria-hidden="true">{{ store.unreadPreview }}</span>
   </button>
 </template>
 
@@ -334,23 +341,36 @@ const launcherStyle = computed(() => {
   border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
 }
 
-/* 未读徽标：左上角（静态，无 pulse 动画） */
+/* 未读内容预览：右下角胶囊（静态，无 pulse 动画） */
 .launcher-unread {
   position: absolute;
-  top: 12px;
-  left: 6px;
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  right: 4px;
+  bottom: 4px;
+  max-width: 120px;
+  padding: 3px 8px;
   border-radius: 9px;
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 85%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
   font-size: 10px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 待审批标记：立绘左下角琥珀小圆点 */
+.launcher-pending {
+  position: absolute;
+  left: 4px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 60%, transparent);
 }
 
 @media (max-width: 480px) {

@@ -170,15 +170,17 @@ function hasMenu(item: NavItem): boolean {
 /* 底部发光 dock —— 深色玻璃拟态，与 .dk-card / .sat / .deck-total 同口径：
    高不透明玻璃底 + accent 辉光边框 + 顶部高光，匹配项目「唯一交互主色 accent」规范 */
 .dock {
-  position: fixed;
-  left: 50%;
+  position: absolute;
+  left: 0;
+  right: 0;
   bottom: 16px;
-  transform: translateX(-50%);
+  margin: 0 auto;
+  width: max-content;
+  max-width: 100%;
   z-index: 38;
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  max-width: calc(100vw - 32px);
   padding: 8px 10px;
   border-radius: 20px;
   overflow: visible;

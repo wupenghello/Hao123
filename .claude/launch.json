@@ -21,6 +21,13 @@
       "runtimeArgs": ["-m", "http.server", "8799", "--directory", "mockups"],
       "port": 8799,
       "autoPort": false
+    },
+    {
+      "name": "theme-proposals",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8800", "--directory", "docs/theme-proposals"],
+      "port": 8800,
+      "autoPort": false
     }
   ]
 }

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-/** assistant 正文渲染：markdown + 生成式 UI 卡 + 动作行（复制/重答/赞/踩）+ reach 信任徽标与继续调研 chips。 */
-import { computed, ref, watch } from 'vue'
-import type { ChatMessage } from '../types'
+/**
+ * 答案卡：最终回答正文（markdown + 生成式 UI 卡 + 动作行）。
+ * 分型渲染的共同底座：无论 answer-first / report / taskflow，答案都清晰呈现。
+ */
+import { computed, ref } from 'vue'
+import type { Turn } from '../turns'
 import { useChatStore } from '../store'
 import { renderMarkdown } from '../markdown'
-import { isRawJsonLeak } from '../utils'
 import GenerativeUiBlock from './GenerativeUiBlock.vue'
 import IconCopy from '~icons/mdi/content-copy'
 import IconRefresh from '~icons/mdi/refresh'
@@ -12,36 +14,26 @@ import IconThumbUp from '~icons/mdi/thumb-up-outline'
 import IconThumbDown from '~icons/mdi/thumb-down-outline'
 
 const props = defineProps<{
-  message: ChatMessage
-  /** 该消息在 store messages 数组中的真实下标（rate/审批等接口锚点） */
+  turn: Turn
+  /** 该 turn 在 store turns 数组中的真实下标（rate 锚点） */
   index: number
-  isLastAssistant: boolean
+  isLastTurn: boolean
   streaming: boolean
 }>()
 
 const store = useChatStore()
 
-/** JSON 泄漏兜底：当前消息正文是模型贴出的工具原始 JSON（或流式期间命中抑制），不渲染原文。 */
-const isLeak = computed(() => {
-  if (store.leakSuppressed) return true
-  return isRawJsonLeak(props.message.content)
-})
-
 const mdHtml = computed(() =>
-  isLeak.value ? '' : renderMarkdown(props.message.content, { streaming: props.streaming }),
+  renderMarkdown(props.turn.answer, { streaming: props.streaming }),
 )
 
-/** 是否展示「复制」：assistant 有正文且有内容 */
-const canCopy = computed(() => props.message.content.trim().length > 0)
-
-// 复制反馈
+const canCopy = computed(() => props.turn.answer.trim().length > 0)
 const copied = ref(false)
 async function copyMessage() {
   if (!canCopy.value) return
-  const text = props.message.content
   if (!navigator.clipboard?.writeText) return
   try {
-    await navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(props.turn.answer)
     copied.value = true
     setTimeout(() => (copied.value = false), 1500)
   } catch { /* 忽略 */ }
@@ -53,30 +45,11 @@ function fmtTime(ts: number | undefined): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// ── 图片：缩略图 + 大图预览 overlay ──
-const previewUrl = ref<string | null>(null)
-const images = computed(() => props.message.images ?? [])
-watch(images, (imgs) => {
-  if (previewUrl.value && !imgs.includes(previewUrl.value)) previewUrl.value = null
-})
-
-// ── reach 信任分层：回溯同 _loopGroup 的成功 reach 活动 ──
-function isDoneReach(a: { name: string; status: string }): boolean {
-  return a.name.startsWith('reach__') && a.status === 'done'
-}
-const usesExternalResearch = computed(() => {
-  const m = props.message
-  if (m.activities?.some(isDoneReach)) return true
-  if (m._loopGroup) {
-    return store.messages.some((mm) => mm._loopGroup === m._loopGroup && mm.activities?.some(isDoneReach))
-  }
-  return false
-})
-const externalSourceCount = computed(() => {
-  const m = props.message
-  const group = m._loopGroup ? store.messages.filter((mm) => mm._loopGroup === m._loopGroup) : [m]
-  return group.flatMap((mm) => mm.activities ?? []).filter(isDoneReach).length
-})
+/** reach 信任分层：turn 内成功执行过 reach 查询 */
+const reachSteps = computed(() =>
+  (props.turn.steps ?? []).filter((s) => s.tool.startsWith('reach__') && s.status === 'done'),
+)
+const usesExternalResearch = computed(() => reachSteps.value.length > 0)
 
 /** reach 答案后的「继续调研」chip（仅成功 reach、非流式、且是最终回答） */
 const REACH_FOLLOW_UPS: { label: string; text: string }[] = [
@@ -84,23 +57,20 @@ const REACH_FOLLOW_UPS: { label: string; text: string }[] = [
   { label: '换来源', text: '换一批来源重新查一下刚才的问题，看看有没有不同结论。' },
   { label: '整理成文档', text: '把刚才的调研结果整理成一份 Markdown 记录，方便我存到知识库或周报。' },
 ]
-const showReachFollowUps = computed(() => props.isLastAssistant && usesExternalResearch.value && !props.streaming)
+const showReachFollowUps = computed(() => props.isLastTurn && usesExternalResearch.value && !props.streaming)
 
 function sendFollowUp(text: string) {
   void store.send(text)
 }
 
-// 流式光标：streaming 且内容为空（等待首 token）
-const showCursor = computed(() => props.streaming && props.isLastAssistant && !props.message.content.trim())
+// 流式光标
+const showCursor = computed(() => props.streaming && props.isLastTurn && !props.turn.answer.trim())
 </script>
 
 <template>
   <div class="answer">
     <div class="answer-top">
-      <span v-if="message.feedback" class="answer-feedback-tag" :class="`is-${message.feedback}`">
-        {{ message.feedback === 'up' ? '赞' : '踩' }}
-      </span>
-      <span class="answer-time">{{ fmtTime(message.ts) }}</span>
+      <span class="answer-time">{{ fmtTime(turn.updatedAt) }}</span>
     </div>
 
     <div v-if="showCursor" class="answer-thinking" aria-hidden="true">
@@ -109,45 +79,30 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
     </div>
 
     <div
-      v-else-if="message.content.trim()"
+      v-else-if="turn.answer.trim()"
       class="md-content"
       v-html="mdHtml"
     />
 
-    <!-- JSON 泄漏提示（流式抑制中：生成中提示；已收尾且确为泄漏：隐藏 + 重答入口） -->
-    <div v-if="isLeak && message.content.trim()" class="answer-leak" role="note">
-      <span class="answer-leak-dot" aria-hidden="true" />
-      <span class="answer-leak-text">
-        {{ streaming ? '小吴正在输出异常内容（原始数据），生成完成后会自动隐藏' : '小吴把工具返回的原始数据直接贴出来了，这段不显示。' }}
-      </span>
-      <button
-        v-if="!streaming"
-        type="button"
-        class="answer-leak-link"
-        title="让小吴把数据整理成易懂的回答"
-        @click="store.send('不要贴工具返回的原始 JSON，请把结果整理成自然语言回答')"
-      >让小吴重答</button>
+    <!-- 生成式 UI 卡片栈 -->
+    <div v-if="turn.uiBlocks?.length" class="answer-ui">
+      <GenerativeUiBlock v-for="b in turn.uiBlocks" :key="b.id" :block="b" />
     </div>
 
-    <!-- 生成式 UI 卡片栈（白名单 9 kind） -->
-    <div v-if="message.ui?.length" class="answer-ui">
-      <GenerativeUiBlock v-for="b in message.ui" :key="b.id" :block="b" />
-    </div>
-
-    <!-- reach 信任徽标：答案基于公开网络信息 -->
+    <!-- reach 信任徽标 -->
     <div v-if="usesExternalResearch" class="answer-reach">
       <span class="answer-reach-badge">🌐 基于公开网络信息 · 请核实</span>
-      <span v-if="externalSourceCount > 1" class="answer-reach-count">{{ externalSourceCount }} 来源</span>
+      <span v-if="reachSteps.length > 1" class="answer-reach-count">{{ reachSteps.length }} 来源</span>
     </div>
 
-    <!-- 动作行：复制 / 重新生成 / 赞 / 踩 -->
+    <!-- 动作行 -->
     <div class="answer-actions">
       <button v-if="canCopy" type="button" class="answer-action" :class="{ 'is-copied': copied }" @click="copyMessage">
         <IconCopy class="w-3.5 h-3.5" />
         <span>{{ copied ? '已复制' : '复制' }}</span>
       </button>
       <button
-        v-if="isLastAssistant"
+        v-if="isLastTurn"
         type="button"
         class="answer-action"
         :disabled="store.streaming"
@@ -160,7 +115,7 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
       <button
         type="button"
         class="answer-action"
-        :class="{ 'is-active-up': message.feedback === 'up' }"
+        :class="{ 'is-active-up': turn.feedback === 'up' }"
         title="有用"
         @click="store.rate(index, 'up')"
       >
@@ -169,7 +124,7 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
       <button
         type="button"
         class="answer-action"
-        :class="{ 'is-active-down': message.feedback === 'down' }"
+        :class="{ 'is-active-down': turn.feedback === 'down' }"
         title="没用"
         @click="store.rate(index, 'down')"
       >
@@ -189,19 +144,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
         {{ f.label }}
       </button>
     </div>
-
-    <!-- 图片大图预览 overlay -->
-    <Teleport to="body">
-      <div
-        v-if="previewUrl"
-        class="img-overlay"
-        role="dialog"
-        aria-modal="true"
-        @click="previewUrl = null"
-      >
-        <img :src="previewUrl" class="img-full" alt="图片大图" />
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -211,19 +153,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-}
-.answer-feedback-tag {
-  padding: 1px 5px;
-  border-radius: 3px;
-  font: 700 9.5px/1.3 var(--font-mono, ui-monospace, monospace);
-}
-.answer-feedback-tag.is-up {
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
-}
-.answer-feedback-tag.is-down {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
 }
 .answer-time {
   margin-left: auto;
@@ -265,46 +194,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
   line-height: 1.7;
   word-break: break-word;
 }
-.answer-leak {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  padding: 5px 10px;
-  border: 1px dashed color-mix(in srgb, var(--color-warning) 40%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
-  color: var(--color-ink-3);
-  font-size: 11.5px;
-}
-.answer-leak-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 2px;
-  background: var(--color-warning);
-}
-.answer-leak-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.answer-leak-link {
-  flex: 0 0 auto;
-  margin-left: auto;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-warning);
-  font-size: 10.5px;
-  cursor: pointer;
-}
-.answer-leak-link:hover {
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-}
 .answer-ui {
   display: flex;
   flex-direction: column;
@@ -337,7 +226,14 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 10px;
+  margin-top: 8px;
+  /* 默认隐藏，hover / 键盘聚焦才浮现——避免每条回答下常驻一排按钮造成视觉噪音 */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.answer:hover .answer-actions,
+.answer-actions:focus-within {
+  opacity: 1;
 }
 .answer-action {
   display: inline-flex;
@@ -385,21 +281,6 @@ const showCursor = computed(() => props.streaming && props.isLastAssistant && !p
 .answer-chip:hover {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-accent-strong);
-}
-.img-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.72);
-  cursor: zoom-out;
-}
-.img-full {
-  max-width: 86vw;
-  max-height: 86vh;
-  border-radius: 6px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {

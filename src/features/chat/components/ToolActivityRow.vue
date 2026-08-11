@@ -1,48 +1,48 @@
 <script setup lang="ts">
-/** 工具活动行。compact 模式不渲染额外交互。 */
-import type { ToolActivity } from '../types'
+/** 工具活动行：展示单个 ToolStep 的状态 / 耗时 / 审批态。compact 模式不渲染额外交互。 */
+import type { ToolStep } from '../turns'
 import IconCheck from '~icons/mdi/check-circle'
 import IconLoading from '~icons/mdi/loading'
 import IconAlert from '~icons/mdi/alert-circle-outline'
 
 withDefaults(defineProps<{
-  activity: ToolActivity
+  step: ToolStep
   compact?: boolean
 }>(), {
   compact: false,
 })
 
-const activityIcon = (status: ToolActivity['status']) =>
+const activityIcon = (status: ToolStep['status']) =>
   status === 'running' ? IconLoading : status === 'pending' ? IconAlert : status === 'error' ? IconAlert : IconCheck
 </script>
 
 <template>
   <div
     class="activity-row"
-    :class="[`is-${activity.status}`, { 'is-compact': compact }]"
+    :class="[`is-${step.status}`, { 'is-compact': compact }]"
   >
     <component
-      :is="activityIcon(activity.status)"
+      :is="activityIcon(step.status)"
       class="activity-icon"
-      :class="{ 'animate-spin': activity.status === 'running' }"
+      :class="{ 'animate-spin': step.status === 'running' }"
       aria-hidden="true"
     />
-    <span class="activity-label">{{ activity.label }}</span>
-    <span v-if="activity.detail" class="activity-detail">{{ activity.detail }}</span>
+    <span class="activity-label">{{ step.label }}</span>
+    <span v-if="step.detail" class="activity-detail">{{ step.detail }}</span>
     <span class="activity-meta">
-      <template v-if="activity.status === 'done'">
-        <span v-if="activity.duration">
-          {{ activity.duration < 1000 ? `${activity.duration}ms` : `${(activity.duration / 1000).toFixed(1)}s` }}
+      <template v-if="step.status === 'done'">
+        <span v-if="step.duration">
+          {{ step.duration < 1000 ? `${step.duration}ms` : `${(step.duration / 1000).toFixed(1)}s` }}
         </span>
       </template>
-      <template v-else-if="activity.status === 'running'">
+      <template v-else-if="step.status === 'running'">
         <span v-if="!compact">查询中</span>
       </template>
-      <template v-else-if="activity.status === 'pending'">
+      <template v-else-if="step.status === 'pending'">
         <span v-if="!compact">待确认</span>
       </template>
-      <template v-else-if="activity.status === 'error'">
-        <span>{{ activity.approval?.decision === 'rejected' ? '已取消' : '失败' }}</span>
+      <template v-else-if="step.status === 'error'">
+        <span>{{ step.approval?.decision === 'rejected' ? '已取消' : '失败' }}</span>
       </template>
     </span>
   </div>

@@ -25,9 +25,10 @@ describe('偏好数据飞轮（preference-log）', () => {
   })
 
   it('超过 MAX_PREFERENCE_RECORDS 时自动裁掉最老的记录', async () => {
-    // 灌满到上限 + 10 条（前序用例的少量记录 ts 更老，会先被裁掉，不影响断言）
+    // 用显式递增 ts 消除时序竞态（同毫秒的 Date.now() 会让 sort 顺序不稳定）
+    const base = Date.now()
     for (let i = 0; i < MAX_PREFERENCE_RECORDS + 10; i++) {
-      await logPreference(input({ context: [{ role: 'user', content: `q${i}` }] }))
+      await logPreference(input({ context: [{ role: 'user', content: `q${i}` }], ts: base + i }))
     }
     const all = await getAllPreferences()
     expect(all.length).toBe(MAX_PREFERENCE_RECORDS)

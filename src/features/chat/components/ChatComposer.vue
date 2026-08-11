@@ -243,8 +243,10 @@ function onKeydown(e: KeyboardEvent) {
   padding: 9px 11px;
   resize: none;
   border: 1px solid var(--color-line);
-  border-radius: 4px;
-  background: var(--color-raised);
+  border-radius: 8px;
+  /* 内嵌玻璃输入：半透明 + 顶部高光，聚焦时青辉光（对齐项目输入框配方） */
+  background: color-mix(in srgb, var(--color-base) 62%, transparent);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
   color: var(--color-ink);
   font: 400 13px/1.6 var(--font-sans, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
 }
@@ -254,7 +256,7 @@ function onKeydown(e: KeyboardEvent) {
 .composer-ta:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent), 0 0 18px -6px color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 .composer-foot {
   display: flex;
@@ -278,14 +280,17 @@ function onKeydown(e: KeyboardEvent) {
   height: 32px;
   flex: 0 0 auto;
   border: none;
-  border-radius: 4px;
-  background: var(--color-accent);
+  border-radius: 6px;
+  /* 对齐 .btn-primary：渐变 + 内高光 + 青辉光（唯一交互主色） */
+  background: linear-gradient(180deg, var(--color-accent-strong), var(--color-accent));
   color: var(--color-accent-contrast);
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out-quint);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--color-accent) 60%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: background var(--duration-fast) var(--ease-out-quint), box-shadow var(--duration-fast) var(--ease-out-quint);
 }
 .composer-send:hover:not(:disabled) {
-  background: var(--color-accent-strong);
+  background: linear-gradient(180deg, var(--color-accent-strong), var(--color-accent));
+  box-shadow: 0 6px 18px -4px color-mix(in srgb, var(--color-accent) 75%, transparent), 0 0 14px -2px color-mix(in srgb, var(--color-accent) 55%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .composer-send:disabled {
   opacity: 0.38;
