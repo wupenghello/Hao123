@@ -20,7 +20,13 @@ interface ImportMetaEnv {
   readonly VITE_ASSISTANT_NAME?: string
   /** LLM 助手一句话定位（欢迎页/提示用） */
   readonly VITE_ASSISTANT_TAGLINE?: string
-  // LLM 接入参数已全部迁移至页面内模型配置面板管理（不再通过 env 配置）
+  // LLM 接入参数默认值：仅当页面内模型配置为空（localStorage 无任何线路）时，
+  // 用这里的环境变量 seed 一条默认线路（Provider / Base URL / API Key / 模型），
+  // 避免换端口/清缓存后每次都要重新配置。页面内已有配置时这些值不生效。
+  readonly VITE_LLM_PROVIDER?: string
+  readonly VITE_LLM_BASE_URL?: string
+  readonly VITE_LLM_API_KEY?: string
+  readonly VITE_LLM_MODEL?: string
   /** 知识库来源：本地文件夹路径（如 D:/projects/todayops-kb）或 manifest 的 http URL */
   readonly VITE_KB_SOURCE?: string
   /** wbscf-web 代码库根目录（如 D:/projects/wbscf-web），仅 dev 用于拉起本地 dev 服务 */

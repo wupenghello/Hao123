@@ -3,6 +3,7 @@ import {
   providerReadiness,
   presetForProvider,
 } from './advisor'
+import { readEnvSeed } from './env-seed'
 import { useFeedback } from '@/features/feedback'
 import {
   activeModel,
@@ -126,8 +127,9 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     return `同步会自动探测候选端点（/v1/models、/models，含剥离兼容子路径）；成功后刷新可用模型，并保留手动添加的模型。`
   })
 
+  const envPresetName = readEnvSeed()?.name
   const statusCopy = computed(() => {
-    if (!hasUiConfig.value) return '选择预设或自定义 OpenAI 兼容线路'
+    if (!hasUiConfig.value) return envPresetName ? `已由环境变量预置默认线路 ${envPresetName}` : '选择预设或自定义 OpenAI 兼容线路'
     if (!configured.value) return readiness.value.title
     return `${activeProvider.value?.name ?? '当前线路'} / ${activeModel.value || '未选择模型'}`
   })
@@ -137,6 +139,7 @@ export function useModelConfigModal(open: Ref<boolean>, close: () => void) {
     if (isCreating.value) return !!draft.name.trim() || !!draft.baseUrl.trim() || !!draft.apiKey.trim() || draft.models.length > 0
     const provider = selectedProvider.value
     if (!provider) return false
+    if (envPresetName && provider.name === envPresetName) return false
     return provider.name !== draft.name.trim()
       || provider.baseUrl !== draft.baseUrl.trim().replace(/\/+$/, '')
       || provider.apiKey !== draft.apiKey.trim()

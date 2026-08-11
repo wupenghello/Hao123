@@ -7,6 +7,7 @@
 import { computed, reactive } from 'vue'
 import type { ActiveLlmConfig, DiscoveredModel, ModelEntry, ProviderConfig, StoredConfig } from './types'
 import { presetByBaseUrl, PROVIDER_PRESETS } from './presets'
+import { seedFromEnv } from './env-seed'
 
 const STORAGE_KEY = 'hao123-llm-config'
 
@@ -102,7 +103,7 @@ function persist(data: StoredConfig): void {
   }
 }
 
-const initial = loadFromStorage()
+const initial = seedFromEnv(loadFromStorage())
 const state = reactive<StoredConfig>({
   providers: initial.providers,
   activeProviderId: initial.activeProviderId,
